@@ -121,7 +121,7 @@ function Import() {
       try {
         const text = e.target?.result as string
         const data = JSON.parse(text)
-        if (!Array.isArray(data)) throw new Error('Expected a JSON array — is this a TraceRoost export file?')
+        if (!Array.isArray(data)) throw new Error('Expected a JSON array. Is this a TraceRoost export file?')
         if (data.length === 0) throw new Error('The file contains no traces')
 
         const sessions: ParsedSession[] = data.map((item: unknown, i: number) => {
@@ -226,7 +226,7 @@ function Import() {
             <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
           </svg>
           <p class="import-drop-primary">Drop a TraceRoost export file here</p>
-          <p class="import-drop-secondary">or <span class="import-drop-link">click to browse</span> — accepts <code>.json</code> export files</p>
+          <p class="import-drop-secondary">or <span class="import-drop-link">click to browse</span>. Accepts <code>.json</code> export files</p>
           <input ref={fileInputRef} type="file" accept=".json" style="display:none" onChange={onFileInput} />
         </div>
         {error && <p class="import-error">{error}</p>}
@@ -273,7 +273,7 @@ function Import() {
 
           {isLarge && (
             <div class="import-large-warning">
-              Large import — this will be processed in batches and may take a few seconds.
+              Large import: this will be processed in batches and may take a few seconds.
             </div>
           )}
 

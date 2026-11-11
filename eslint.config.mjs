@@ -47,7 +47,7 @@ export default typescriptEslint.config(
         patterns: [{
           group: ["**/cloud/*", "**/cloud/**"],
           allowTypeImports: true,
-          message: "Import TraceRoost Cloud code through a seam (src/cloudBridge.ts, media/src/orgPanel.ts) — see CONTRIBUTING.md → Editions.",
+          message: "Import TraceRoost Cloud code through a seam (src/cloudBridge.ts, media/src/orgPanel.ts). See CONTRIBUTING.md → Editions.",
         }],
       }],
     },
@@ -81,7 +81,7 @@ export default typescriptEslint.config(
           {
             group: ["**/summarizerTypes"],
             importNames: ["SessionSummaryCard"],
-            message: "forward/ must not import SessionSummaryCard — it carries prompts, completions and diffs. Define a narrow structural interface instead (see buildSessionRollup.ts's SessionRollupInput).",
+            message: "forward/ must not import SessionSummaryCard: it carries prompts, completions and diffs. Define a narrow structural interface instead (see buildSessionRollup.ts's SessionRollupInput).",
           },
           {
             group: ["**/org/config"],
@@ -99,7 +99,7 @@ export default typescriptEslint.config(
         patterns: [{
           group: ["**/summarizerTypes"],
           importNames: ["SessionSummaryCard"],
-          message: "forward/ must not import SessionSummaryCard — it carries prompts, completions and diffs. Define a narrow structural interface instead (see buildSessionRollup.ts's SessionRollupInput).",
+          message: "forward/ must not import SessionSummaryCard: it carries prompts, completions and diffs. Define a narrow structural interface instead (see buildSessionRollup.ts's SessionRollupInput).",
         }],
       }],
     },

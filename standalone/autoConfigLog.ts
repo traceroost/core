@@ -13,15 +13,15 @@ export function autoConfigLogLines(claude: ConfigResult, codex: ConfigResult, co
 
   if (claude.warning) warn(claude.warning)
   if (claude.error) warn(`Could not auto-configure Claude Code: ${claude.error}`)
-  else if (claude.changed) log('Claude Code configured — restart Claude Code in your terminal to activate tracing')
+  else if (claude.changed) log('Claude Code configured; restart Claude Code in your terminal to activate tracing')
 
   if (codex.warning) warn(codex.warning)
   if (codex.error) warn(`Could not auto-configure Codex: ${codex.error}`)
-  else if (codex.changed) log('Codex configured — restart Codex in your terminal to activate tracing')
+  else if (codex.changed) log('Codex configured; restart Codex in your terminal to activate tracing')
 
   for (const r of copilot) if (r.warning) warn(r.warning)
   if (copilot.some(r => r.changed)) {
-    log('Copilot configured — reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")')
+    log('Copilot configured; reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")')
   }
   for (const r of copilot) if (r.error) warn(`Could not auto-configure Copilot: ${r.error}`)
   return lines

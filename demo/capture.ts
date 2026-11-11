@@ -268,7 +268,7 @@ function startCapture(): Promise<CapturedSpan[]> {
               initialised = true
               clearLine()
               log(`Baseline: ${seenOnConnect.size} pre-existing spans (ignored)`)
-              log('Recording started — run your agent session now\n')
+              log('Recording started. Run your agent session now\n')
               if (process.stdin.isTTY) {
                 log(`Press "${SAVE_KEY}" to save and exit${DURATION > 0 ? `, or wait ${DURATION}s for auto-save` : ''}.\n`)
               } else if (DURATION > 0) {
@@ -300,7 +300,7 @@ function startCapture(): Promise<CapturedSpan[]> {
     if (DURATION > 0) {
       durationTimer = setTimeout(() => {
         clearLine()
-        log(`Duration ${DURATION}s reached — saving…`)
+        log(`Duration ${DURATION}s reached, saving…`)
         finish()
       }, DURATION * 1000)
     }
@@ -314,13 +314,13 @@ function startCapture(): Promise<CapturedSpan[]> {
       keypressHandler = (_str, key) => {
         if (key.ctrl && key.name === 'c') {
           clearLine()
-          log('Ctrl+C — cancelling without saving. Press "s" to save.')
+          log('Ctrl+C: cancelling without saving. Press "s" to save.')
           cancel()
           return
         }
         if ((key.name || '').toLowerCase() === SAVE_KEY) {
           clearLine()
-          log(`"${SAVE_KEY}" pressed — saving…`)
+          log(`"${SAVE_KEY}" pressed, saving…`)
           finish()
         }
       }
@@ -362,7 +362,7 @@ async function main() {
   const spans = await startCapture()
 
   if (spans.length === 0) {
-    warn('No new spans captured — nothing to save.')
+    warn('No new spans captured; nothing to save.')
     warn('Make sure the agent session ran AFTER capture started.')
     warn('If you used --clear, rerun capture with the updated standalone server so the baseline starts empty.')
     warn('For Codex/Claude, restart the agent terminal after standalone configures OTEL; running agents keep old telemetry settings.')

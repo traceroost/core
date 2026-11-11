@@ -75,7 +75,7 @@ export function detectFailedCheckSubmission(session: SessionSummaryCard): LoopSi
     action: LOOP_SIGNAL_ACTIONS.failed_check_submission,
     ...withSteps(
       [signalStep(timeline, lastToolIdx,
-        `the trace's last tool call — ${lastTool.isError ? 'it reported an error' : 'its output reports a failure'}`,
+        `the trace's last tool call: ${lastTool.isError ? 'it reported an error' : 'its output reports a failure'}`,
         'trigger', lastTool.isError && lastTool.errorMessage ? firstLine(lastTool.errorMessage) : firstLine(resultText, FAILURE_TEXT_PATTERN))],
       'The trace ended right after a test or build check failed.'
       + ' No tool ran after it, so the agent didn’t fix the failure or run the check again.'
@@ -422,7 +422,7 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
     action: LOOP_SIGNAL_ACTIONS.hallucinated_import,
     ...withSteps(
       [...suspects.entries()].map(([pkg, file]) => signalStep(session.timeline, suspectAt.get(pkg) ?? 0,
-        `imports "${pkg}" in ${file.split('/').pop() || file} — not listed as a dependency, not installed`, 'trigger', suspectLine.get(pkg))),
+        `imports "${pkg}" in ${file.split('/').pop() || file}, not listed as a dependency, not installed`, 'trigger', suspectLine.get(pkg))),
       `${[...suspects.keys()].slice(0, 5).map(p => `"${p}"`).join(', ')}${suspects.size > 5 ? ` and ${suspects.size - 5} more` : ''}`
       + ` ${suspects.size === 1 ? 'is' : 'are'} imported by this trace's edits,`
       + ` but ${suspects.size === 1 ? 'isn’t' : 'aren’t'} listed in package.json or requirements.txt and ${suspects.size === 1 ? 'isn’t' : 'aren’t'} installed.`

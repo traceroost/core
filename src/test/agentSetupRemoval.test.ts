@@ -32,7 +32,7 @@ suite('agentSetupRemoval', function () {
       { agent: 'Codex', file: '/home/u/.codex/config.toml', changed: false, customized: true, warning: 'custom exporter' },
     ], home)
     assert.doesNotMatch(text, /another collector/)
-    assert.match(text, /Left Codex \(~\/\.codex\/config\.toml\) unchanged: it has a custom exporter .* remove it by hand\./)
+    assert.match(text, /Left Codex \(~\/\.codex\/config\.toml\) unchanged: it has a custom exporter .* Remove it by hand\./)
   })
 
   test('says so when there was nothing to remove', () => {

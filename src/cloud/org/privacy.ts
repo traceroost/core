@@ -27,9 +27,9 @@
  *  `traceroost-client/<version>` User-Agent on every request (`sender.ts`, `traceManifest.ts`,
  *  `oauthClient.ts`). */
 export const SENT: readonly string[] = [
-  'Counts only — # of traces, turns, tool calls per tool, tokens, errors, files changed, one-shot edits, lines added/removed',
+  'Counts only: # of traces, turns, tool calls per tool, tokens, errors, files changed, one-shot edits, lines added/removed',
   'Model, agent and language names, the outcome, whether a trace came from OTEL or logs, and whether you or an agent started it, with timestamps',
-  'Hashed repository, branch, file and git-author ids — keyed by your repository’s first commit, so a public repository’s names can be guessed and matched',
+  'Hashed repository, branch, file and git-author ids, keyed by your repository’s first commit, so a public repository’s names can be guessed and matched',
   'A hashed conversation id, so the traces of one conversation group together',
   'Which instruction files (CLAUDE.md, AGENTS.md and the like) each repository has, with line counts, last-modified times and a hash that only shows whether they changed',
   'Loop and error categories (never a message)',
@@ -48,7 +48,7 @@ export const NEVER_SENT: readonly string[] = [
  *  consent screen's "Who sees what" line (`cloud` `src/lib/privacy.ts` `whoSeesWhat`). */
 export function whoSeesWhat(perDeveloperVisibility: boolean, orgName: string): string {
   return perDeveloperVisibility
-    ? `${orgName} has per-developer numbers turned on — an admin sees your individual figures. Other members, including a developer individually granted org visibility, see only what ${orgName}'s teammate-visibility settings allow. You will see a marker saying so.`
+    ? `${orgName} has per-developer numbers turned on: an admin sees your individual figures. Other members, including a developer individually granted org visibility, see only what ${orgName}'s teammate-visibility settings allow. You will see a marker saying so.`
     : `Admins of ${orgName} see org totals only. Your individual numbers stay yours unless the whole org turns that on.`
 }
 

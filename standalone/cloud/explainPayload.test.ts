@@ -82,7 +82,7 @@ suite('--explain-payload prints what the forwarder sends', () => {
 
   test('no workspace → printed without a repo grouping, never hashed from this process\'s cwd', async () => {
     const [block] = await explainSessionBlocks([card('s5', '')])
-    assert.match(block, /^# s5: no repository grouping — not-a-repo/)
+    assert.match(block, /^# s5: no repository grouping \(not-a-repo/)
     const session = json(block).session!
     assert.strictEqual(session.repo_hash, undefined)
     assert.strictEqual(session.branch_hash, undefined)

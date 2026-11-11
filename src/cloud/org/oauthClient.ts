@@ -81,7 +81,7 @@ export class TokenRefreshError extends Error {
  */
 export class RefreshReplayExhaustedError extends TokenRefreshError {
   constructor() {
-    super('token refresh failed: this refresh token was already presented twice without an answer — re-link this machine', false)
+    super('token refresh failed: this refresh token was already presented twice without an answer; re-link this machine', false)
   }
 }
 

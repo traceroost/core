@@ -255,7 +255,7 @@ function summarizeReconfigure(result: OtelReconfigureResult): string {
   const changed = Object.entries(result).filter(([, r]) => r.changed).map(([k]) => labels[k])
   const errors = Object.entries(result).filter(([, r]) => r.error).map(([k, r]) => `${labels[k]} (${r.error})`)
   if (errors.length > 0) return `Failed: ${errors.join(', ')}`
-  if (changed.length === 0) return 'Already up to date — no changes needed.'
+  if (changed.length === 0) return 'Already up to date; no changes needed.'
   return `Configured: ${changed.join(', ')}. Restart the agent(s) to start streaming traces.`
 }
 
@@ -436,7 +436,7 @@ export function DashboardPortSetting() {
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
       <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:4px">Dashboard port: {info.port}</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
-        Change this if a dev server you use needs this port. Your agents aren't affected — they keep sending to TraceRoost's OTLP port. Bookmarks to the old address stop working.
+        Change this if a dev server you use needs this port. Your agents aren't affected: they keep sending to TraceRoost's OTLP port. Bookmarks to the old address stop working.
       </div>
       {fellBack && !info.lockedBy && (
         <div style="font-size:11px;color:var(--fg);margin-bottom:8px">
@@ -527,7 +527,7 @@ export function CloudStorageProjectsSetting() {
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)" data-setting="cloud-storage-projects">
       <ToggleRow
         label="Projects in cloud storage"
-        description="Run git in and read files from projects in OneDrive, Dropbox, Google Drive or Box (including a OneDrive-backed Documents or Desktop folder). Off: their traces still show, without git outcome, repo name or instruction-file checks — macOS would ask to let TraceRoost access files managed by the provider."
+        description="Run git in and read files from projects in OneDrive, Dropbox, Google Drive or Box (including a OneDrive-backed Documents or Desktop folder). Off: their traces still show, without git outcome, repo name or instruction-file checks (macOS would ask to let TraceRoost access files managed by the provider)."
         checked={info.readCloudStorageProjects}
         onChange={v => { if (!busy) change(v) }}
       />

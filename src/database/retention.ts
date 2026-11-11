@@ -27,7 +27,7 @@ export async function runRetention(
     )
     log(`TraceRoost retention: deleted sessions older than ${retentionDays} days`)
   } catch (err) {
-    log(`TraceRoost retention: delete error — ${err}`)
+    log(`TraceRoost retention: delete error: ${err}`)
     return
   } finally {
     bumpSessionsVersion(db)
@@ -73,7 +73,7 @@ export async function runRetention(
       log(`TraceRoost retention: evicted ${deleted} orphaned blob file(s)`)
     }
   } catch (err) {
-    log(`TraceRoost retention: blob eviction error — ${err}`)
+    log(`TraceRoost retention: blob eviction error: ${err}`)
   }
 }
 
@@ -90,7 +90,7 @@ function pruneOrphanedOutcomeRows(db: RetentionDb, log: (msg: string) => void): 
     try {
       db.run(`DELETE FROM ${table} WHERE session_id NOT IN (SELECT session_id FROM sessions)`)
     } catch (err) {
-      log(`TraceRoost retention: could not prune ${table} — ${err}`)
+      log(`TraceRoost retention: could not prune ${table}: ${err}`)
     }
   }
 }
@@ -119,7 +119,7 @@ export function compactTraceSends(db: RetentionDb, now: number, log: (msg: strin
       throw err
     }
   } catch (err) {
-    log(`TraceRoost retention: could not compact trace_sends — ${err}`)
+    log(`TraceRoost retention: could not compact trace_sends: ${err}`)
   }
 }
 
@@ -142,7 +142,7 @@ function vacuumIfMostlyFree(db: RetentionDb, log: (msg: string) => void): void {
     db.run('VACUUM')
     log(`TraceRoost retention: compacted the database (${free} of ${pages} pages were free)`)
   } catch (err) {
-    log(`TraceRoost retention: vacuum skipped — ${err}`)
+    log(`TraceRoost retention: vacuum skipped: ${err}`)
   }
 }
 

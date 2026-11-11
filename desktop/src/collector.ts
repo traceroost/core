@@ -159,7 +159,7 @@ export class OwnedCollector {
     this.child = child
     this.startedAt = Date.now()
     this.setState({ status: 'starting', pid: child.pid })
-    this.opts.log(`[desktop] collector starting — pid ${child.pid ?? '?'}, data dir ${this.opts.dataDir}`)
+    this.opts.log(`[desktop] collector starting: pid ${child.pid ?? '?'}, data dir ${this.opts.dataDir}`)
 
     // The collector's own logging is the only record of why a start failed, so it is captured
     // whether or not a log file is open. Never parsed for state — see the readiness note above.
@@ -203,7 +203,7 @@ export class OwnedCollector {
       // moment later is still crash-looping. scheduleRestart resets it once a run lasted
       // HEALTHY_UPTIME_MS; a manual start or restart resets it too.
       this.setState(ready)
-      this.opts.log(`[desktop] collector ready — dashboard on port ${ready.uiPort}, OTLP ${ready.otlpPort}, MCP ${ready.mcpPort}`)
+      this.opts.log(`[desktop] collector ready: dashboard on port ${ready.uiPort}, OTLP ${ready.otlpPort}, MCP ${ready.mcpPort}`)
       return ready
     }
 
@@ -237,7 +237,7 @@ export class OwnedCollector {
     }
     this.consecutiveFailures += 1
     if (!shouldKeepRestarting(this.consecutiveFailures)) {
-      this.opts.log(`[desktop] giving up after ${this.consecutiveFailures} consecutive failures — collection is stopped until you start it again`)
+      this.opts.log(`[desktop] giving up after ${this.consecutiveFailures} consecutive failures; collection is stopped until you start it again`)
       this.setState({ status: 'failed', lastError: detail })
       return
     }
@@ -283,10 +283,10 @@ export class OwnedCollector {
       else child.once('exit', () => resolve())
     })
     const via = this.requestShutdown(child)
-    this.opts.log(`[desktop] asking the collector (pid ${child.pid ?? '?'}) to shut down${via === 'none' ? ' — no channel left to ask on' : ` (${via === 'ipc' ? 'owner channel' : 'SIGTERM'})`}`)
+    this.opts.log(`[desktop] asking the collector (pid ${child.pid ?? '?'}) to shut down${via === 'none' ? ': no channel left to ask on' : ` (${via === 'ipc' ? 'owner channel' : 'SIGTERM'})`}`)
     const flushed = via !== 'none' && await Promise.race([exited.then(() => true), delay(GRACEFUL_STOP_MS).then(() => false)])
     if (!flushed) {
-      this.opts.log('[desktop] the collector did not exit in time — killing it')
+      this.opts.log('[desktop] the collector did not exit in time, killing it')
       child.kill('SIGKILL')
       await Promise.race([exited, delay(2_000)])
     }

@@ -63,7 +63,7 @@ const versionCheck = signal<VersionCheckResponse | null>(null)
 // user-facing vocabulary is "Trace" (one prompt-to-response cycle); see the
 // glossary in Help.tsx.
 const TABS = [
-  { id: 'sessions',   label: 'Traces',     title: 'Trace list with expand-in-place detail — waterfall, files, cost, and flagged issues for each trace.' },
+  { id: 'sessions',   label: 'Traces',     title: 'Trace list with expand-in-place detail: waterfall, files, cost, and flagged issues for each trace.' },
   { id: 'analytics',  label: 'Analytics',  title: 'Aggregate charts and metrics: token/cost trends, agent comparison, tool distribution, and active insights.' },
   { id: 'patterns',   label: 'Advisor',    title: 'Cross-trace behavioral patterns, efficiency map, hot files, and instruction file recommendations.' },
 ]
@@ -325,7 +325,7 @@ function BellButton() {
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (open ? ' active' : '')}
-        title={count > 0 ? `Alerts — ${count} triggered` : 'Alerts'}
+        title={count > 0 ? `Alerts: ${count} triggered` : 'Alerts'}
         aria-label={count > 0 ? `Alerts (${count})` : 'Alerts'}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -352,7 +352,7 @@ function UpdateStatusCard({ info }: { info: VersionCheckResponse }) {
         </div>
         <div style="padding:12px;font-size:12px;color:var(--fg);line-height:1.5">
           <div style="margin-bottom:8px">
-            Running <strong>v{info.currentVersion}</strong> — <strong>v{info.latestVersion}</strong> is available{info.isDesktop ? '' : ' on npm'}.
+            Running <strong>v{info.currentVersion}</strong>; <strong>v{info.latestVersion}</strong> is available{info.isDesktop ? '' : ' on npm'}.
           </div>
           {info.isDesktop && info.recommendedUrl ? (
             <div style="margin-bottom:6px">
@@ -366,7 +366,7 @@ function UpdateStatusCard({ info }: { info: VersionCheckResponse }) {
                   ? 'Update the background service:'
                   : info.isDocker
                     ? 'Pull the new image:'
-                    : "TraceRoost isn't running as a background service — the recommended way to run it, so incoming OTel data is never lost. Install it (this also updates you to the latest version):"}
+                    : "TraceRoost isn't running as a background service, the recommended way to run it so incoming OTel data is never lost. Install it (this also updates you to the latest version):"}
               </div>
               <code style="display:block;padding:6px 8px;background:var(--hover);border-radius:3px;font-size:11px;margin-bottom:6px;user-select:all">{info.recommendedCommand}</code>
             </>
@@ -395,8 +395,8 @@ function UpdateButton() {
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (open ? ' active' : '')}
-        title={`Update available — v${info.latestVersion}`}
-        aria-label={`Update available — v${info.latestVersion}`}
+        title={`Update available: v${info.latestVersion}`}
+        aria-label={`Update available: v${info.latestVersion}`}
         aria-expanded={open}
         onClick={() => { versionCheckOpen.value = !versionCheckOpen.value }}
       ><IconUpdate /></button>
@@ -437,7 +437,7 @@ function LogButton() {
   return (
     <button
       class={'icon-btn' + (active ? ' active' : '')}
-      title="Action log — every command TraceRoost has run on your machine"
+      title="Action log: every command TraceRoost has run on your machine"
       aria-label="Action log"
       aria-expanded={active}
       onClick={() => { actionLogOpen.value = !actionLogOpen.value }}
@@ -470,7 +470,7 @@ function SuggestButton() {
       href={suggestionUrl(window.__VERSION__, tabLabel)}
       target="_blank"
       rel="noreferrer"
-      title="Make a suggestion — opens TraceRoost's suggestion page in your browser"
+      title="Make a suggestion (opens TraceRoost's suggestion page in your browser)"
       aria-label="Make a suggestion"
     ><IconSuggest /></a>
   )
@@ -998,27 +998,27 @@ function CollectorConflictBanner() {
       <div style="flex:1">
         {owner === 'standalone' ? (
           <>
-            <strong>Not receiving OTel</strong> — the background service already holds port <code>{port}</code>.
+            <strong>Not receiving OTel</strong>: the background service already holds port <code>{port}</code>.
             <ul style="margin:2px 0 0;padding-left:16px">
               <li>New traces here come from log files only (no prompt/tool content).</li>
-              <li>Run TraceRoost one way per machine — background service, VS Code extension, or Docker. Recommended: the background service — it starts at login and keeps capturing OTel even when VS Code is closed, so nothing gets missed. Install with <code>npx traceroost@latest service install</code> (macOS/Linux/Windows all use the same command), or with Homebrew: <code>brew install traceroost/tap/traceroost</code> then <code>traceroost service install</code>.</li>
-              <li>The service already holds this port, so: keep it and uninstall this extension (<code>code --uninstall-extension {extensionId}</code>), then reload — or, to use VS Code instead, stop the service with <code>traceroost service stop</code>.</li>
+              <li>Run TraceRoost one way per machine: background service, VS Code extension, or Docker. Recommended: the background service, which starts at login and keeps capturing OTel even when VS Code is closed, so nothing gets missed. Install with <code>npx traceroost@latest service install</code> (macOS/Linux/Windows all use the same command), or with Homebrew: <code>brew install traceroost/tap/traceroost</code> then <code>traceroost service install</code>.</li>
+              <li>The service already holds this port, so: keep it and uninstall this extension (<code>code --uninstall-extension {extensionId}</code>), then reload. Or, to use VS Code instead, stop the service with <code>traceroost service stop</code>.</li>
             </ul>
           </>
         ) : owner === 'plugin' ? (
           <>
-            <strong>Two TraceRoost hosts are running</strong> — the VS Code extension already holds port <code>{port}</code>; this service moved to port <code>{boundPort}</code> instead.
+            <strong>Two TraceRoost hosts are running</strong>: the VS Code extension already holds port <code>{port}</code>; this service moved to port <code>{boundPort}</code> instead.
             <ul style="margin:2px 0 0;padding-left:16px">
               <li>{conflict.agentsRepointed === false
                 ? <>Agents set up for port <code>{port}</code> still send there, so their live traces go to the extension, not here. To collect them here, use <strong>Set up agents</strong> in Settings, which points them at <code>{boundPort}</code>.</>
-                : <>Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed — but with both running, whichever one you close first silently stops collecting.</>}</li>
-              <li>Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (<code>code --uninstall-extension {extensionId}</code>), then reload.</li>
+                : <>Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed, but with both running, whichever one you close first silently stops collecting.</>}</li>
+              <li>Recommended: keep this background service (it works even when VS Code is closed) and uninstall the extension (<code>code --uninstall-extension {extensionId}</code>), then reload.</li>
               <li>Prefer VS Code instead? Stop this service with <code>traceroost service stop</code>.</li>
             </ul>
           </>
         ) : boundPort !== undefined ? (
           <>
-            <strong>Not receiving OTel on the default port</strong> — port <code>{port}</code> is in use by another (non-TraceRoost) application, so this service moved to port <code>{boundPort}</code> instead. {conflict.agentsRepointed === false
+            <strong>Not receiving OTel on the default port</strong>: port <code>{port}</code> is in use by another (non-TraceRoost) application, so this service moved to port <code>{boundPort}</code> instead. {conflict.agentsRepointed === false
               ? <>Agents set up for port <code>{port}</code> still send there, so their live traces go to that application, not here. Use <strong>Set up agents</strong> in Settings to point them at <code>{boundPort}</code>.</>
               : <>Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed.</>}
           </>
@@ -1075,7 +1075,7 @@ function AgentSetupBanner() {
       <div style="flex:1">
         <strong>{AGENT_SETUP_QUESTION}</strong>
         <div style="margin-top:2px">{AGENT_SETUP_EXPLANATION}</div>
-        {failed && <div role="alert" style="margin-top:4px">That didn't go through — try again, or use Set up agents in Settings.</div>}
+        {failed && <div role="alert" style="margin-top:4px">That didn't go through. Try again, or use Set up agents in Settings.</div>}
         <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
           <button class="btn-primary" disabled={busy} onClick={() => answer('yes')}>{AGENT_SETUP_YES}</button>
           <button class="btn-secondary" disabled={busy} onClick={() => setNotNow(true)}>{AGENT_SETUP_NOT_NOW}</button>
@@ -1336,7 +1336,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
     }
     const ext = vscode
     if (!ext) {
-      setSearchError('Extension offline — time range filtering unavailable')
+      setSearchError('Extension offline: time range filtering unavailable')
       setLoading(false)
       return
     }
@@ -1724,7 +1724,7 @@ function FiltersPopover({ anchor }: { anchor: { current: HTMLElement | null } })
             class={'tr-header-input' + (languageFilter.value !== 'all' ? ' active' : '')}
             value={languageFilter.value}
             onChange={e => { languageFilter.value = (e.target as HTMLSelectElement).value as LanguageFilter }}
-            title="Traces whose primary or secondary language is this one — derived from the code files the agent read or changed"
+            title="Traces whose primary or secondary language is this one, derived from the code files the agent read or changed"
           >
             <option value="all">All</option>
             {availableLanguages.value.map(id => <option key={id} value={id}>{LANGUAGE_LABELS[id]}</option>)}
@@ -1802,7 +1802,7 @@ function SearchFilterBar() {
         <span
           style="font-size:var(--fs-xs);color:var(--vscode-textLink-foreground, #4fc3f7);opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
           title={evidenceSessionPrompt.value}
-        >— "{evidenceSessionPrompt.value}"</span>
+        >"{evidenceSessionPrompt.value}"</span>
       )}
       <button
         onClick={() => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null }}

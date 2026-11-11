@@ -1,6 +1,6 @@
 # @traceroost/styles
 
-Shared CSS for TraceRoost's two UIs — the VS Code extension / standalone dashboard (this repo,
+Shared CSS for TraceRoost's two UIs: the VS Code extension / standalone dashboard (this repo,
 `media/src/`) and the web dashboard (a separate, private repo). Published from here because this
 repo is public; the web dashboard consumes it as an ordinary npm dependency.
 
@@ -13,14 +13,14 @@ bump deliberately, instead of a file that silently drifts or a copy someone forg
 
 ## How each file works
 
-Every file here reads only its own small set of `--tr-*`-prefixed custom properties — never a
+Every file here reads only its own small set of `--tr-*`-prefixed custom properties, never a
 consumer's own design tokens directly. A consumer maps those few tokens **once**, to its own
 theme, and every component built from that file then renders identically in both products. See
 `src/pills.css`'s header comment for its specific token list and an example of what that mapping
 looks like (`media/src/styles/base.css`'s `:root` here; `globals.css` on the web dashboard side).
 
 The one thing components still pass in themselves, inline, is an *identity* value that's
-inherently per-instance — e.g. `pills.css`'s `--tr-pill-color`, an agent's brand color. Structure
+inherently per-instance, e.g. `pills.css`'s `--tr-pill-color`, an agent's brand color. Structure
 (size, spacing, radius, the active/hover/disabled treatment) always stays in the shared file.
 
 `agent-colors.css` is the one exception to "a consumer maps these to its own theme": its
@@ -40,7 +40,7 @@ at it with the same value in every theme rather than remapping it per light/dark
 
 ## Consuming this package
 
-**traceroost/core** (this repo) imports the source files directly — no dependency needed, it's
+**traceroost/core** (this repo) imports the source files directly. No dependency is needed; it's
 the same repo:
 
 ```ts
@@ -57,12 +57,12 @@ import '../../packages/styles/src/pills.css'
 
 ## Releasing
 
-Tag `styles-v<version>` (e.g. `styles-v0.1.1`) after bumping `version` here — a separate tag
+Tag `styles-v<version>` (e.g. `styles-v0.1.1`) after bumping `version` here. It is a separate tag
 prefix from the extension's own `v*` releases, so a CSS-only change doesn't force an extension
 version bump or vice versa. `.github/workflows/release-styles.yml` publishes to npm via OIDC
 Trusted Publishing, mirroring the main package's `publish-npm` job in `release.yml`.
 
-The very first publish of a brand-new package name can't use Trusted Publishing yet — npmjs.com
+The very first publish of a brand-new package name can't use Trusted Publishing yet: npmjs.com
 needs the trust relationship configured against an *existing* package, or a first manual publish
 to create it. See that workflow file's header comment for the one-time setup this needs before
 the first `styles-v*` tag.

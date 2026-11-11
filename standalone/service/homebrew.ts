@@ -127,7 +127,7 @@ export function brewFormulaRef(install: HomebrewInstall): string {
 export function describeBrewFailure(err: unknown): string {
   const e = (err ?? {}) as { code?: string; status?: number; message?: string }
   if (e.code === 'ENOENT') return 'brew was not found'
-  if (typeof e.status === 'number') return `brew exited with code ${e.status} — see its output above`
+  if (typeof e.status === 'number') return `brew exited with code ${e.status}; see its output above`
   if (e.code) return `brew could not be run (${e.code})`
   return e.message ? e.message.split('\n')[0] : 'unknown error'
 }

@@ -207,7 +207,7 @@ function buildPrompt(cfg: AutomationConfig, session: SessionSummaryCard, timelin
     case 'context_compaction': {
       const peakTokens = getPeakContextTokens(session, timeline)
       return `${evidenceBlock}
-Your conversation context is large — peak input is ${peakTokens.toLocaleString()} tokens, crossing the ${evaluation.threshold.toLocaleString()}-token threshold configured for this agent.
+Your conversation context is large: peak input is ${peakTokens.toLocaleString()} tokens, crossing the ${evaluation.threshold.toLocaleString()}-token threshold configured for this agent.
 
 Please do the following right now:
 1. Write a compact summary of: key decisions made, files changed, and what still needs to be done
@@ -220,7 +220,7 @@ This will reduce token cost and prevent context window exhaustion.`
       const repeatedAction = repeat?.display ?? 'the same tool call'
       const count = repeat?.count ?? 0
       return `${hardStop ? 'HARD STOP.\n\n' : ''}${evidenceBlock}
-You have repeated the identical tool call "${repeatedAction}" ${count} times in this session — this indicates a stuck loop.
+You have repeated the identical tool call "${repeatedAction}" ${count} times in this session. This indicates a stuck loop.
 
 Stop calling that tool with those arguments immediately and:
 1. Explain what you were trying to accomplish with this tool

@@ -55,7 +55,7 @@ function ActiveAlerts({ alerts }: { alerts: TriggeredAlert[] }) {
     return (
       <div style="padding:14px 12px;font-size:12px;color:var(--muted)">
         <div style="display:flex;align-items:center;gap:8px">
-          <span aria-hidden="true" style="color:var(--vscode-charts-green, #81c784);font-size:14px">✓</span> All clear — no alerts triggered
+          <span aria-hidden="true" style="color:var(--vscode-charts-green, #81c784);font-size:14px">✓</span> All clear: no alerts triggered
         </div>
         <div style="margin-top:8px">
           Turn alerts on or off and set their thresholds under{' '}

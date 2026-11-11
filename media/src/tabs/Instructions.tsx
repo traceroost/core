@@ -216,13 +216,13 @@ function InsufficientDataState({ workspace, count, filtered }: {
       <div style="font-size:12px;color:var(--muted);line-height:1.5">
         {filtered ? (
           <>
-            Too few traces match the current filters — TraceRoost needs at least 3 sessions
+            Too few traces match the current filters. TraceRoost needs at least 3 sessions
             {where} to detect patterns.<br />
             Showing: {count} trace{count !== 1 ? 's' : ''}. Widen the time range or clear filters to see suggestions.
           </>
         ) : (
           <>
-            Not enough history yet — TraceRoost needs at least 3 sessions
+            Not enough history yet. TraceRoost needs at least 3 sessions
             {where}{' '}to detect patterns.<br />
             Current: {count} trace{count !== 1 ? 's' : ''}.
           </>
@@ -457,7 +457,7 @@ function AppliedCard({
         </span>
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:600;color:var(--fg)">{record.title}</div>
-          <div style="font-size:11px;color:var(--muted)">Applied to {record.appliedTo} — {record.appliedAt.slice(0, 10)}</div>
+          <div style="font-size:11px;color:var(--muted)">Applied to {record.appliedTo} on {record.appliedAt.slice(0, 10)}</div>
           <div style="font-size:var(--fs-xs);font-family:monospace;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.4;max-height:48px;overflow:hidden">
             {record.appliedText}
           </div>
@@ -594,7 +594,7 @@ function ImpactSummary({ applied, sessions }: { applied: AppliedRecord[]; sessio
   return (
     <div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px;background:var(--card-bg)">
       <div style="font-size:11px;font-weight:600;color:var(--fg);margin-bottom:6px">
-        Impact summary — {applied.length} applied · {measured.length} with data
+        Impact summary: {applied.length} applied · {measured.length} with data
       </div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px">
         {costChange !== null && (
@@ -693,7 +693,7 @@ function diagnosticsSummary(diag: Diagnostics): { text: string; needsSetup: bool
   const n = diag.sessionCount
   const traces = `${n} trace${n === 1 ? '' : 's'}`
   if (diag.withFiles === 0 && diag.withToolCounts === 0) {
-    return { needsSetup: true, text: `None of these ${traces} recorded which files or tools the agent used — that usually means they came from log files only. Suggestions are built from that detail, so set up your agents to send full traces.` }
+    return { needsSetup: true, text: `None of these ${traces} recorded which files or tools the agent used, which usually means they came from log files only. Suggestions are built from that detail, so set up your agents to send full traces.` }
   }
   if (diag.withFiles === 0) {
     return { needsSetup: true, text: `None of these ${traces} recorded which files the agent read or changed, which most suggestions are built from. Setting up your agents to send full traces adds it.` }
@@ -1028,7 +1028,7 @@ export function Instructions() {
       {!across && (
         <div style={noteStyle}>
           No repo folder is open in this window, so TraceRoost has nowhere to write instruction
-          file changes — suggestions below (grouped by the repo they came from) are shown for
+          file changes. Suggestions below (grouped by the repo they came from) are shown for
           reference only and can't be applied. Open a repo folder to get tailored, applicable
           suggestions for it.
         </div>

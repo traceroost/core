@@ -82,10 +82,10 @@ export interface DrainResult {
  *  "Update"), or ignores it. */
 export type NoticeAction = 'relink' | 'update'
 
-export const RELINK_MESSAGE = 'TraceRoost Cloud sign-in expired — re-link this machine to resume sending. Nothing local is lost: traces not yet sent are sent again after you re-link.'
+export const RELINK_MESSAGE = 'TraceRoost Cloud sign-in expired. Re-link this machine to resume sending. Nothing local is lost: traces not yet sent are sent again after you re-link.'
 export const REVOKED_MESSAGE = 'TraceRoost: this machine was unlinked from TraceRoost Cloud (its install was revoked, or your membership ended) and has stopped forwarding. Re-link it to resume.'
-export const RELINK_HELD_MESSAGE = 'TraceRoost Cloud could not confirm this machine\'s sign-in (its refresh went unanswered twice) — re-link this machine to resume sending. Traces not yet sent are kept and sent after you re-link.'
-export const UPGRADE_MESSAGE = 'Update TraceRoost to keep sending to TraceRoost Cloud — this version is no longer accepted. Traces stay queued and are sent after the update.'
+export const RELINK_HELD_MESSAGE = 'TraceRoost Cloud could not confirm this machine\'s sign-in (its refresh went unanswered twice). Re-link this machine to resume sending. Traces not yet sent are kept and sent after you re-link.'
+export const UPGRADE_MESSAGE = 'Update TraceRoost to keep sending to TraceRoost Cloud: this version is no longer accepted. Traces stay queued and are sent after the update.'
 export const CEILING_MESSAGE = 'TraceRoost Cloud reached today\'s trace limit for your org. Nothing is lost: unsent traces stay queued and are sent after midnight UTC.'
 
 /** How long a 426 pauses forwarding before one more try (the cloud may have relaxed its floor);

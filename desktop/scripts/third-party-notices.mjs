@@ -40,7 +40,7 @@ const packages = new Map()
 for (const rel of MAPS) {
   const mapPath = path.join(repoRoot, rel)
   if (!fs.existsSync(mapPath)) {
-    throw new Error(`third-party-notices: ${rel} is missing — run \`pnpm run stage\` (or \`stage:release\`) first; its build writes the maps this reads.`)
+    throw new Error(`third-party-notices: ${rel} is missing; run \`pnpm run stage\` (or \`stage:release\`) first; its build writes the maps this reads.`)
   }
   const map = JSON.parse(fs.readFileSync(mapPath, 'utf8'))
   for (const source of map.sources) {
@@ -103,7 +103,7 @@ const lines = [
   'ships the following third-party software, each under its own license, reproduced below.',
   '',
   'Electron itself bundles Chromium, Node.js and their dependencies; their notices are in',
-  '`LICENSES.chromium.html` and `LICENSE.electron.txt` — beside this file on macOS, and one directory up',
+  '`LICENSES.chromium.html` and `LICENSE.electron.txt`, beside this file on macOS, and one directory up',
   '(beside the app\'s executable) on Linux and Windows.',
   '',
   '| Package | Version | License |',
@@ -123,4 +123,4 @@ for (const e of entries) {
 fs.mkdirSync(path.dirname(out), { recursive: true })
 fs.writeFileSync(out, lines.join('\n'))
 const missingText = entries.filter(e => !e.text).map(e => e.name)
-console.log(`wrote ${path.relative(process.cwd(), out)} — ${entries.length} packages${missingText.length ? ` (no license text shipped by: ${missingText.join(', ')})` : ''}`)
+console.log(`wrote ${path.relative(process.cwd(), out)}: ${entries.length} packages${missingText.length ? ` (no license text shipped by: ${missingText.join(', ')})` : ''}`)

@@ -314,7 +314,7 @@ export class DatabaseWriter {
     // unchanged-row check below (three separate SELECTs per card before).
     const stored = this._storedRow(card.sessionId)
     if (this._isDowngradeOfStoredOtelRow(card, stored)) {
-      this.log(`DatabaseWriter: kept stored session ${card.sessionId} — incoming card has fewer calls`)
+      this.log(`DatabaseWriter: kept stored session ${card.sessionId}; incoming card has fewer calls`)
       return
     }
     // Precedence again at write time: a higher-rank card may have been written since enqueue.

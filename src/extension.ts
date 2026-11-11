@@ -189,13 +189,13 @@ export async function activate(context: vscode.ExtensionContext) {
     outputChannel.appendLine('TraceRoost database initialized.')
     if (traceRoostDb.loadError) {
       void vscode.window.showErrorMessage(
-        `TraceRoost: Could not read the existing trace database (${traceRoostDb.loadError}). History is unavailable in this window and nothing will be saved over it — the TraceRoost log has details.`,
+        `TraceRoost: Could not read the existing trace database (${traceRoostDb.loadError}). History is unavailable in this window and nothing will be saved over it. The TraceRoost log has details.`,
         SHOW_LOG_BUTTON,
       ).then(choice => { if (choice === SHOW_LOG_BUTTON) showLog() })
     } else if (!traceRoostDb.isOwner) {
       // Another window owns writes to the shared database file (see TraceRoostDb) — this window
       // only reads it, so it can never overwrite that window's newer history with a stale copy.
-      outputChannel.appendLine('TraceRoost database is owned by another window — this window is read-only on disk.')
+      outputChannel.appendLine('TraceRoost database is owned by another window; this window is read-only on disk.')
     }
   } catch (err) {
     outputChannel.appendLine(`Failed to initialize database: ${err}`)
@@ -319,15 +319,15 @@ export async function activate(context: vscode.ExtensionContext) {
       if (owner === 'standalone') {
         collectorConflict = { owner, port, extensionId: context.extension.id }
         outputChannel.appendLine(
-          `Not receiving OTel — the background service already holds port ${port}.\n` +
+          `Not receiving OTel: the background service already holds port ${port}.\n` +
           `  - New traces here come from log files only (no prompt/tool content).\n` +
-          `  - Run TraceRoost one way per machine — background service, VS Code extension, or Docker. ` +
-          `Recommended: the background service — it starts at login and keeps capturing OTel even when ` +
+          `  - Run TraceRoost one way per machine: background service, VS Code extension, or Docker. ` +
+          `Recommended: the background service. It starts at login and keeps capturing OTel even when ` +
           `VS Code is closed, so nothing gets missed. Install with \`npx traceroost@latest service install\` ` +
           `(macOS/Linux/Windows all use the same command), or with Homebrew: ` +
           `\`brew install traceroost/tap/traceroost\` then \`traceroost service install\`.\n` +
           `  - The service already holds this port, so: keep it and uninstall this extension ` +
-          `(\`code --uninstall-extension ${context.extension.id}\`), then reload — or, to use VS Code instead, ` +
+          `(\`code --uninstall-extension ${context.extension.id}\`), then reload. Or, to use VS Code instead, ` +
           `stop the service with \`traceroost service stop\`.`
         )
         // One sentence; the full story is in the log above. The buttons are what this window can
@@ -335,7 +335,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // terminal command (`traceroost service stop`), named in the log.
         const OPEN_SERVICE = 'Open Service Dashboard'
         void vscode.window.showErrorMessage(
-          `TraceRoost: the background service already receives OTel on port ${port}, so this window won't get live traces — use the service's dashboard, or stop the service and reload.`,
+          `TraceRoost: the background service already receives OTel on port ${port}, so this window won't get live traces. Use the service's dashboard, or stop the service and reload.`,
           OPEN_SERVICE, SHOW_LOG_BUTTON,
         ).then(choice => {
           if (choice === OPEN_SERVICE) void openServiceDashboard(port)
@@ -343,7 +343,7 @@ export async function activate(context: vscode.ExtensionContext) {
         })
       } else if (owner === 'foreign') {
         collectorConflict = { owner, port, extensionId: context.extension.id }
-        outputChannel.appendLine(`Port ${port} is in use by an unknown process — change traceRoost.otlpPort`)
+        outputChannel.appendLine(`Port ${port} is in use by an unknown process; change traceRoost.otlpPort`)
         const CHANGE_PORT = 'Change Port'
         void vscode.window.showErrorMessage(
           `TraceRoost: port ${port} is in use by another application, so no live traces can arrive. Pick a free port for traceRoost.otlpPort and reload.`,
@@ -484,7 +484,7 @@ export async function activate(context: vscode.ExtensionContext) {
           (changed.length > 0
             ? `TraceRoost: the background service set up ${changed.join(', ')} to send traces to port ${owner.otlpPort}. Restart ${changed.length === 1 ? 'it' : 'them'} to start tracing.`
             : `TraceRoost: your agents are already set up to send traces to the background service (port ${owner.otlpPort}).`) +
-          (failed.length > 0 ? ` Could not set up ${failed.join(', ')} — Show Log has the details.` : ''),
+          (failed.length > 0 ? ` Could not set up ${failed.join(', ')}. Show Log has the details.` : ''),
           ...(failed.length > 0 ? [SHOW_LOG_BUTTON] : []),
         ).then(c => { if (c === SHOW_LOG_BUTTON) showLog() })
         return
@@ -546,7 +546,7 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!results) { if (owner.owner === 'service') serviceManagesAgentSetup(owner.otlpPort); return undefined }
     if (owner.owner === 'extension') writeAgentSetupAnswer('no')
     for (const r of results) {
-      if (r.changed) log(`Remove agent setup${owner.owner === 'service' ? ' (background service)' : ''}: ${r.agent} — removed TraceRoost's settings from ${r.file}`)
+      if (r.changed) log(`Remove agent setup${owner.owner === 'service' ? ' (background service)' : ''}: ${r.agent}: removed TraceRoost's settings from ${r.file}`)
       if (r.warning) log(`Remove agent setup: ${r.warning}`)
       if (r.error) log(`Remove agent setup: ${r.agent} failed: ${r.error}`)
     }
@@ -564,7 +564,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const reply = await postServiceAction(owner.otlpPort, { type: 'reconfigureOtel' })
     if (reply) return reply
     serviceManagesAgentSetup(owner.otlpPort)
-    return { error: "The background service manages agent setup — use Set up agents in its dashboard." }
+    return { error: "The background service manages agent setup. Use Set up agents in its dashboard." }
   }
 
   // The undo of Set Up Agents: takes out only what TraceRoost added, and stops it setting agents
@@ -576,7 +576,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const activationOwner = traceRoostCfg.get<boolean>('autoConfigureAgents', true) ? await agentSetupOwner() : undefined
   if (activationOwner?.owner === 'service') {
     // Not even the question: the service asks in its own terminal or dashboard.
-    log(`Agent setup: the TraceRoost background service receives OTel on port ${activationOwner.otlpPort} and manages agent setup — this window leaves agent settings alone.`)
+    log(`Agent setup: the TraceRoost background service receives OTel on port ${activationOwner.otlpPort} and manages agent setup, so this window leaves agent settings alone.`)
   } else if (activationOwner) {
     const answer = readAgentSetupAnswer()
     if (answer === 'yes') {
@@ -929,7 +929,7 @@ export async function activate(context: vscode.ExtensionContext) {
       })
       logReaderTimer = setInterval(runLogScan, 30_000)
       context.subscriptions.push({ dispose: () => clearInterval(logReaderTimer) })
-      outputChannel!.appendLine('TraceRoost: log ingestion enabled — scanning local trace logs')
+      outputChannel!.appendLine('TraceRoost: log ingestion enabled; scanning local trace logs')
     }
 
     if (!logReader) historyReadiness.markReady() // nothing to load from logs
@@ -941,7 +941,7 @@ export async function activate(context: vscode.ExtensionContext) {
     loadError: !!traceRoostDb?.loadError,
   })
   if (pipeline.runPipeline) startOwnerPipeline()
-  else if (pipeline.viewer) outputChannel.appendLine('TraceRoost: viewing the database owned by another window — log ingestion, reconciliation and forwarding run there.')
+  else if (pipeline.viewer) outputChannel.appendLine('TraceRoost: viewing the database owned by another window. Log ingestion, reconciliation and forwarding run there.')
 
   // The OTLP port is held by the window whose collector started first, owner or not. When this
   // window takes the database over from a closed owner that also held the port, it is free now.
@@ -956,7 +956,7 @@ export async function activate(context: vscode.ExtensionContext) {
       outputChannel!.appendLine(`TraceRoost: OTLP collector now listening on port ${port}`)
       updateStatusBar()
     } catch (err) {
-      outputChannel!.appendLine(`TraceRoost: port ${port} is still in use — this window keeps reading the shared database without its own collector (${err})`)
+      outputChannel!.appendLine(`TraceRoost: port ${port} is still in use; this window keeps reading the shared database without its own collector (${err})`)
     }
   }
 
@@ -969,7 +969,7 @@ export async function activate(context: vscode.ExtensionContext) {
       // tryTakeOver() is also true when a save() already acquired the lock in passing (TraceRoostDb
       // tries on every save), so the pipeline starts whichever way ownership arrived.
       if (traceRoostDb && !ownerPipelineStarted && traceRoostDb.tryTakeOver()) {
-        outputChannel!.appendLine('TraceRoost: the window that owned the database has closed — this window owns it now and takes over log ingestion, reconciliation and forwarding.')
+        outputChannel!.appendLine('TraceRoost: the window that owned the database has closed. This window owns it now and takes over log ingestion, reconciliation and forwarding.')
         // Back to the repository on the live copy (reloaded from disk by the takeover); a snapshot
         // reader from an earlier tick would never see this window's own writes.
         if (liveRepository) {
@@ -1034,7 +1034,7 @@ export async function activate(context: vscode.ExtensionContext) {
       ].join('\n')
       outputChannel!.appendLine('\nTraceRoost storage stats:\n' + msg)
       outputChannel!.show(true)
-      vscode.window.showInformationMessage(`TraceRoost storage: ${toMb(dbBytes + blobBytes)} MB total — see Output panel for details.`)
+      vscode.window.showInformationMessage(`TraceRoost storage: ${toMb(dbBytes + blobBytes)} MB total. See Output panel for details.`)
     })
   )
 
@@ -1122,7 +1122,7 @@ export async function activate(context: vscode.ExtensionContext) {
       return
     }
     const defaultDir = vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(os.homedir())
-    const what = redacted ? 'live OTel spans (redacted)' : 'live OTel spans — includes prompts and tool output'
+    const what = redacted ? 'live OTel spans (redacted)' : 'live OTel spans: includes prompts and tool output'
     let uris: vscode.Uri[]
     if (target) {
       uris = files.map(f => vscode.Uri.joinPath(target, f.name))
@@ -1152,8 +1152,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Not awaited, so the command (and a caller awaiting it) finishes once the files are written.
     void vscode.window.showInformationMessage(
       uris.length === 1
-        ? `TraceRoost: exported ${what.split(' — ')[0]} to ${uris[0].fsPath}`
-        : `TraceRoost: exported ${uris.length} files of ${what.split(' — ')[0]} to ${path.dirname(uris[0].fsPath)}`,
+        ? `TraceRoost: exported ${what.split(': ')[0]} to ${uris[0].fsPath}`
+        : `TraceRoost: exported ${uris.length} files of ${what.split(': ')[0]} to ${path.dirname(uris[0].fsPath)}`,
       ...(uris.length === 1 ? [OPEN, REVEAL] : [REVEAL]),
     ).then(choice => {
       if (choice === OPEN) void vscode.window.showTextDocument(uris[0], { preview: false })
@@ -1181,7 +1181,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('traceRoost.clearSessions', () => {
       if (!repository || !writer) return
       if (traceRoostDb && !traceRoostDb.isOwner) {
-        vscode.window.showInformationMessage('TraceRoost: another VS Code window owns the trace database — clear it from that window.')
+        vscode.window.showInformationMessage('TraceRoost: another VS Code window owns the trace database. Clear it from that window.')
         return
       }
       // Clear DB and live span window
@@ -1250,7 +1250,7 @@ export async function activate(context: vscode.ExtensionContext) {
         mcpPort,
         '127.0.0.1',
         '',
-        (requested, bound) => outputChannel!.appendLine(`[TraceRoost] Port ${requested} (MCP) was in use — using ${bound} instead.`),
+        (requested, bound) => outputChannel!.appendLine(`[TraceRoost] Port ${requested} (MCP) was in use; using ${bound} instead.`),
       )
       context.subscriptions.push({ dispose: () => mcpServer.close() })
       const boundMcpPort = (mcpServer.address() as { port: number }).port
@@ -1340,10 +1340,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
   function updateStatusBar() {
     if (collectorConflict) {
-      statusBar.text = '$(warning) TraceRoost — not receiving OTel'
+      statusBar.text = '$(warning) TraceRoost: not receiving OTel'
       statusBar.tooltip = collectorConflict.owner === 'standalone'
         ? `Not receiving live traces: the TraceRoost background service holds port ${collectorConflict.port}. Click to open this window's dashboard (log history only).`
-        : `Not receiving live traces: another application holds port ${collectorConflict.port} — change traceRoost.otlpPort. Click to open the dashboard (log history only).`
+        : `Not receiving live traces: another application holds port ${collectorConflict.port}; change traceRoost.otlpPort. Click to open the dashboard (log history only).`
       statusBar.color = new vscode.ThemeColor('statusBarItem.warningForeground')
       statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground')
     } else {
@@ -1365,7 +1365,7 @@ export async function activate(context: vscode.ExtensionContext) {
   if (collectorConflict) {
     // Already logged/shown in detail where collectorConflict was set, above.
   } else if (collectorFailed) {
-    outputChannel.appendLine('TraceRoost active — collector already running in another VS Code window; sharing its database')
+    outputChannel.appendLine('TraceRoost active: collector already running in another VS Code window; sharing its database')
   } else {
     // The toast only on the very first activation after install — not after updates or on
     // every window/startup; the status bar item says it's running from then on. The key still
@@ -1375,9 +1375,9 @@ export async function activate(context: vscode.ExtensionContext) {
     const toastKey = 'traceRoost.activeToastVersion'
     if (context.globalState.get<string>(toastKey) === undefined) {
       void context.globalState.update(toastKey, version)
-      vscode.window.showInformationMessage(`TraceRoost active — listening on port ${port}`)
+      vscode.window.showInformationMessage(`TraceRoost active: listening on port ${port}`)
     }
-    outputChannel.appendLine(`TraceRoost active — OTLP collector listening on port ${port}`)
+    outputChannel.appendLine(`TraceRoost active: OTLP collector listening on port ${port}`)
   }
 
 }
@@ -1409,7 +1409,7 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
         forwardScheduler?.syncToLinkState()
         DashboardPanel.currentPanel?.update()
       } catch (err) {
-        vscode.window.showErrorMessage(`TraceRoost: link failed — ${(err as Error).message}. Nothing was changed.`)
+        vscode.window.showErrorMessage(`TraceRoost: link failed: ${(err as Error).message}. Nothing was changed.`)
       }
     }),
     vscode.commands.registerCommand('traceRoost.orgStatus', () => {
@@ -1426,7 +1426,7 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
         return
       }
       const confirm = await vscode.window.showWarningMessage(
-        'Unlink this machine from TraceRoost Cloud? The local credential is deleted and this machine stops forwarding immediately. This does not remove you from the org — an admin can still see you on the roster until they remove you there.',
+        'Unlink this machine from TraceRoost Cloud? The local credential is deleted and this machine stops forwarding immediately. This does not remove you from the org; an admin can still see you on the roster until they remove you there.',
         { modal: true },
         'Unlink',
       )
@@ -1435,7 +1435,7 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage(
         res.serverRevoked
           ? 'TraceRoost: unlinked. This machine has stopped forwarding.'
-          : 'TraceRoost: unlinked locally. Could not reach the server to revoke the token — it will be revoked on next contact, or by an admin from the roster.',
+          : 'TraceRoost: unlinked locally. Could not reach the server to revoke the token. It will be revoked on next contact, or by an admin from the roster.',
       )
       forwardScheduler?.syncToLinkState()
       DashboardPanel.currentPanel?.update()
@@ -1680,7 +1680,7 @@ async function handleDuplicateInstall(context: vscode.ExtensionContext): Promise
       void context.globalState.update(notifiedKey, true)
       void vscode.window.showWarningMessage(
         `TraceRoost is installed twice: from the Marketplace (${PUBLISHED_ID}) and as a local build ` +
-        `(${LOCAL_BUILD_ID}, e.g. a VSIX you installed by hand). Keep the Marketplace one — ` +
+        `(${LOCAL_BUILD_ID}, e.g. a VSIX you installed by hand). Keep the Marketplace one and ` +
         `uninstall the local build (${LOCAL_BUILD_ID}) to avoid duplicate views and port conflicts.`,
         'Show Local Build',
       ).then(pick => {
@@ -1695,7 +1695,7 @@ async function handleDuplicateInstall(context: vscode.ExtensionContext): Promise
   // We are the local build and the published copy is installed.
   if (context.extensionMode === vscode.ExtensionMode.Development) {
     outputChannel?.appendLine(
-      `Running from source although the Marketplace copy (${PUBLISHED_ID}) is installed — disable it in ` +
+      `Running from source although the Marketplace copy (${PUBLISHED_ID}) is installed; disable it in ` +
       'this window (launch.json passes --disable-extension) to avoid port conflicts.',
     )
     return false

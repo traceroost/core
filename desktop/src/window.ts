@@ -100,7 +100,7 @@ export function hardenWebContents(
     if (decision.action === 'allow-in-window') return
     const movedTo = portMoveTarget(url, origin())
     if (movedTo !== undefined && acceptPortMove(movedTo)) {
-      log(`[desktop] the dashboard moved to port ${movedTo} — following it`)
+      log(`[desktop] the dashboard moved to port ${movedTo}, following it`)
       return
     }
     event.preventDefault()
@@ -109,7 +109,7 @@ export function hardenWebContents(
       void shell.openExternal(url)
       return
     }
-    log(`[desktop] blocked navigation — ${decision.reason}`)
+    log(`[desktop] blocked navigation: ${decision.reason}`)
   })
 
   contents.setWindowOpenHandler(({ url }) => {
@@ -119,7 +119,7 @@ export function hardenWebContents(
       void shell.openExternal(url)
       return { action: 'deny' }
     }
-    if (decision.action === 'block') log(`[desktop] blocked window.open — ${decision.reason}`)
+    if (decision.action === 'block') log(`[desktop] blocked window.open: ${decision.reason}`)
     return { action: 'deny' }
   })
 

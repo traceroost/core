@@ -27,7 +27,7 @@ export function loadRollupSchema(): unknown {
       /* try the next candidate */
     }
   }
-  throw new Error('could not locate schema/rollup.v1.json — the package is built incorrectly')
+  throw new Error('could not locate schema/rollup.v1.json; the package is built incorrectly')
 }
 
 function validator(): SchemaValidator {

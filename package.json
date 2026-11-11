@@ -1,7 +1,7 @@
 {
   "name": "traceroost",
   "displayName": "TraceRoost - Agentic AI Monitoring & Observability",
-  "description": "Agentic AI monitoring and observability — OTel traces and local log file ingestion for Copilot, Claude Code, Codex, OpenCode, Cursor CLI, and Antigravity CLI. VS Code extension, desktop app, npx/Homebrew, and Docker.",
+  "description": "Agentic AI monitoring and observability: OTel traces and local log file ingestion for Copilot, Claude Code, Codex, OpenCode, Cursor CLI, and Antigravity CLI. VS Code extension, desktop app, npx/Homebrew, and Docker.",
   "version": "1.0.2",
   "publisher": "traceroost",
   "license": "(MIT AND BUSL-1.1)",
@@ -162,7 +162,7 @@
           {
             "id": "traceroost.welcome",
             "title": "What is TraceRoost?",
-            "description": "TraceRoost gives you a live observability dashboard for GitHub Copilot, Claude Code, and Codex (plus OpenCode and Cursor CLI from their local logs) — token usage, latency, file changes, and loop detection.\n\n[Open TraceRoost Sidebar](command:workbench.view.extension.traceroost)",
+            "description": "TraceRoost gives you a live observability dashboard for GitHub Copilot, Claude Code, and Codex (plus OpenCode and Cursor CLI from their local logs): token usage, latency, file changes, and loop detection.\n\n[Open TraceRoost Sidebar](command:workbench.view.extension.traceroost)",
             "media": {
               "markdown": "walkthrough/welcome.md"
             },
@@ -173,7 +173,7 @@
           {
             "id": "traceroost.autoConfig",
             "title": "Connect your agents",
-            "description": "Past trace history loads from your agents' local log files with no setup. For live traces, TraceRoost asks before it points Claude Code, Codex and Copilot at its local collector — skipped that, or want to re-apply it? Run Set Up Agents, then restart any running agents.\n\n[Set Up Agents](command:traceRoost.setUpAgents)",
+            "description": "Past trace history loads from your agents' local log files with no setup. For live traces, TraceRoost asks before it points Claude Code, Codex and Copilot at its local collector. Skipped that, or want to re-apply it? Run Set Up Agents, then restart any running agents.\n\n[Set Up Agents](command:traceRoost.setUpAgents)",
             "media": {
               "markdown": "walkthrough/agents.md"
             },
@@ -203,7 +203,7 @@
           {
             "id": "traceroost.loopDetection",
             "title": "Detect Loops and Inefficiencies",
-            "description": "The Traces tab flags sixteen stuck-agent and waste signals per trace — tool-call deadlocks, error spirals, context accumulation, avoidable cache misses, and more. The Advisor tab analyzes patterns across traces to generate specific suggestions for improving your agent instruction file.",
+            "description": "The Traces tab flags sixteen stuck-agent and waste signals per trace: tool-call deadlocks, error spirals, context accumulation, avoidable cache misses, and more. The Advisor tab analyzes patterns across traces to generate specific suggestions for improving your agent instruction file.",
             "media": {
               "markdown": "walkthrough/loops.md"
             }
@@ -224,7 +224,7 @@
         "traceRoost.autoConfigureAgents": {
           "type": "boolean",
           "default": true,
-          "description": "Offer to set up Claude Code, Codex and GitHub Copilot to send their activity — including prompts and tool output — to TraceRoost on this computer. It asks first; after a yes, each start keeps TraceRoost's port in their settings current (it never re-adds a setting you removed). Turn this off to leave agent settings alone on startup — you can still run TraceRoost: Set Up Agents… (or use the dashboard's ⚙ Settings panel) at any time."
+          "description": "Offer to set up Claude Code, Codex and GitHub Copilot to send their activity, including prompts and tool output, to TraceRoost on this computer. It asks first; after a yes, each start keeps TraceRoost's port in their settings current (it never re-adds a setting you removed). Turn this off to leave agent settings alone on startup; you can still run TraceRoost: Set Up Agents… (or use the dashboard's ⚙ Settings panel) at any time."
         },
         "traceRoost.enableOtelIngestion": {
           "type": "boolean",
@@ -234,7 +234,7 @@
         "traceRoost.enableLogIngestion": {
           "type": "boolean",
           "default": true,
-          "description": "Read the local logs and databases Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI write as a data source. Log data has lower fidelity than OTel — timing, speed, and loop signals are not available for Codex and Copilot CLI, whose log files carry only aggregate totals. When OTel captured the same trace (always detected for Claude Code), the OTel entry wins and the log entry is dropped; otherwise the two can appear as separate entries. Loading is done incrementally in the background and will not block the UI."
+          "description": "Read the local logs and databases Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI write as a data source. Log data has lower fidelity than OTel: timing, speed, and loop signals are not available for Codex and Copilot CLI, whose log files carry only aggregate totals. When OTel captured the same trace (always detected for Claude Code), the OTel entry wins and the log entry is dropped; otherwise the two can appear as separate entries. Loading is done incrementally in the background and will not block the UI."
         },
         "traceRoost.enableMcpServer": {
           "type": "boolean",

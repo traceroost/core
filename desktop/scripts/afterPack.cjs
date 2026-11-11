@@ -90,7 +90,7 @@ module.exports = async function afterPack(context) {
   }
   if (isMac) {
     const plist = fs.readFileSync(path.join(appPath, 'Contents', 'Info.plist'), 'utf-8')
-    if (!/<key>CFBundleIconName<\/key>\s*<string>Icon<\/string>/.test(plist)) problems.push('Info.plist has no CFBundleIconName "Icon" — macOS 26 would ignore Assets.car')
+    if (!/<key>CFBundleIconName<\/key>\s*<string>Icon<\/string>/.test(plist)) problems.push('Info.plist has no CFBundleIconName "Icon", so macOS 26 would ignore Assets.car')
     if (!/<key>CFBundleIconFile<\/key>\s*<string>icon\.icns<\/string>/.test(plist)) problems.push('Info.plist has no CFBundleIconFile icon.icns')
   }
   if (!isMac) {
@@ -102,11 +102,11 @@ module.exports = async function afterPack(context) {
     }
     // electronLanguages: en-US only.
     const locales = fs.existsSync(path.join(appPath, 'locales')) ? fs.readdirSync(path.join(appPath, 'locales')) : []
-    if (!locales.includes('en-US.pak')) problems.push('locales/en-US.pak is missing — Chromium will not start without it')
+    if (!locales.includes('en-US.pak')) problems.push('locales/en-US.pak is missing; Chromium will not start without it')
     if (locales.length > 1) problems.push(`locales/ has ${locales.length} entries; expected only en-US.pak (electronLanguages)`)
   }
   if (platform === 'linux') {
-    if (!fs.existsSync(path.join(appPath, 'chrome-sandbox'))) problems.push('chrome-sandbox is missing — the app could not start sandboxed on a kernel without user namespaces')
+    if (!fs.existsSync(path.join(appPath, 'chrome-sandbox'))) problems.push('chrome-sandbox is missing, so the app could not start sandboxed on a kernel without user namespaces')
   }
   if (isWindows && path.basename(binary).toLowerCase() !== 'traceroost-desktop.exe') {
     problems.push(`the executable is ${path.basename(binary)}, expected traceroost-desktop.exe (traceroost.exe would shadow the npm CLI)`)
@@ -118,7 +118,7 @@ module.exports = async function afterPack(context) {
   if (appVersion !== expected) problems.push(`the app is versioned ${appVersion} but the repo's package.json says ${expected}`)
   try {
     const staged = JSON.parse(fs.readFileSync(path.join(collector, 'package.json'), 'utf8')).version
-    if (staged !== expected) problems.push(`the staged collector is ${staged} but the repo's package.json says ${expected} — re-run \`pnpm run stage\``)
+    if (staged !== expected) problems.push(`the staged collector is ${staged} but the repo's package.json says ${expected}; re-run \`pnpm run stage\``)
   } catch (err) {
     problems.push(`cannot read the staged collector's package.json: ${err.message}`)
   }
@@ -134,7 +134,7 @@ module.exports = async function afterPack(context) {
   let staged = ''
   try { staged = fs.readFileSync(path.join(desktopDir, 'resources', EDITION_STAMP), 'utf8').trim() } catch { /* reported below */ }
   if (staged !== edition) {
-    problems.push(`building the ${edition} edition, but the collector was staged as ${staged || 'an unknown edition'} — re-run \`pnpm run stage\` with the same TRACEROOST_DESKTOP_EDITION`)
+    problems.push(`building the ${edition} edition, but the collector was staged as ${staged || 'an unknown edition'}; re-run \`pnpm run stage\` with the same TRACEROOST_DESKTOP_EDITION`)
   }
   if (fs.existsSync(path.join(collector, 'standalone', 'server.js'))) {
     checkEdition(edition, collector, ['standalone/server.js', 'media/dashboard.js', 'media/sidebar.js'])
@@ -162,14 +162,14 @@ module.exports = async function afterPack(context) {
       console.log(`  • afterPack: ${archName} app runs the collector on Node ${nodeVersion}`)
     }
   } else {
-    console.log(`  • afterPack: ${platform}-${archName} build on a ${process.platform}-${process.arch} host — skipped running the packaged runtime`)
+    console.log(`  • afterPack: ${platform}-${archName} build on a ${process.platform}-${process.arch} host, skipped running the packaged runtime`)
   }
 
   if (problems.length > 0) {
     throw new Error(`afterPack: ${appName} (${archName}) failed verification:\n  - ${problems.join('\n  - ')}`)
   }
   const size = dirBytes(appPath)
-  console.log(`  • afterPack: ${appName} (${archName}) verified — ${(size / 1024 / 1024).toFixed(0)} MB on disk, ${edition} edition, version ${appVersion}`)
+  console.log(`  • afterPack: ${appName} (${archName}) verified: ${(size / 1024 / 1024).toFixed(0)} MB on disk, ${edition} edition, version ${appVersion}`)
 }
 
 function dirBytes(dir) {

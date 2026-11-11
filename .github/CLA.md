@@ -2,9 +2,9 @@
 
 Thank you for your interest in contributing to TraceRoost ("the Project"), maintained by Roger Reed,
 doing business as TraceRoost ("the Maintainer"). "The Maintainer" includes their successors and
-assigns, and anyone to whom ownership of the Project is transferred — a company formed to run it,
-for example. This is a short agreement covering the rights you grant when you contribute. It does
-not change your rights to use your own contribution however you like elsewhere — it only grants
+assigns, and anyone to whom ownership of the Project is transferred (a company formed to run it,
+for example). This is a short agreement covering the rights you grant when you contribute. It does
+not change your rights to use your own contribution however you like elsewhere; it only grants
 the Maintainer additional rights to use it, alongside the rights everyone already gets under the
 Project's licenses (see [NOTICE.md](../NOTICE.md)).
 
@@ -22,7 +22,7 @@ intentionally submit to the Project for inclusion (e.g., via a pull request).
 
 You grant the Maintainer a perpetual, worldwide, non-exclusive, royalty-free, irrevocable copyright
 license to reproduce, prepare derivative works of, publicly display, publicly perform, sublicense,
-and distribute your Contributions and derivative works thereof — including the right to relicense
+and distribute your Contributions and derivative works thereof, including the right to relicense
 your Contribution, alone or as part of the Project, under any license terms the Maintainer chooses
 (open source or otherwise).
 
@@ -30,7 +30,7 @@ This is the operative clause: it's what lets the Maintainer offer parts of the P
 different license in the future (for example, a source-available license for a separately built
 team/enterprise product) without needing to track you down individually. Everything you contribute
 remains available to everyone under the license that covers the part of the Project you contributed
-to — MIT, or the Business Source License 1.1 for the directories NOTICE.md lists — as well. This
+to (MIT, or the Business Source License 1.1 for the directories NOTICE.md lists) as well. This
 grant adds rights; it doesn't take any away from how your own code can be used.
 
 ## 3. Patent license
@@ -49,7 +49,7 @@ You represent that:
   submit that portion).
 - Your Contribution does not, to your knowledge, violate any third party's copyrights, trademarks,
   patents, or other intellectual property rights.
-- You are legally entitled to grant the above licenses — for example, if your employer has rights
+- You are legally entitled to grant the above licenses. For example, if your employer has rights
   to intellectual property you create, you have received permission to contribute on your
   employer's behalf, or your employer has waived such rights for this Contribution.
 

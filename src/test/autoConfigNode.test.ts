@@ -439,7 +439,7 @@ suite('autoConfigNode', () => {
       const result = await removeCodexSetup()
       assert.strictEqual(result.changed, false)
       assert.strictEqual(result.customized, true, 'it sends to TraceRoost, just not in the form setup writes')
-      assert.match(result.warning ?? '', /custom exporter sending to TraceRoost .*remove it by hand/)
+      assert.match(result.warning ?? '', /custom exporter sending to TraceRoost .*Remove it by hand/)
       assert.strictEqual(read(codexPath()), original)
     })
 

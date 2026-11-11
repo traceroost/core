@@ -20,7 +20,7 @@ function desktopEdition(env = process.env) {
   const raw = (env.TRACEROOST_DESKTOP_EDITION ?? '').trim()
   const edition = raw === '' ? 'core' : raw
   if (!EDITIONS.includes(edition)) {
-    throw new Error(`TRACEROOST_DESKTOP_EDITION is "${raw}" — expected core or full`)
+    throw new Error(`TRACEROOST_DESKTOP_EDITION is "${raw}"; expected core or full`)
   }
   return /** @type {'core' | 'full'} */ (edition)
 }

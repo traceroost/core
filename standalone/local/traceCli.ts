@@ -33,7 +33,7 @@ export async function runTraceCli(args: string[], loaded?: SessionSummaryCard[])
 
   const found = findSessionById(loaded ?? loadAllSessions(), id)
   if (!found) {
-    console.log(`No trace matching "${id}" on this machine — try the machine that recorded this trace.`)
+    console.log(`No trace matching "${id}" on this machine. Try the machine that recorded this trace.`)
     return 1
   }
 

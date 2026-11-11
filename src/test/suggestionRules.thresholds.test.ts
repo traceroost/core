@@ -34,7 +34,7 @@ suite('suggestionRules — thresholds and suppression', () => {
         ['hot_file:src_core_engine_ts', 'high', 4],
         ['hot_file:lib_util_ts', 'medium', 2],
       ])
-      assert.match(cards[0].suggestedText, /before editing core —/)
+      assert.match(cards[0].suggestedText, /before editing core;/)
       assert.match(cards[0].evidence, /Touched in 4 of 10 traces \(40%\)/)
     })
 

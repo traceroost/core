@@ -66,7 +66,7 @@ export function readLogFileState(storageDir: string, log?: (msg: string) => void
   // overwritten by the next writeLogFileState, so it can still be inspected; every file within
   // retention is re-parsed, as it would be after a fresh install.
   const aside = quarantineCorruptFile(file)
-  log?.(`[TraceRoost] ${LOG_FILE_STATE_FILENAME} could not be parsed${aside ? ` — moved it to ${aside}` : ''}; re-reading every log file within retention.`)
+  log?.(`[TraceRoost] ${LOG_FILE_STATE_FILENAME} could not be parsed${aside ? `; moved it to ${aside}` : ''}; re-reading every log file within retention.`)
   return { version: LOG_FILE_STATE_VERSION, files: {} }
 }
 

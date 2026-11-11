@@ -138,7 +138,7 @@ const DEMO_FILES = [
  *  So on disk: merged = working tree, HEAD and main agree; committed = working tree and HEAD agree
  *  but main differs; uncommitted = working tree differs from HEAD. */
 function seedDemoRepo(root: string): void {
-  if (fs.existsSync(path.join(root, '.git'))) { err(`--demo-repo ${root} is already a git repo — pass an empty or new directory`); process.exit(1) }
+  if (fs.existsSync(path.join(root, '.git'))) { err(`--demo-repo ${root} is already a git repo; pass an empty or new directory`); process.exit(1) }
   const git = (...a: string[]) => execFileSync('git', ['-c', 'user.name=PetHaven Demo', '-c', 'user.email=demo@example.com', '-c', 'commit.gpgsign=false', ...a], { cwd: root, stdio: 'ignore' })
   const write = (rel: string, body: string) => {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true })
@@ -146,12 +146,12 @@ function seedDemoRepo(root: string): void {
   }
   fs.mkdirSync(root, { recursive: true })
   git('init', '-q', '-b', 'main')
-  for (const f of DEMO_FILES) write(f, `// PetHaven — ${f}\n`)
+  for (const f of DEMO_FILES) write(f, `// PetHaven: ${f}\n`)
   git('add', '-A'); git('commit', '-q', '-m', 'PetHaven: initial layout')
   git('checkout', '-q', '-b', 'feature/pethaven')
-  for (const f of DEMO_COMMITTED_ONLY) write(f, `// PetHaven — ${f}\n// feature branch work\n`)
+  for (const f of DEMO_COMMITTED_ONLY) write(f, `// PetHaven: ${f}\n// feature branch work\n`)
   git('add', '-A'); git('commit', '-q', '-m', 'PetHaven: inventory service and e2e tests')
-  for (const f of DEMO_UNCOMMITTED) write(f, `// PetHaven — ${f}\n// work in progress\n`)
+  for (const f of DEMO_UNCOMMITTED) write(f, `// PetHaven: ${f}\n// work in progress\n`)
   ok(`Demo repo ready at ${root} (${DEMO_FILES.length} files: merged / ${DEMO_COMMITTED_ONLY.length} committed-only / ${DEMO_UNCOMMITTED.length} uncommitted)`)
 }
 
@@ -533,7 +533,7 @@ async function scenarioNormal(agent: Agent, startOffsetMs?: number): Promise<voi
   const userRequest = 'Add multi-pet discount pricing to the checkout flow'
 
   if (agent === 'claude') {
-    log('Scenario 1 [claude] — Normal task (3 turns, good cache hit)')
+    log('Scenario 1 [claude]: Normal task (3 turns, good cache hit)')
     const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
     const traceId = hex(16)
     const rootId  = hex(8)
@@ -574,12 +574,12 @@ async function scenarioNormal(agent: Agent, startOffsetMs?: number): Promise<voi
       startMs: rootStart, userRequest, outcome: 'success', totalInput: 26_400, totalOutput: 1430,
     })
     await post('/v1/traces', tracePayload([root]))
-    ok('Session closed — normal task (claude)\n')
+    ok('Session closed: normal task (claude)\n')
     return
   }
 
   if (agent === 'codex') {
-    log('Scenario 1 [codex] — Normal task (3 tool turns)')
+    log('Scenario 1 [codex]: Normal task (3 tool turns)')
     const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
     const traceId = hex(16)
     const ctx = codexSession(traceId)
@@ -615,7 +615,7 @@ async function scenarioNormal(agent: Agent, startOffsetMs?: number): Promise<voi
       inputTokens: 6100, outputTokens: 180, cachedTokens: 14_600, model: 'gpt-5.6-sol', toolDurationMs: 2100,
     })
     await post('/v1/traces', tracePayload(turn3))
-    ok('Turn 3: run checkout tests — pass')
+    ok('Turn 3: run checkout tests (pass)')
     await sleep(500)
 
     // No separate wrap-up response turn: when a codex.sse_event with real tokens is present
@@ -623,12 +623,12 @@ async function scenarioNormal(agent: Agent, startOffsetMs?: number): Promise<voi
     // suppresses every tool_decision span's token counts to avoid double-counting (see
     // isDuplicateCodexTokenRecord / hasCodexCompletionEvents in src/summarizers/codex.ts).
     // A real Codex session mostly ends right on the last tool result anyway.
-    ok('Session closed — normal task (codex)\n')
+    ok('Session closed: normal task (codex)\n')
     return
   }
 
   // copilot
-  log('Scenario 1 [copilot] — Normal task (2 turns)')
+  log('Scenario 1 [copilot]: Normal task (2 turns)')
   const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
   const traceId = hex(16)
   const rootId  = hex(8)
@@ -645,7 +645,7 @@ async function scenarioNormal(agent: Agent, startOffsetMs?: number): Promise<voi
   const toolEx2 = copilotToolSpan(tl, traceId, chatId2, { toolName: 'create_file', toolInput: { filePath: 'src/store/checkout/cart.ts' } })
 
   await post('/v1/traces', tracePayload([root, chat1, toolEx1, chat2, toolEx2]))
-  ok('Session closed — normal task (copilot)\n')
+  ok('Session closed: normal task (copilot)\n')
 }
 
 // ── Scenario 2: Stuck loop — repeated failing command ───────────────────────────
@@ -656,7 +656,7 @@ async function scenarioLoop(agent: Agent, startOffsetMs?: number): Promise<void>
   const command = 'docker build -t petstore-api . --no-cache'
 
   if (agent === 'claude') {
-    log('Scenario 2 [claude] — Stuck loop (same Bash call fails 7x, Loop Breaker triggers)')
+    log('Scenario 2 [claude]: Stuck loop (same Bash call fails 7x, Loop Breaker triggers)')
     const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
     const traceId = hex(16)
     const rootId  = hex(8)
@@ -685,12 +685,12 @@ async function scenarioLoop(agent: Agent, startOffsetMs?: number): Promise<void>
       startMs: rootStart, userRequest, outcome: 'error', totalInput: 125_400, totalOutput: 1890,
     })
     await post('/v1/traces', tracePayload([root]))
-    ok('Session closed — check Errors + Automation tabs for Loop Breaker trigger (claude)\n')
+    ok('Session closed: check Errors + Automation tabs for Loop Breaker trigger (claude)\n')
     return
   }
 
   if (agent === 'codex') {
-    log('Scenario 2 [codex] — Stuck loop (same exec_command fails 7x)')
+    log('Scenario 2 [codex]: Stuck loop (same exec_command fails 7x)')
     const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
     const traceId = hex(16)
     const ctx = codexSession(traceId)
@@ -713,12 +713,12 @@ async function scenarioLoop(agent: Agent, startOffsetMs?: number): Promise<void>
       sim(`Turn ${turn + 1}: exec_command "docker build" → error  (${inputGrowth[turn].toLocaleString()} input tokens, same command repeated)`)
       await sleep(500)
     }
-    ok('Session closed — check Errors + Automation tabs for Loop Breaker trigger (codex)\n')
+    ok('Session closed: check Errors + Automation tabs for Loop Breaker trigger (codex)\n')
     return
   }
 
   // copilot
-  log('Scenario 2 [copilot] — Stuck loop (same tool call fails 6x)')
+  log('Scenario 2 [copilot]: Stuck loop (same tool call fails 6x)')
   const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
   const traceId = hex(16)
   const rootId  = hex(8)
@@ -742,7 +742,7 @@ async function scenarioLoop(agent: Agent, startOffsetMs?: number): Promise<void>
   }
   await post('/v1/traces', tracePayload(spansToSend))
   await sleep(500)
-  ok('Session closed — check Errors + Automation tabs for Loop Breaker trigger (copilot)\n')
+  ok('Session closed: check Errors + Automation tabs for Loop Breaker trigger (copilot)\n')
 }
 
 // ── Scenario 3: Context bloat ────────────────────────────────────────────────────
@@ -767,7 +767,7 @@ async function scenarioCompaction(agent: Agent, startOffsetMs?: number): Promise
   const outputProfile = COMPACTION_OUTPUT_PROFILE
 
   if (agent === 'claude') {
-    log(`Scenario 3 [claude] — Context bloat (input grows ${inputProfile[9].toLocaleString()} tokens across 10 turns)`)
+    log(`Scenario 3 [claude]: Context bloat (input grows ${inputProfile[9].toLocaleString()} tokens across 10 turns)`)
     const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
     const traceId = hex(16)
     const rootId  = hex(8)
@@ -793,7 +793,7 @@ async function scenarioCompaction(agent: Agent, startOffsetMs?: number): Promise
           })
         : toolSpan(tl, traceId, llmId, {
             toolName: 'Edit', durationMs: 90,
-            toolInput: { file_path: 'src/store/pets/petService.ts', old_string: '// TODO: revisit', new_string: '// resolved — see PETSTORE-TODO-SWEEP' },
+            toolInput: { file_path: 'src/store/pets/petService.ts', old_string: '// TODO: revisit', new_string: '// resolved, see PETSTORE-TODO-SWEEP' },
           })
       await post('/v1/traces', tracePayload([llm, tool]))
       ok(`Turn ${turn + 1}: ${inputProfile[turn].toLocaleString()} input / ${outputProfile[turn]} output tokens`)
@@ -805,12 +805,12 @@ async function scenarioCompaction(agent: Agent, startOffsetMs?: number): Promise
       outcome: 'success', totalInput: inputProfile.reduce((a, b) => a + b, 0), totalOutput: 2160,
     })
     await post('/v1/traces', tracePayload([root]))
-    ok('Session closed — context compaction should have triggered\n')
+    ok('Session closed: context compaction should have triggered\n')
     return
   }
 
   if (agent === 'codex') {
-    log(`Scenario 3 [codex] — Context bloat (input grows ${inputProfile[9].toLocaleString()} tokens across 10 turns)`)
+    log(`Scenario 3 [codex]: Context bloat (input grows ${inputProfile[9].toLocaleString()} tokens across 10 turns)`)
     const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
     const traceId = hex(16)
     const ctx = codexSession(traceId)
@@ -831,7 +831,7 @@ async function scenarioCompaction(agent: Agent, startOffsetMs?: number): Promise
           })
         : codexToolTurn(tl, ctx, {
             toolName: 'apply_patch',
-            args: { path: 'src/store/pets/petService.ts', diff: '-// TODO: revisit\n+// resolved — see PETSTORE-TODO-SWEEP' },
+            args: { path: 'src/store/pets/petService.ts', diff: '-// TODO: revisit\n+// resolved, see PETSTORE-TODO-SWEEP' },
             output: 'Applied patch to src/store/pets/petService.ts',
             inputTokens: inputProfile[turn], outputTokens: outputProfile[turn],
             cachedTokens: inputProfile[turn - 1], model: 'gpt-5.6-sol', toolDurationMs: 150,
@@ -840,12 +840,12 @@ async function scenarioCompaction(agent: Agent, startOffsetMs?: number): Promise
       ok(`Turn ${turn + 1}: ${inputProfile[turn].toLocaleString()} input / ${outputProfile[turn]} output tokens`)
       await sleep(350)
     }
-    ok('Session closed — context compaction should have triggered\n')
+    ok('Session closed: context compaction should have triggered\n')
     return
   }
 
   // copilot
-  log(`Scenario 3 [copilot] — Context bloat (input grows ${inputProfile[9].toLocaleString()} tokens across 10 turns)`)
+  log(`Scenario 3 [copilot]: Context bloat (input grows ${inputProfile[9].toLocaleString()} tokens across 10 turns)`)
   const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
   const traceId = hex(16)
   const rootId  = hex(8)
@@ -875,7 +875,7 @@ async function scenarioCompaction(agent: Agent, startOffsetMs?: number): Promise
     ok(`Turn ${turn + 1}: ${inputProfile[turn].toLocaleString()} input / ${outputProfile[turn]} output tokens`)
     await sleep(350)
   }
-  ok('Session closed — context compaction should have triggered\n')
+  ok('Session closed: context compaction should have triggered\n')
 }
 
 // ── Scenario 4: Errors + recovery ────────────────────────────────────────────────
@@ -885,7 +885,7 @@ async function scenarioErrors(agent: Agent, startOffsetMs?: number): Promise<voi
   const userRequest = 'Add a type-safe pet breed validator utility'
 
   if (agent === 'claude') {
-    log('Scenario 4 [claude] — Errors + recovery (TypeScript compile errors, then fix)')
+    log('Scenario 4 [claude]: Errors + recovery (TypeScript compile errors, then fix)')
     const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
     const traceId = hex(16)
     const rootId  = hex(8)
@@ -929,12 +929,12 @@ async function scenarioErrors(agent: Agent, startOffsetMs?: number): Promise<voi
       startMs: rootStart, userRequest, outcome: 'success', totalInput: 24_400, totalOutput: 1390,
     })
     await post('/v1/traces', tracePayload([root]))
-    ok('Session closed — error cascade + recovery (claude)\n')
+    ok('Session closed: error cascade + recovery (claude)\n')
     return
   }
 
   if (agent === 'codex') {
-    log('Scenario 4 [codex] — Errors + recovery (tsc fails, then fixed)')
+    log('Scenario 4 [codex]: Errors + recovery (tsc fails, then fixed)')
     const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
     const traceId = hex(16)
     const ctx = codexSession(traceId)
@@ -981,12 +981,12 @@ async function scenarioErrors(agent: Agent, startOffsetMs?: number): Promise<voi
     ok('Turn 4: fixed, tests pass')
     await sleep(500)
 
-    ok('Session closed — error cascade + recovery (codex)\n')
+    ok('Session closed: error cascade + recovery (codex)\n')
     return
   }
 
   // copilot
-  log('Scenario 4 [copilot] — Errors + recovery')
+  log('Scenario 4 [copilot]: Errors + recovery')
   const tl = new Timeline(startOffsetMs ?? FRESH_OFFSET_MS)
   const traceId = hex(16)
   const rootId  = hex(8)
@@ -1014,7 +1014,7 @@ async function scenarioErrors(agent: Agent, startOffsetMs?: number): Promise<voi
   })
 
   await post('/v1/traces', tracePayload([root, chat1, toolEx1, toolEx1b, chat2, toolEx2, toolEx2b]))
-  ok('Session closed — error cascade + recovery (copilot)\n')
+  ok('Session closed: error cascade + recovery (copilot)\n')
 }
 
 // ── Story mode: 10-session petstore build-out ───────────────────────────────────
@@ -1026,7 +1026,7 @@ async function scenarioErrors(agent: Agent, startOffsetMs?: number): Promise<voi
 
 async function storyScaffoldClaude(offsetMs: number): Promise<void> {
   const userRequest = 'Scaffold a new pnpm workspace for the PetHaven petstore app'
-  log('Story 1 [claude] — Scaffold the project')
+  log('Story 1 [claude]: Scaffold the project')
   const tl = new Timeline(offsetMs)
   const traceId = hex(16)
   const rootId  = hex(8)
@@ -1054,12 +1054,12 @@ async function storyScaffoldClaude(offsetMs: number): Promise<void> {
 
   const root = sessionSpan(tl, traceId, rootId, { startMs: rootStart, userRequest, outcome: 'success', totalInput: 9900, totalOutput: 910 })
   await post('/v1/traces', tracePayload([root]))
-  ok('Session closed — project scaffolded\n')
+  ok('Session closed: project scaffolded\n')
 }
 
 async function storyDataModelCodex(offsetMs: number): Promise<void> {
   const userRequest = 'Define the Pet data model and build the adoption listing API'
-  log('Story 2 [codex] — Pet data model + adoption API')
+  log('Story 2 [codex]: Pet data model + adoption API')
   const tl = new Timeline(offsetMs)
   const traceId = hex(16)
   const ctx = codexSession(traceId)
@@ -1098,12 +1098,12 @@ async function storyDataModelCodex(offsetMs: number): Promise<void> {
   ok('Turn 3: adoption API tests pass')
   await sleep(500)
 
-  ok('Session closed — data model + adoption API\n')
+  ok('Session closed: data model + adoption API\n')
 }
 
 async function storyInventoryClaude(offsetMs: number): Promise<void> {
   const userRequest = 'Build an inventory service that tracks pet food and supply stock levels'
-  log('Story 3 [claude] — Inventory service')
+  log('Story 3 [claude]: Inventory service')
   const tl = new Timeline(offsetMs)
   const traceId = hex(16)
   const rootId  = hex(8)
@@ -1153,12 +1153,12 @@ async function storyInventoryClaude(offsetMs: number): Promise<void> {
 
   const root = sessionSpan(tl, traceId, rootId, { startMs: rootStart, userRequest, outcome: 'success', totalInput: 36_500, totalOutput: 1650 })
   await post('/v1/traces', tracePayload([root]))
-  ok('Session closed — inventory service\n')
+  ok('Session closed: inventory service\n')
 }
 
 async function storyImageUploadCopilot(offsetMs: number): Promise<void> {
   const userRequest = 'Add a pet photo upload pipeline with image resizing'
-  log('Story 5 [copilot] — Pet image upload pipeline')
+  log('Story 5 [copilot]: Pet image upload pipeline')
   const tl = new Timeline(offsetMs)
   const traceId = hex(16)
   const rootId  = hex(8)
@@ -1176,7 +1176,7 @@ async function storyImageUploadCopilot(offsetMs: number): Promise<void> {
   const toolEx3 = copilotToolSpan(tl, traceId, chatId2, { toolName: 'run_in_terminal', toolInput: { command: 'npm test -- upload' }, durationMs: 1400 })
 
   await post('/v1/traces', tracePayload([root, chat1, toolEx1, chat2, toolEx2, toolEx3]))
-  ok('Session closed — image upload pipeline (copilot)\n')
+  ok('Session closed: image upload pipeline (copilot)\n')
 }
 
 // Deliberately phrased as a trivial one-line ask (matches loopDetector's SIMPLE_KEYWORDS
@@ -1185,7 +1185,7 @@ async function storyImageUploadCopilot(offsetMs: number): Promise<void> {
 // creep: the import didn't exist because the whole cache layer didn't exist yet.
 async function storySearchCacheCodex(offsetMs: number): Promise<void> {
   const userRequest = 'Add import for the Redis cache client in search.ts'
-  log('Story 6 [codex] — "just add an import" spirals into full search + caching')
+  log('Story 6 [codex]: "just add an import" spirals into full search + caching')
   const tl = new Timeline(offsetMs)
   const traceId = hex(16)
   const ctx = codexSession(traceId)
@@ -1217,7 +1217,7 @@ async function storySearchCacheCodex(offsetMs: number): Promise<void> {
       output: 'Applied patch to src/config.ts',
       inputTokens: 5900, outputTokens: 240, cachedTokens: 6700, model: 'gpt-5.6-sol', toolDurationMs: 140 },
     { toolName: 'exec_command', args: { cmd: 'npm test -- search' },
-      output: 'FAIL  src/api/search.test.ts\nsearchPets() returned 0 results — index not built',
+      output: 'FAIL  src/api/search.test.ts\nsearchPets() returned 0 results: index not built',
       inputTokens: 7400, outputTokens: 150, cachedTokens: 5900, model: 'gpt-5.6-sol', toolDurationMs: 1100, success: false },
     { toolName: 'apply_patch', args: { path: 'src/api/search.ts', diff: '+await buildSearchIndex(pets)' },
       output: 'Applied patch to src/api/search.ts',
@@ -1239,12 +1239,12 @@ async function storySearchCacheCodex(offsetMs: number): Promise<void> {
     await sleep(350)
   }
 
-  ok(`Session closed — "add import" turned into a whole cache layer (${turns.length} steps for what looked simple)\n`)
+  ok(`Session closed: "add import" turned into a whole cache layer (${turns.length} steps for what looked simple)\n`)
 }
 
 async function storyE2ETestsCopilot(offsetMs: number): Promise<void> {
   const userRequest = 'Write end-to-end tests covering adoption and checkout flows'
-  log('Story 7 [copilot] — End-to-end tests')
+  log('Story 7 [copilot]: End-to-end tests')
   const tl = new Timeline(offsetMs)
   const traceId = hex(16)
   const rootId  = hex(8)
@@ -1262,7 +1262,7 @@ async function storyE2ETestsCopilot(offsetMs: number): Promise<void> {
   const toolEx3 = copilotToolSpan(tl, traceId, chatId2, { toolName: 'run_in_terminal', toolInput: { command: 'npx playwright test' }, durationMs: 4200 })
 
   await post('/v1/traces', tracePayload([root, chat1, toolEx1, chat2, toolEx2, toolEx3]))
-  ok('Session closed — e2e tests (copilot)\n')
+  ok('Session closed: e2e tests (copilot)\n')
 }
 
 // ── Generic per-agent step renderer ─────────────────────────────────────────────
@@ -1449,23 +1449,23 @@ const IMAGE_UPLOAD_REQUEST = 'Add a pet photo upload pipeline with image resizin
 const SEARCH_CACHE_REQUEST = 'Add import for the Redis cache client in search.ts'
 const E2E_TESTS_REQUEST    = 'Write end-to-end tests covering adoption and checkout flows'
 
-const storyScaffoldCodex   = (o: number) => renderCodexSteps(o, SCAFFOLD_REQUEST, 'Story 1 [codex] — Scaffold the project', SCAFFOLD_STEPS)
-const storyScaffoldCopilot = (o: number) => renderCopilotSteps(o, SCAFFOLD_REQUEST, 'Story 1 [copilot] — Scaffold the project', SCAFFOLD_STEPS)
+const storyScaffoldCodex   = (o: number) => renderCodexSteps(o, SCAFFOLD_REQUEST, 'Story 1 [codex]: Scaffold the project', SCAFFOLD_STEPS)
+const storyScaffoldCopilot = (o: number) => renderCopilotSteps(o, SCAFFOLD_REQUEST, 'Story 1 [copilot]: Scaffold the project', SCAFFOLD_STEPS)
 
-const storyDataModelClaude  = (o: number) => renderClaudeSteps(o, DATA_MODEL_REQUEST, 'Story 2 [claude] — Pet data model + adoption API', DATA_MODEL_STEPS)
-const storyDataModelCopilot = (o: number) => renderCopilotSteps(o, DATA_MODEL_REQUEST, 'Story 2 [copilot] — Pet data model + adoption API', DATA_MODEL_STEPS)
+const storyDataModelClaude  = (o: number) => renderClaudeSteps(o, DATA_MODEL_REQUEST, 'Story 2 [claude]: Pet data model + adoption API', DATA_MODEL_STEPS)
+const storyDataModelCopilot = (o: number) => renderCopilotSteps(o, DATA_MODEL_REQUEST, 'Story 2 [copilot]: Pet data model + adoption API', DATA_MODEL_STEPS)
 
-const storyInventoryCodex   = (o: number) => renderCodexSteps(o, INVENTORY_REQUEST, 'Story 3 [codex] — Inventory service', INVENTORY_STEPS)
-const storyInventoryCopilot = (o: number) => renderCopilotSteps(o, INVENTORY_REQUEST, 'Story 3 [copilot] — Inventory service', INVENTORY_STEPS)
+const storyInventoryCodex   = (o: number) => renderCodexSteps(o, INVENTORY_REQUEST, 'Story 3 [codex]: Inventory service', INVENTORY_STEPS)
+const storyInventoryCopilot = (o: number) => renderCopilotSteps(o, INVENTORY_REQUEST, 'Story 3 [copilot]: Inventory service', INVENTORY_STEPS)
 
-const storyImageUploadClaude = (o: number) => renderClaudeSteps(o, IMAGE_UPLOAD_REQUEST, 'Story 5 [claude] — Pet image upload pipeline', IMAGE_UPLOAD_STEPS)
-const storyImageUploadCodex  = (o: number) => renderCodexSteps(o, IMAGE_UPLOAD_REQUEST, 'Story 5 [codex] — Pet image upload pipeline', IMAGE_UPLOAD_STEPS)
+const storyImageUploadClaude = (o: number) => renderClaudeSteps(o, IMAGE_UPLOAD_REQUEST, 'Story 5 [claude]: Pet image upload pipeline', IMAGE_UPLOAD_STEPS)
+const storyImageUploadCodex  = (o: number) => renderCodexSteps(o, IMAGE_UPLOAD_REQUEST, 'Story 5 [codex]: Pet image upload pipeline', IMAGE_UPLOAD_STEPS)
 
-const storySearchCacheClaude  = (o: number) => renderClaudeSteps(o, SEARCH_CACHE_REQUEST, 'Story 6 [claude] — "just add an import" spirals into full search + caching', SEARCH_CACHE_STEPS)
-const storySearchCacheCopilot = (o: number) => renderCopilotSteps(o, SEARCH_CACHE_REQUEST, 'Story 6 [copilot] — "just add an import" spirals into full search + caching', SEARCH_CACHE_STEPS)
+const storySearchCacheClaude  = (o: number) => renderClaudeSteps(o, SEARCH_CACHE_REQUEST, 'Story 6 [claude]: "just add an import" spirals into full search + caching', SEARCH_CACHE_STEPS)
+const storySearchCacheCopilot = (o: number) => renderCopilotSteps(o, SEARCH_CACHE_REQUEST, 'Story 6 [copilot]: "just add an import" spirals into full search + caching', SEARCH_CACHE_STEPS)
 
-const storyE2ETestsClaude = (o: number) => renderClaudeSteps(o, E2E_TESTS_REQUEST, 'Story 7 [claude] — End-to-end tests', E2E_TESTS_STEPS)
-const storyE2ETestsCodex  = (o: number) => renderCodexSteps(o, E2E_TESTS_REQUEST, 'Story 7 [codex] — End-to-end tests', E2E_TESTS_STEPS)
+const storyE2ETestsClaude = (o: number) => renderClaudeSteps(o, E2E_TESTS_REQUEST, 'Story 7 [claude]: End-to-end tests', E2E_TESTS_STEPS)
+const storyE2ETestsCodex  = (o: number) => renderCodexSteps(o, E2E_TESTS_REQUEST, 'Story 7 [codex]: End-to-end tests', E2E_TESTS_STEPS)
 
 // Narrative order: scaffold → data model → inventory → checkout (reused) → image
 // upload → search/caching → e2e tests → deploy hiccup (reused) → validation fix
@@ -1500,7 +1500,7 @@ const STORY_CHAPTERS: Record<Agent, (offsetMs: number) => Promise<void>>[] = [
 // sessions before codex even starts.
 async function runStory(agentFilter?: Agent[]): Promise<void> {
   const agents = agentFilter && agentFilter.length > 0 ? agentFilter : ALL_AGENTS
-  log(`Story mode — building out the PetHaven petstore app (${STORY_CHAPTERS.length} sessions × ${agents.length} agent${agents.length !== 1 ? 's' : ''})\n`)
+  log(`Story mode: building out the PetHaven petstore app (${STORY_CHAPTERS.length} sessions × ${agents.length} agent${agents.length !== 1 ? 's' : ''})\n`)
   if (SPREAD_DAYS > 0) log(`  dated across the last ${SPREAD_DAYS} days (--spread-days), oldest chapter first\n`)
   for (const [chapterIdx, chapter] of STORY_CHAPTERS.entries()) {
     for (const [agentIdx, agent] of agents.entries()) {
@@ -1722,7 +1722,7 @@ async function replayFile(fp: string, label: string, instant: boolean): Promise<
       log(`File: \x1b[32m${label}\x1b[0m  (${sessions.length} sessions → ${rawSpans.length} synthetic spans)`)
     } else {
       rawSpans = raw as CapturedSpan[]
-      log(`File: \x1b[32m${label}\x1b[0m  (${rawSpans.length} spans — capture format)`)
+      log(`File: \x1b[32m${label}\x1b[0m  (${rawSpans.length} spans, capture format)`)
     }
   } else {
     const fixture = raw as Fixture
@@ -1795,7 +1795,7 @@ async function main() {
 
   const alive = await checkServer()
   if (!alive) {
-    err(`Cannot reach http://127.0.0.1:${PORT} — start a TraceRoost collector first:`)
+    err(`Cannot reach http://127.0.0.1:${PORT}. Start a TraceRoost collector first:`)
     err('  VS Code extension: open any workspace with TraceRoost installed')
     err('  Standalone server: pnpm run local')
     process.exit(1)

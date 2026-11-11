@@ -60,7 +60,7 @@ function copyFile(from, to) {
 function requireFile(rel) {
   const from = path.join(repoRoot, rel)
   if (!fs.existsSync(from)) {
-    throw new Error(`stage-resources: ${rel} is missing — the ${edition}-edition build above should have produced it.`)
+    throw new Error(`stage-resources: ${rel} is missing; the ${edition}-edition build above should have produced it.`)
   }
   return from
 }
@@ -77,7 +77,7 @@ const build = spawnSync(process.execPath, [
   stdio: 'inherit',
   env: production ? { ...process.env, TRACEROOST_EXTERNAL_SOURCEMAPS: '1' } : process.env,
 })
-if (build.status !== 0) throw new Error(`stage-resources: the ${edition}-edition build failed — see above.`)
+if (build.status !== 0) throw new Error(`stage-resources: the ${edition}-edition build failed; see above.`)
 
 fs.rmSync(out, { recursive: true, force: true })
 
@@ -108,7 +108,7 @@ for (const entry of fs.readdirSync(mediaDir, { withFileTypes: true })) {
   copyFile(path.join(mediaDir, entry.name), path.join(out, 'media', entry.name))
   mediaCount++
 }
-if (mediaCount === 0) throw new Error('stage-resources: no dashboard assets found in media/ — build the repo first.')
+if (mediaCount === 0) throw new Error('stage-resources: no dashboard assets found in media/. Build the repo first.')
 
 // ── The manifest the collector reads its own version out of ──
 // Trimmed to what `readPackageManifest` reads, so the app does not ship the extension's full
@@ -120,7 +120,7 @@ fs.writeFileSync(
     name: rootManifest.name,
     version: rootManifest.version,
     private: true,
-    description: 'Staged TraceRoost collector for the desktop app — see desktop/scripts/stage-resources.mjs',
+    description: 'Staged TraceRoost collector for the desktop app; see desktop/scripts/stage-resources.mjs',
     license: rootManifest.license,
   }, null, 2) + '\n',
 )
@@ -138,10 +138,10 @@ for (const name of ['sql-wasm.js', 'sql-wasm.wasm']) {
 const stagedRequire = createRequire(path.join(out, 'standalone', 'server.js'))
 const resolved = stagedRequire.resolve('sql.js')
 if (!resolved.startsWith(sqlJsOut)) {
-  throw new Error(`stage-resources: sql.js resolved to ${resolved}, outside the staged tree — the collector would read the wrong copy.`)
+  throw new Error(`stage-resources: sql.js resolved to ${resolved}, outside the staged tree, so the collector would read the wrong copy.`)
 }
 if (!fs.existsSync(path.join(path.dirname(resolved), 'sql-wasm.wasm'))) {
-  throw new Error('stage-resources: sql-wasm.wasm is not beside the resolved sql.js — the outcomes cache would fall back to recomputing.')
+  throw new Error('stage-resources: sql-wasm.wasm is not beside the resolved sql.js, so the outcomes cache would fall back to recomputing.')
 }
 
 // Prove the schema is where the validator will look, the same way it looks: resolved from the
@@ -175,7 +175,7 @@ const check = spawnSync(process.execPath, [
   '--tree', out, '--bundles', SHIPPED_BUNDLES.join(','),
 ], { stdio: 'inherit' })
 if (check.status !== 0) {
-  throw new Error(`stage-resources: the staged collector failed the ${edition}-edition check — see above.`)
+  throw new Error(`stage-resources: the staged collector failed the ${edition}-edition check; see above.`)
 }
 fs.writeFileSync(path.join(desktopDir, 'resources', EDITION_STAMP), `${edition}\n`)
 
@@ -183,4 +183,4 @@ const bytes = (dir) => fs.readdirSync(dir, { withFileTypes: true, recursive: tru
   .filter(e => e.isFile())
   .reduce((sum, e) => sum + fs.statSync(path.join(e.parentPath ?? e.path, e.name)).size, 0)
 
-console.log(`staged the ${edition}-edition collector${production ? ' (production)' : ''} into ${path.relative(process.cwd(), out)} — ${mediaCount} dashboard assets, ${(bytes(out) / 1024 / 1024).toFixed(1)} MB`)
+console.log(`staged the ${edition}-edition collector${production ? ' (production)' : ''} into ${path.relative(process.cwd(), out)}: ${mediaCount} dashboard assets, ${(bytes(out) / 1024 / 1024).toFixed(1)} MB`)

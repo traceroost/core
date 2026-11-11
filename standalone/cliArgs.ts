@@ -37,7 +37,7 @@ interface UsageEntry { usage: string; description: string; cloud?: true }
 function commandEntries(cloud: boolean): UsageEntry[] {
   const entries: UsageEntry[] = [
     { usage: 'traceroost [--ui-port <port>] [--otlp-port <port>] [--data-dir <path>] [--no-open] …',
-      description: 'Start TraceRoost here — see "Bare run" below.' },
+      description: 'Start TraceRoost here. See "Bare run" below.' },
     { usage: 'traceroost service <install|uninstall|start|stop|restart|status|logs|update>',
       description: 'Run TraceRoost as a background service that starts at login; `install` also updates it. `service install --ui-port <port>` sets its dashboard port.' },
     { usage: AGENTS_USAGE,
@@ -102,7 +102,7 @@ export function usageText(cloud: boolean): string {
     '',
     'Bare run: `traceroost` with no command starts the dashboard (and opens it in your browser), the',
     'OTLP receiver your agents send live traces to, and the MCP server. Past history appears right',
-    "away from your agents' log files. It asks before it changes any agent's settings — here in",
+    "away from your agents' log files. It asks before it changes any agent's settings, here in",
     'the terminal, or in the dashboard when there is no terminal. Options:',
     ...Object.entries(SERVER_FLAGS).map(([flag, f]) => {
       const left = f.value === 'none' ? flag : `${flag} <${f.value}>`

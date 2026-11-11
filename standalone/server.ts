@@ -158,7 +158,7 @@ const resolvedPorts: Partial<Record<'ui' | 'otlp' | 'mcp', number>> = {}
 function recordResolvedPort(kind: 'ui' | 'otlp' | 'mcp', requested: number, bound: number): void {
   resolvedPorts[kind] = bound
   if (bound !== requested) {
-    console.log(`[TraceRoost] Port ${requested} (${kind.toUpperCase()}) was in use — using ${bound} instead.`)
+    console.log(`[TraceRoost] Port ${requested} (${kind.toUpperCase()}) was in use; using ${bound} instead.`)
     if (kind === 'ui') console.log('[TraceRoost] To keep the dashboard on a fixed port, set one in Settings → Dashboard port.')
   }
   if (resolvedPorts.ui !== undefined && resolvedPorts.otlp !== undefined && resolvedPorts.mcp !== undefined) {
@@ -179,7 +179,7 @@ function recordResolvedPort(kind: 'ui' | 'otlp' | 'mcp', requested: number, boun
 // becomes load-bearing everywhere, uniformly.
 const REQUIRE_TOKEN_EVERYWHERE = !isLoopbackHost(BIND_HOST)
 if (REQUIRE_TOKEN_EVERYWHERE) {
-  console.log('[TraceRoost] BIND_HOST is not loopback — the dashboard, OTLP and MCP all now require Authorization: Bearer <token> (or ?token=) too. Configure agents accordingly.')
+  console.log('[TraceRoost] BIND_HOST is not loopback, so the dashboard, OTLP and MCP all now require Authorization: Bearer <token> (or ?token=) too. Configure agents accordingly.')
 }
 const parsedMaxSpans = parseInt(process.env.TRACEROOST_MAX_SPANS ?? '', 10)
 const MAX_SPANS  = Number.isNaN(parsedMaxSpans) ? DEFAULT_MAX_SPANS : parsedMaxSpans
@@ -187,7 +187,7 @@ const MAX_SPANS  = Number.isNaN(parsedMaxSpans) ? DEFAULT_MAX_SPANS : parsedMaxS
 const PACKAGE_VERSION: string = readPackageManifest(__dirname).version ?? 'unknown'
 let firstVersionCheck: Promise<VersionCheckResult | null> = Promise.resolve(null)
 if (PACKAGE_VERSION === 'unknown') {
-  console.warn('[TraceRoost] Could not read package.json to determine the running version — is package.json missing from this install?')
+  console.warn('[TraceRoost] Could not read package.json to determine the running version. Is package.json missing from this install?')
 } else {
   console.log(`[TraceRoost] Version         ${PACKAGE_VERSION}`)
   // The Sessions tab footer shows this version, but a bare `npx traceroost`/long-running
@@ -234,12 +234,12 @@ const dataDirLock: DataDirLock = (() => {
   const lockVersion = PACKAGE_VERSION === 'unknown' ? undefined : PACKAGE_VERSION
   let first = tryAcquireDataDirLock(DATA_DIR, { service: isService, version: lockVersion })
   if (!first.ok && isService) {
-    console.error(`${describeLockHolder(DATA_DIR, first.holder)}\n[TraceRoost] Running as the background service — waiting for the data directory to free up.`)
+    console.error(`${describeLockHolder(DATA_DIR, first.holder)}\n[TraceRoost] Running as the background service; waiting for the data directory to free up.`)
     while (!first.ok) {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10_000)
       first = tryAcquireDataDirLock(DATA_DIR, { service: true, version: lockVersion })
     }
-    console.log('[TraceRoost] Data directory is free — starting.')
+    console.log('[TraceRoost] Data directory is free, starting.')
   }
   if (!first.ok) {
     console.error(describeLockHolder(DATA_DIR, first.holder))
@@ -251,7 +251,7 @@ process.on('exit', () => dataDirLock.release())
 dataDirLock.startHeartbeat(holder => {
   // Another server judged this one dead and took the dir over (only possible across hosts, or after
   // the lock file was tampered with) — stop without saving, so its spans.json isn't overwritten.
-  console.error(`[TraceRoost] Lost the data directory lock on ${DATA_DIR}${holder ? ` to pid ${holder.pid} on ${holder.hostname}` : ''} — exiting without saving so the two servers don't overwrite each other.`)
+  console.error(`[TraceRoost] Lost the data directory lock on ${DATA_DIR}${holder ? ` to pid ${holder.pid} on ${holder.hostname}` : ''}; exiting without saving so the two servers don't overwrite each other.`)
   process.exit(1)
 })
 // This host's trace store — its cloud host id lives in the data dir, so this server and the
@@ -302,7 +302,7 @@ try {
       const backupFile = `${DATA_FILE}.bak`
       fs.renameSync(DATA_FILE, backupFile)
       traceHorizon.raiseFloor(Date.now())
-      console.warn(`[TraceRoost] ${DATA_FILE} was ${(size / 1024 / 1024).toFixed(0)}MB — too large to load safely. Moved it to ${backupFile} and starting fresh.`)
+      console.warn(`[TraceRoost] ${DATA_FILE} was ${(size / 1024 / 1024).toFixed(0)}MB, too large to load safely. Moved it to ${backupFile} and starting fresh.`)
     } else {
       const raw = fs.readFileSync(DATA_FILE, 'utf-8')
       let parsed: unknown
@@ -313,7 +313,7 @@ try {
         // letting the first save overwrite it — every OTEL span ever received is in there.
         const aside = quarantineCorruptFile(DATA_FILE)
         traceHorizon.raiseFloor(Date.now())
-        console.warn(`[TraceRoost] ${DATA_FILE} could not be parsed (${e instanceof Error ? e.message : String(e)})${aside ? ` — moved it to ${aside}` : ''}; starting with no stored spans.`)
+        console.warn(`[TraceRoost] ${DATA_FILE} could not be parsed (${e instanceof Error ? e.message : String(e)})${aside ? `, moved it to ${aside}` : ''}; starting with no stored spans.`)
         parsed = []
       }
       spans = Array.isArray(parsed) ? parsed as Span[] : []
@@ -344,7 +344,7 @@ function saveSpansNow(): boolean {
       onSpansEvicted(spans.splice(0, dropped))
       rebuildSpanIndex()
       dataVersion++
-      console.warn(`[TraceRoost] Save failed (spans array too large to serialize) — dropped oldest ${dropped} spans and retrying`)
+      console.warn(`[TraceRoost] Save failed (spans array too large to serialize); dropped oldest ${dropped} spans and retrying`)
       try {
         writeSpansFile()
         return true
@@ -691,7 +691,7 @@ async function startLogIngestion() {
     const sqlFactory = await initSqlJs({ locateFile: (f: string) => path.join(sqlJsDir, f) })
     logReader = new LogReader({ log: (msg) => console.log(msg), sqlFactory, observe: observeLogFile })
   } catch (err) {
-    console.warn(`[TraceRoost] sql.js unavailable — OpenCode database reads are off: ${err instanceof Error ? err.message : String(err)}`)
+    console.warn(`[TraceRoost] sql.js unavailable, so OpenCode database reads are off: ${err instanceof Error ? err.message : String(err)}`)
   }
 
   // Git-outcome caching — a separate small sqlite file, see standalone/db/outcomesDb.ts.
@@ -757,7 +757,7 @@ async function startLogIngestion() {
     process.once('exit', () => { unsubscribe(); unsubscribeForwarding(); revisionBatcher.dispose(); backgroundWatcher?.dispose(); reconciliationService?.dispose() })
   }
 
-  console.log(`[TraceRoost] Log ingestion enabled — scanning local trace logs (keeping ${SESSION_RETENTION_DAYS} days)`)
+  console.log(`[TraceRoost] Log ingestion enabled: scanning local trace logs (keeping ${SESSION_RETENTION_DAYS} days)`)
   try {
     await historyReadiness.load()
   } finally {
@@ -1464,7 +1464,7 @@ function unauthorizedHtml(port: number): string {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Unauthorized — TraceRoost</title>
+<title>TraceRoost: Unauthorized</title>
 <style>
   :root { color-scheme: light dark; }
   body {
@@ -1494,10 +1494,10 @@ function unauthorizedHtml(port: number): string {
 <body>
   <div class="card">
     <h1>🔒 Unauthorized</h1>
-    <p>This dashboard needs the access token TraceRoost generated for it — the address you used is missing it, or has the wrong one.</p>
+    <p>This dashboard needs the access token TraceRoost generated for it. The address you used is missing it, or has the wrong one.</p>
     <p>Open the dashboard using the full URL TraceRoost printed when it started, token included:</p>
     <code>http://localhost:${port}/?token=&lt;your-token&gt;</code>
-    <p class="hint">Running this as a background service instead? <code>traceroost service status</code> prints that same URL again — no need to dig through old terminal output.</p>
+    <p class="hint">Running this as a background service instead? <code>traceroost service status</code> prints that same URL again, so there's no need to dig through old terminal output.</p>
   </div>
 </body>
 </html>`
@@ -1602,7 +1602,7 @@ function emitInstructionTelemetry(workspace: string): void {
 
 function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
   if (!isAllowedHostHeader(req.headers.host, BIND_HOST)) {
-    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
+    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden: invalid Host header'); return
   }
   const url = (req.url ?? '/').split('?')[0]
 
@@ -1642,10 +1642,10 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
   // preflight (which this server never grants).
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     if (!isSameOriginRequest(req.headers)) {
-      res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+      res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden: cross-origin request'); return
     }
     if (!isJsonContentType(req.headers['content-type'])) {
-      res.writeHead(415, { 'Content-Type': 'text/plain' }); res.end('Unsupported Media Type — send Content-Type: application/json'); return
+      res.writeHead(415, { 'Content-Type': 'text/plain' }); res.end('Unsupported Media Type. Send Content-Type: application/json'); return
     }
   }
 
@@ -1744,10 +1744,10 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
         // end up in git). The extension writes the same file into the open workspace folder.
         const filePath = path.join(DATA_DIR, filename)
         const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
-        const entry = `## ${timestamp} — ${label}\n\n${prompt}\n\n---\n\n`
+        const entry = `## ${timestamp}: ${label}\n\n${prompt}\n\n---\n\n`
         let existing = ''
         try { existing = fs.readFileSync(filePath, 'utf-8') } catch { /* new file */ }
-        const content = existing ? existing + entry : `# TraceRoost Prompts — ${agentName}\n\n${entry}`
+        const content = existing ? existing + entry : `# TraceRoost Prompts: ${agentName}\n\n${entry}`
         writeFileAtomic(filePath, content, { mode: 0o600 })
         console.log(`[TraceRoost] Prompt written to ${filePath}`)
         res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -1993,7 +1993,7 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
     // Guarded decode: a malformed escape would otherwise throw out of this listener and take the
     // server down — from any web page, since GET needs no Origin (standalone/requestGuards.ts).
     const sessionId = decodePathSegment(url.slice('/api/timeline/'.length))
-    if (sessionId === null) { res.writeHead(400, { 'Content-Type': 'text/plain' }); res.end('Bad Request — malformed session id'); return }
+    if (sessionId === null) { res.writeHead(400, { 'Content-Type': 'text/plain' }); res.end('Bad Request: malformed session id'); return }
     const summary = buildSessionSummary()
     const session = summary?.sessions.find(s => s.sessionId === sessionId) ?? null
     res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -2288,7 +2288,7 @@ const MAX_OTLP_BODY_BYTES = 50 * 1024 * 1024
 
 const otlpServer = http.createServer((req, res) => {
   if (!isAllowedHostHeader(req.headers.host, BIND_HOST)) {
-    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
+    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden: invalid Host header'); return
   }
   // Unauthenticated identify probe (the VS Code extension uses this to detect a standalone
   // server already running before starting its own collector) — same reasoning as /health above.
@@ -2306,7 +2306,7 @@ const otlpServer = http.createServer((req, res) => {
   // Agents' exporters never send Origin; a web page POSTing fake spans always does, and must use a
   // no-preflight Content-Type (text/plain, form) to get its request through — refuse both.
   if (!isAllowedOrigin(req.headers.origin)) {
-    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden: cross-origin request'); return
   }
   if (req.method !== 'POST') { res.writeHead(200); res.end(); return }
   if (!isAllowedOtlpContentType(req.headers['content-type'], req.headers.origin)) {
@@ -2397,17 +2397,17 @@ async function startOtlpServer(): Promise<void> {
       const agentsRepointed = !AUTOCONFIG_DISABLED && !IS_DOCKER && readAgentSetupAnswer() === 'yes'
       const agentsLine = agentsRepointed
         ? `Agents are already pointed at ${bound}, so nothing's being missed`
-        : `Agents set up for port ${OTLP_PORT} still send there, so their live traces don't reach this service — point them at ${bound} with Set up agents in the dashboard's Settings, or \`traceroost agents setup --otlp-port ${bound}\``
+        : `Agents set up for port ${OTLP_PORT} still send there, so their live traces don't reach this service. Point them at ${bound} with Set up agents in the dashboard's Settings, or \`traceroost agents setup --otlp-port ${bound}\``
       collectorConflict = { owner, port: OTLP_PORT, boundPort: bound, agentsRepointed }
       if (owner === 'plugin') {
         console.warn(
-          `[TraceRoost] Two TraceRoost hosts are running — the VS Code extension already holds port ${OTLP_PORT}; this service moved to port ${bound} instead.\n` +
-          `  - ${agentsLine}${agentsRepointed ? ' — but with both running, whichever one you close first silently stops collecting' : ''}.\n` +
-          `  - Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (\`code --uninstall-extension agentlens.agentlens-dashboard\`), then reload.\n` +
+          `[TraceRoost] Two TraceRoost hosts are running: the VS Code extension already holds port ${OTLP_PORT}; this service moved to port ${bound} instead.\n` +
+          `  - ${agentsLine}${agentsRepointed ? ', but with both running, whichever one you close first silently stops collecting' : ''}.\n` +
+          `  - Recommended: keep this background service (it works even when VS Code is closed) and uninstall the extension (\`code --uninstall-extension agentlens.agentlens-dashboard\`), then reload.\n` +
           `  - Prefer VS Code instead? Stop this service with \`traceroost service stop\`.`
         )
       } else {
-        console.warn(`[TraceRoost] Port ${OTLP_PORT} is in use by another application — this service moved to port ${bound} instead. ${agentsLine}.`)
+        console.warn(`[TraceRoost] Port ${OTLP_PORT} is in use by another application, so this service moved to port ${bound} instead. ${agentsLine}.`)
       }
       broadcastSse({ type: 'update', collectorConflict })
     }).catch(() => { /* best effort */ })
@@ -2417,7 +2417,7 @@ async function startOtlpServer(): Promise<void> {
   // real bind succeeds, against `bound` (the port actually listening), never the static OTLP_PORT,
   // which may differ from it after a fallback.
   if (AUTOCONFIG_DISABLED) {
-    console.log('[TraceRoost] Auto-configure disabled (TRACEROOST_NO_AUTOCONFIG=1) — agent config left untouched.')
+    console.log('[TraceRoost] Auto-configure disabled (TRACEROOST_NO_AUTOCONFIG=1); agent config left untouched.')
   } else if (!IS_DOCKER) {
     // Only with the user's yes, asked once (src/agentSetupConsent.ts).
     const answer = readAgentSetupAnswer()
@@ -2502,7 +2502,7 @@ function askAgentSetupInTerminal(port: number): void {
     rl.close()
     agentSetupPending = false
     broadcastSse({ type: 'update', agentSetupPending })
-    console.log("[TraceRoost] Not now — TraceRoost will ask again next time it starts. To set them up sooner, use Set up agents in the dashboard's ⚙ Settings panel.")
+    console.log("[TraceRoost] Not now. TraceRoost will ask again next time it starts. To set them up sooner, use Set up agents in the dashboard's ⚙ Settings panel.")
   })
   // readline swallows Ctrl-C while it waits; pass it on so the server still stops as usual.
   rl.on('SIGINT', () => { rl.close(); process.kill(process.pid, 'SIGINT') })
@@ -2619,7 +2619,7 @@ process.on('SIGTERM', shutdown)
 if (installOwnerChannel(process, reason => {
   console.log(reason === 'requested'
     ? '[TraceRoost] Shutdown requested by the app that started this collector'
-    : '[TraceRoost] The app that started this collector is gone — shutting down')
+    : '[TraceRoost] The app that started this collector is gone, shutting down')
   shutdown()
 })) {
   console.log('[TraceRoost] Owner channel open: the app that started this collector can stop it')
@@ -2641,9 +2641,9 @@ function flushStoresBestEffort(): void {
   try { outcomesDb?.save() } catch (e) { console.error('[TraceRoost] Could not save the outcomes cache:', e) }
 }
 process.on('uncaughtException', (err, origin) => {
-  console.error(`[TraceRoost] ${origin === 'unhandledRejection' ? 'Unhandled rejection' : 'Uncaught exception'} — continuing to serve:`, err)
+  console.error(`[TraceRoost] ${origin === 'unhandledRejection' ? 'Unhandled rejection' : 'Uncaught exception'}, continuing to serve:`, err)
   flushStoresBestEffort()
 })
 process.on('unhandledRejection', (reason) => {
-  console.error('[TraceRoost] Unhandled promise rejection — continuing to serve:', reason)
+  console.error('[TraceRoost] Unhandled promise rejection, continuing to serve:', reason)
 })

@@ -130,7 +130,7 @@ export function toMarkdown(sessions: ExportableSession[]): string {
   ]
 
   for (const s of sessions) {
-    parts.push(`## ${s.model || 'unknown model'} — ${s.startTime || 'unknown time'}`)
+    parts.push(`## ${s.model || 'unknown model'}, ${s.startTime || 'unknown time'}`)
     parts.push('')
     parts.push(`- **Session ID:** ${s.sessionId}`)
     parts.push(`- **Source:** ${s.source} (${s.dataSource === 'log' ? 'log file' : 'OTEL'})`)

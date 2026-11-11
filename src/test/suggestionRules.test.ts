@@ -41,7 +41,7 @@ suite('suggestionRules — one rule set for host and webview', () => {
   test('dominantLanguageNote adds context only when one real language dominates', () => {
     const mk = (i: number, language?: string): SuggestionSession => session(i, { language })
     assert.strictEqual(dominantLanguageNote([mk(1, 'python'), mk(2, 'python'), mk(3, 'go')]),
-      ' Most (2 of 3) are `python` traces — naming that stack\'s build and test commands upfront helps.')
+      ' Most (2 of 3) are `python` traces. Naming that stack\'s build and test commands upfront helps.')
     assert.strictEqual(dominantLanguageNote([mk(1, 'python'), mk(2, 'go'), mk(3, 'rust')]), '')
     assert.strictEqual(dominantLanguageNote([mk(1, 'none'), mk(2, 'none'), mk(3, 'none')]), '')
     assert.strictEqual(dominantLanguageNote([mk(1), mk(2), mk(3)]), '')

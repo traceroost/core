@@ -52,7 +52,7 @@ export function storeDowngradeWarning(db: SchemaDb, currentVersion: number, stor
   const onDisk = Number(db.exec('PRAGMA user_version')[0]?.values[0]?.[0] ?? 0)
   if (!(onDisk > currentVersion)) return null
   return `The ${storeName} was written by a newer TraceRoost (store version ${onDisk}; this build writes ${currentVersion}). ` +
-    'Running anyway — if traces look wrong, upgrade back, or clear the store and let it rebuild.'
+    'Running anyway. If traces look wrong, upgrade back, or clear the store and let it rebuild.'
 }
 
 function quoteIdent(name: string): string {

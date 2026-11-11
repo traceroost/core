@@ -64,7 +64,7 @@ export async function runAgentsCli(args: string[], io: AgentsCliIo = defaultIo):
       const value = rest[i + 1]
       const n = Number(value)
       if (value === undefined || !/^\d+$/.test(value) || n < 1 || n > 65535) {
-        io.error(`Invalid --otlp-port: ${value === undefined ? 'no port given' : `"${value}"`} — expected a port from 1 to 65535.`)
+        io.error(`Invalid --otlp-port: ${value === undefined ? 'no port given' : `"${value}"`}; expected a port from 1 to 65535.`)
         return 1
       }
       flagPort = n; i++; continue

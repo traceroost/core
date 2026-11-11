@@ -155,7 +155,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 function assertKnownConstructs(node: Node, path = '#'): void {
   for (const key of Object.keys(node)) {
     if (!KNOWN_KEYWORDS.has(key)) {
-      throw new Error(`jsonSchemaValidate: unsupported schema keyword "${key}" at ${path} — extend the validator`)
+      throw new Error(`jsonSchemaValidate: unsupported schema keyword "${key}" at ${path}; extend the validator`)
     }
   }
   for (const [k, v] of Object.entries((node.properties ?? {}) as Record<string, Node>)) {

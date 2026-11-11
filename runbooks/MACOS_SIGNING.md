@@ -17,11 +17,11 @@ and the WASM it loads all run under the production entitlements. Re-run that aft
 entitlements or anything the collector spawns.
 
 The membership is an **individual** one, so the certificate, the notarization record and the
-macOS dialogs that name a developer carry the account holder's legal name as Apple recorded it —
-**ROGER JOSEPH REED** — not TraceRoost, whatever common name the certificate request gave. The app's
+macOS dialogs that name a developer carry the account holder's legal name as Apple recorded it,
+**ROGER JOSEPH REED**, not TraceRoost, whatever common name the certificate request gave. The app's
 own name, menus, About box and first-open prompt say TraceRoost. Moving to an organization
-later (it needs a legal entity and a D-U-N-S number) means a new certificate and new secrets — this
-same procedure again — and no code change.
+later (it needs a legal entity and a D-U-N-S number) means a new certificate and new secrets (this
+same procedure again) and no code change.
 
 ## 1. Note the Team ID
 
@@ -31,7 +31,7 @@ same procedure again — and no code change.
 
 ## 2. Create the Developer ID Application certificate
 
-Only the Account Holder can create Developer ID certificates — on an individual membership, that is
+Only the Account Holder can create Developer ID certificates; on an individual membership, that is
 you. Do this on a Mac you control; the private key is generated there and never leaves it except in
 the `.p12` of step 3.
 
@@ -43,7 +43,7 @@ the `.p12` of step 3.
    **G2 Sub-CA** → upload the request → **Download** the `.cer`.
 3. Import the `.cer` into the login keychain, where it joins its private key. Double-clicking it is
    meant to do this but can silently do nothing, so import it explicitly, together with Apple's
-   [Developer ID - G2](https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer) intermediate —
+   [Developer ID - G2](https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer) intermediate;
    without it the identity exists but is not valid:
 
    ```sh
@@ -74,7 +74,7 @@ security add-generic-password -s traceroost-p12 -a you@example.com -w        # t
 security add-generic-password -s traceroost-notarize -a you@example.com -w   # step 4's app-specific password
 ```
 
-Check the `.p12` the way CI will read it — a throwaway keychain must end up with one valid identity:
+Check the `.p12` the way CI will read it: a throwaway keychain must end up with one valid identity:
 
 ```sh
 kc="$TMPDIR/p12check.keychain-db"; security create-keychain -p x "$kc"; security unlock-keychain -p x "$kc"
@@ -105,7 +105,7 @@ Before giving CI the secrets, prove the credentials on this Mac. `CSC_NAME` is t
 SHA-1 from `find-identity`, or the certificate's name **without** the `Developer ID Application: `
 prefix (electron-builder refuses the prefix), e.g. `ROGER JOSEPH REED (FF6GJHUP8A)`. In a fresh
 checkout, install the desktop dependencies first (`npm ci` in `desktop/`, then
-`node node_modules/electron/install.js` — the Electron binary download is skipped by default).
+`node node_modules/electron/install.js`; the Electron binary download is skipped by default).
 
 ```sh
 cd desktop
@@ -169,7 +169,7 @@ Keep no repository-level copies (`gh secret list --repo traceroost/core` shows n
 names): any workflow on any branch can read a repository secret.
 
 Set `APPLE_TEAM_ID` on the API-key route too: the Notarization check then also asserts that the app
-was signed by that team. Add the certificate and the notarization credentials together — with only
+was signed by that team. Add the certificate and the notarization credentials together; with only
 one of them the Notarization check fails the build on purpose.
 
 ## 7. Verify in CI
@@ -198,14 +198,14 @@ Failures and what they mean:
 
 ## 8. First release and the Gatekeeper test
 
-The next `v*` tag attaches `TraceRoost-<v>-mac-{arm64,x64}.dmg` notarized, under the same plain names
-— nothing to switch ([`RELEASING.md` → Desktop](RELEASING.md)). Before announcing it:
+The next `v*` tag attaches `TraceRoost-<v>-mac-{arm64,x64}.dmg` notarized, under the same plain names,
+with nothing to switch ([`RELEASING.md` → Desktop](RELEASING.md)). Before announcing it:
 
 1. On a **different macOS user account** (or another Mac), download the DMG from the release page
    in a browser, so it carries the quarantine flag (`xattr -p com.apple.quarantine <dmg>` prints
    one).
 2. Open it, drag TraceRoost to Applications, open it. The only prompt should be *"TraceRoost is an
-   app downloaded from the Internet. Are you sure you want to open it?"* — no "cannot be verified",
+   app downloaded from the Internet. Are you sure you want to open it?"*, with no "cannot be verified",
    no trip to System Settings.
 
 ## Keeping it working
@@ -213,7 +213,7 @@ The next `v*` tag attaches `TraceRoost-<v>-mac-{arm64,x64}.dmg` notarized, under
 | What | Lifetime | If it lapses |
 | --- | --- | --- |
 | Apple Developer Program membership | 1 year, renews yearly (US$99) | new builds cannot be notarized, so releases ship without macOS (the `desktop` job fails). Builds already notarized keep opening |
-| Developer ID Application certificate | as dated on the certificate — the first one (issued 2026-11-03) expires **2027-12-03**, not the 5 years Apple's older certificates had; check with `security find-certificate -c "Developer ID Application" -p \| openssl x509 -noout -enddate` | same as above until a new one is made (steps 2, 3, 6). Software signed before expiry keeps working — the signature is timestamped |
+| Developer ID Application certificate | as dated on the certificate: the first one (issued 2026-11-03) expires **2027-12-03**, not the 5 years Apple's older certificates had; check with `security find-certificate -c "Developer ID Application" -p \| openssl x509 -noout -enddate` | same as above until a new one is made (steps 2, 3, 6). Software signed before expiry keeps working; the signature is timestamped |
 | App-specific password | until revoked, or the Apple Account password changes | notarization fails with 401 (step 4, then `APPLE_APP_SPECIFIC_PASSWORD`) |
 | App Store Connect API key | until revoked | notarization fails with 401 |
 

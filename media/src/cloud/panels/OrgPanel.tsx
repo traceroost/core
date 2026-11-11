@@ -8,9 +8,9 @@ import { useDialog } from '../../a11y'
 // side (src/test/cloud/org/privacy.test.ts) pins the source-of-truth copy and checks this file
 // carries the same lines (SENT, NEVER_SENT, and whoSeesWhat below).
 const SENT = [
-  'Counts only — # of traces, turns, tool calls per tool, tokens, errors, files changed, one-shot edits, lines added/removed',
+  'Counts only: # of traces, turns, tool calls per tool, tokens, errors, files changed, one-shot edits, lines added/removed',
   'Model, agent and language names, the outcome, whether a trace came from OTEL or logs, and whether you or an agent started it, with timestamps',
-  'Hashed repository, branch, file and git-author ids — keyed by your repository’s first commit, so a public repository’s names can be guessed and matched',
+  'Hashed repository, branch, file and git-author ids, keyed by your repository’s first commit, so a public repository’s names can be guessed and matched',
   'A hashed conversation id, so the traces of one conversation group together',
   'Which instruction files (CLAUDE.md, AGENTS.md and the like) each repository has, with line counts, last-modified times and a hash that only shows whether they changed',
   'Loop and error categories (never a message)',
@@ -38,7 +38,7 @@ const NEVER_SENT = [
 /** Same wording as src/cloud/org/privacy.ts's whoSeesWhat (and cloud's consent screen). */
 function whoSeesWhat(perDeveloperVisibility: boolean, orgName: string): string {
   return perDeveloperVisibility
-    ? `${orgName} has per-developer numbers turned on — an admin sees your individual figures. Other members, including a developer individually granted org visibility, see only what ${orgName}'s teammate-visibility settings allow. You will see a marker saying so.`
+    ? `${orgName} has per-developer numbers turned on: an admin sees your individual figures. Other members, including a developer individually granted org visibility, see only what ${orgName}'s teammate-visibility settings allow. You will see a marker saying so.`
     : `Admins of ${orgName} see org totals only. Your individual numbers stay yours unless the whole org turns that on.`
 }
 
@@ -223,7 +223,7 @@ export function OrgButton() {
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (active ? ' active' : '')}
-        title={`TraceRoost Cloud — ${indicator === 'reporting' && sending ? 'sending' : INDICATOR_LABEL[indicator]}`}
+        title={`TraceRoost Cloud: ${indicator === 'reporting' && sending ? 'sending' : INDICATOR_LABEL[indicator]}`}
         aria-label="TraceRoost Cloud org"
         aria-expanded={active}
         onClick={() => { orgOpen.value = !orgOpen.value; if (orgOpen.value) requestOrgStatus() }}
@@ -234,7 +234,7 @@ export function OrgButton() {
 }
 
 const NOTICE_TITLE: Record<NonNullable<OrgStatus['notice']>['kind'], string> = {
-  relink: 'TraceRoost Cloud sign-in expired — re-link this machine',
+  relink: 'TraceRoost Cloud sign-in expired. Re-link this machine',
   upgrade: 'Update TraceRoost to keep sending to TraceRoost Cloud',
   ceiling: 'TraceRoost Cloud daily limit reached',
 }
@@ -303,13 +303,13 @@ function ReconcileButton({ queueDepth }: { queueDepth: number }) {
         <span style={`font-size:11px;margin-left:8px;color:${result.error ? 'var(--vscode-errorForeground, #f14c4c)' : 'var(--muted)'}`}>
           {result.error
             ? `Couldn't finish: ${result.error}`
-            : result.queued > 0 ? `Found ${result.queued} not yet sent — queued now.`
+            : result.queued > 0 ? `Found ${result.queued} not yet sent; queued now.`
             // This button only looks for local sessions never yet enqueued at all — a nonzero
             // queueDepth here means some are already queued but haven't been *sent*, not that
             // everything made it. Clicking still nudges the scheduler to retry them now (see
             // reconcileLocalSessions), but a persistently failing item (see the Status row above)
             // needs its own send fixed, not another click here.
-            : queueDepth > 0 ? `No new traces found — ${queueDepth} already-queued trace(s) will retry shortly.`
+            : queueDepth > 0 ? `No new traces found. ${queueDepth} already-queued trace(s) will retry shortly.`
             : 'Everything is already sent.'}
         </span>
       )}
@@ -419,7 +419,7 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
             {' '}<code style="font-size:13px;font-weight:700;letter-spacing:1px">{orgDevicePrompt.value.userCode}</code>. Waiting for approval…
             {orgDevicePrompt.value.blocked && (
               <div style="font-size:11px;color:var(--vscode-editorWarning-foreground, #f6a623);margin-top:6px">
-                {orgDevicePrompt.value.blocked} Still waiting — this same code links as soon as the org has a free machine slot.
+                {orgDevicePrompt.value.blocked} Still waiting. This same code links as soon as the org has a free machine slot.
               </div>
             )}
           </div>
@@ -445,8 +445,8 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
           <li>Gives your org's admins cost &amp; activity figures across the team, without exposing anyone's code</li>
           <li>An admin sees your individual figures; other members see only what your org's teammate-visibility settings allow</li>
           <li>Opt-in and off by default; nothing is sent until you link</li>
-          <li>Reversible any time — unlinking deletes the local credential and stops sending immediately, even offline</li>
-          <li>Works offline — traces queue locally and send automatically once you're back</li>
+          <li>Reversible any time: unlinking deletes the local credential and stops sending immediately, even offline</li>
+          <li>Works offline: traces queue locally and send automatically once you're back</li>
         </ul>
       </Section>
       <Section title="Data privacy">
@@ -484,12 +484,12 @@ function LinkedBody({ st }: { st: OrgStatus }) {
           <Dot indicator={st.indicator} sending={st.sending} />
           <span style="color:var(--fg)">
             {st.indicator === 'reporting'
-              ? (st.sending ? 'Sending — hashed traces going to cloud'
+              ? (st.sending ? 'Sending: hashed traces going to cloud'
                 // "Synced" would be a claim about sends that have not happened yet (a fresh link, or a
                 // machine whose builds fail before anything is queued — forwardState.ts recordBuildFailure).
-                : st.lastRollupAt ? 'Synced — hashed traces sent to cloud' : 'Linked — no traces sent yet')
-              : st.indicator === 'queued' ? `Queued — ${st.queueDepth ?? 0} hashed trace(s) waiting to sync`
-              : `Paused — ${st.degradedReason ?? 'last send failed'}`}
+                : st.lastRollupAt ? 'Synced: hashed traces sent to cloud' : 'Linked: no traces sent yet')
+              : st.indicator === 'queued' ? `Queued: ${st.queueDepth ?? 0} hashed trace(s) waiting to sync`
+              : `Paused: ${st.degradedReason ?? 'last send failed'}`}
           </span>
         </div>
         <Row k="Last trace" v={st.lastRollupAt ? new Date(st.lastRollupAt).toLocaleString() : 'none yet'} />
@@ -520,7 +520,7 @@ function LinkedBody({ st }: { st: OrgStatus }) {
         {orgActionError.value && (
           <div style="font-size:11px;color:var(--vscode-errorForeground, #f14c4c);margin-top:8px">Unlink failed: {orgActionError.value}</div>
         )}
-        <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline. This only unlinks this machine; you stay a member of {displayOrgName(st)} until an admin removes you from the roster.</div>
+        <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately, even offline. This only unlinks this machine; you stay a member of {displayOrgName(st)} until an admin removes you from the roster.</div>
       </Section>
     </>
   )
@@ -547,7 +547,7 @@ function TransportStats({ stats }: { stats: TraceSendStats }) {
           </div>
         ))}
       </div>
-      <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:4px">Counted locally, from this machine's own send log — never from the cloud.</div>
+      <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:4px">Counted locally, from this machine's own send log, never from the cloud.</div>
     </div>
   )
 }
@@ -580,7 +580,7 @@ export function OrgPanel() {
         <h2 id="org-panel-title" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0">TraceRoost Cloud · {st?.linked ? displayOrgName(st) : 'Not linked'}</h2>
         <button onClick={() => orgOpen.value = false} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1" title="Close (Esc)" aria-label="Close TraceRoost Cloud panel">×</button>
       </div>
-      {!st && <div style="padding:16px;font-size:12px;color:var(--muted)">Checking this machine's status — locally, no network…</div>}
+      {!st && <div style="padding:16px;font-size:12px;color:var(--muted)">Checking this machine's status locally, no network…</div>}
       {st && !st.linked && <UnlinkedBody st={st} />}
       {st && st.linked && <LinkedBody st={st} />}
     </div>

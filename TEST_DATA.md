@@ -46,7 +46,7 @@ Capture procedure:
 3. Restart the agent terminal after standalone configures OTEL. Existing Claude/Codex processes keep their old telemetry settings.
 4. Start `pnpm run capture -- <fixture-name> --duration 180 --clear`.
 5. Send one prompt to the agent.
-6. Confirm the standalone terminal prints `[TraceRoost] Ingested N spans (<agent>)` lines — shown only with `TRACEROOST_LOG_LEVEL=debug` (step 2). If they don't appear at debug level, the agent is not sending to this collector/port.
+6. Confirm the standalone terminal prints `[TraceRoost] Ingested N spans (<agent>)` lines, shown only with `TRACEROOST_LOG_LEVEL=debug` (step 2). If they don't appear at debug level, the agent is not sending to this collector/port.
 7. Press `s` in the capture terminal to save and exit early, or wait for `--duration`.
 
 Each agent/scenario pair should produce one clean fixture. For Codex captures, the `[otel]` configuration must include `log_user_prompt`, `exporter`, and `trace_exporter`.

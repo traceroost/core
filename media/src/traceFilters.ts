@@ -66,8 +66,8 @@ export const INITIATOR_FILTER_OPTIONS: Array<{ value: InitiatorFilter; label: st
 export const OUTCOME_FILTER_OPTIONS: Array<{ value: OutcomeFilter; label: string; color: string; title: string }> = [
   { value: 'all',       label: 'All',         color: 'var(--fg)',        title: 'Show all traces' },
   { value: 'merged',    label: 'Merged',      color: 'var(--tr-merged)', title: "Changed files are committed and match the tip of this repo's trunk branch (main/master), per git history" },
-  { value: 'committed', label: 'Committed',   color: 'var(--accent)',    title: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch) — or no trunk branch could be resolved locally" },
-  { value: 'abandoned', label: 'Uncommitted', color: 'var(--vscode-editorWarning-foreground, #f6a623)', title: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress" },
+  { value: 'committed', label: 'Committed',   color: 'var(--accent)',    title: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch), or no trunk branch could be resolved locally" },
+  { value: 'abandoned', label: 'Uncommitted', color: 'var(--vscode-editorWarning-foreground, #f6a623)', title: "Changed files haven't been committed yet (not necessarily abandoned, may still be in progress)" },
 ]
 
 export interface ActiveFilterChip { key: string; label: string; value: string; clear: () => void }

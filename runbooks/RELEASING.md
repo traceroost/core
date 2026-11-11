@@ -1,10 +1,10 @@
 # Releasing
 
-Cutting a version release — bumping `package.json`, writing the `CHANGELOG.md` entry, and
+Cutting a version release: bumping `package.json`, writing the `CHANGELOG.md` entry, and
 publishing to the VS Code Marketplace, Open VSX, and npm.
 
 **Trigger:** someone asks for a release (e.g. "release these changes as 0.10.1"). Not scheduled,
-not automatic on every merge — a release can bundle just one merged PR or several that have
+not automatic on every merge. A release can bundle just one merged PR or several that have
 accumulated since the last one. Check what's landed since the last tag before assuming scope:
 `git log <last-tag>..HEAD --oneline` (or `git tag --list | tail -5` to find the last tag).
 
@@ -16,11 +16,11 @@ accumulated since the last one. Check what's landed since the last tag before as
 | Docker | `traceroost/traceroost` + `ghcr.io/traceroost/core` | `docker.yml`, called by `release.yml`'s `docker` job | `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN` (Docker Hub); `GITHUB_TOKEN` (ghcr) |
 | Homebrew | `traceroost/tap/traceroost` (formula `Formula/traceroost.rb` in `traceroost/homebrew-tap`) | `release.yml`'s `publish-homebrew` job, after `publish-npm`: `scripts/homebrew-formula.mjs` writes the formula from the tarball npm serves | `HOMEBREW_TAP_TOKEN` (the job is skipped, with a notice, until it exists) |
 | winget | `TraceRoost.TraceRoost` (manifests under `manifests/t/TraceRoost/TraceRoost/` in `microsoft/winget-pkgs`) | `release.yml`'s `publish-winget` job, after `desktop`: `desktop/scripts/winget-manifests.mjs` writes the manifests from the Windows installers the release serves, and `wingetcreate submit` opens the pull request; winget-pkgs moderators merge it | `WINGET_CREATE_GITHUB_TOKEN` (the job is skipped, with a notice, until it exists) |
-| VS Code Marketplace + Open VSX | **`agentlens.agentlens-dashboard`** | `vsce-identity.json` — the `package` job patches `name`/`publisher` into `package.json` for the VSIX build only | `VSCE_PAT` / `OVSX_PAT` (the existing AgentLens publisher tokens) |
+| VS Code Marketplace + Open VSX | **`agentlens.agentlens-dashboard`** | `vsce-identity.json`; the `package` job patches `name`/`publisher` into `package.json` for the VSIX build only | `VSCE_PAT` / `OVSX_PAT` (the existing AgentLens publisher tokens) |
 
 **Why the extension keeps the old id:** the marketplace id is sticky infrastructure users never
 re-type; the displayName is already "TraceRoost". Keeping `agentlens.agentlens-dashboard` means
-every installed AgentLens extension updates in place — no reinstall, no "both installed" conflict.
+every installed AgentLens extension updates in place, with no reinstall and no "both installed" conflict.
 `package.json` still carries the npm identity (`traceroost`); the two are decoupled via
 `vsce-identity.json`.
 
@@ -30,22 +30,22 @@ every installed AgentLens extension updates in place — no reinstall, no "both 
 | --- | --- |
 | npm `traceroost` | npmjs.com → package `traceroost` → Settings → Trusted Publisher: GitHub Actions, repository `traceroost/core`, workflow `release.yml` (takes a few minutes to propagate) |
 | Docker Hub `traceroost/traceroost` | create the repo under the `traceroost` account; add `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN` repo secrets |
-| VS Code / Open VSX | nothing new — `VSCE_PAT` / `OVSX_PAT` already exist for publisher `agentlens` |
+| VS Code / Open VSX | nothing new: `VSCE_PAT` / `OVSX_PAT` already exist for publisher `agentlens` |
 | Homebrew tap | create the public repo `traceroost/homebrew-tap` (the `homebrew-` prefix is what makes `brew install traceroost/tap/traceroost` work) with an empty `Formula/` directory; add a fine-grained token with **Contents: read and write on that repo only** as this repo's `HOMEBREW_TAP_TOKEN` secret. To seed it before the next release: `node scripts/homebrew-formula.mjs <current version> --out Formula/traceroost.rb` in the tap checkout, commit, push |
-| winget | a **classic** token with only the `public_repo` scope, from the GitHub user who opens the pull requests (currently the maintainer's personal account; a bot account with no access to the traceroost org is safer once there are collaborators), as this repo's `WINGET_CREATE_GITHUB_TOKEN` secret — set 2026-10-23; renew it before it expires. wingetcreate uses (and creates, if missing) the fork `<token owner>/winget-pkgs` and syncs it with upstream before each submission; an organization fork such as `traceroost/winget-pkgs` is never used. The first pull request is reviewed by a moderator; later ones mostly merge automatically once validation passes. See [winget](#winget) |
+| winget | a **classic** token with only the `public_repo` scope, from the GitHub user who opens the pull requests (currently the maintainer's personal account; a bot account with no access to the traceroost org is safer once there are collaborators), as this repo's `WINGET_CREATE_GITHUB_TOKEN` secret, set 2026-10-23; renew it before it expires. wingetcreate uses (and creates, if missing) the fork `<token owner>/winget-pkgs` and syncs it with upstream before each submission; an organization fork such as `traceroost/winget-pkgs` is never used. The first pull request is reviewed by a moderator; later ones mostly merge automatically once validation passes. See [winget](#winget) |
 
 `TR_VSCE_PAT` / `TR_OVSX_PAT` are **not used** right now. They exist for the eventual extension
 cutover (below).
 
 Until npm's trusted publisher and the Docker Hub repo exist, do the `main` commit + changelog but
-**do not push the tag** — those publish jobs fail and leave the release half-done.
+**do not push the tag**: those publish jobs fail and leave the release half-done.
 
 ## Editions
 
-Every release ships one edition — **core** (no TraceRoost Cloud / org-link / upload code at all) or
+Every release ships one edition: **core** (no TraceRoost Cloud / org-link / upload code at all) or
 **full** (with it). See CONTRIBUTING.md → Editions for how the split works in the source.
 
-**Currently: `full`** — since v1.0.0 (2026-11-08, TraceRoost Cloud's launch), through the
+**Currently: `full`**, since v1.0.0 (2026-11-08, TraceRoost Cloud's launch), through the
 repository variable `TRACEROOST_RELEASE_EDITION=full`; the workflow's own fallback is still `core`
 (see "Flipping to `full`" below for the permanent switch). Through v0.21.0 the VSIX, the npm
 package, the Docker image and the desktop app were all built with `--edition=core`.
@@ -53,17 +53,17 @@ package, the Docker image and the desktop app were all built with `--edition=cor
 How a release picks its edition:
 
 - a `v*` tag push uses the repository variable `TRACEROOST_RELEASE_EDITION`, and `core` when it
-  isn't set — `release.yml` applies this rule and passes the result to `docker.yml` and
+  isn't set. `release.yml` applies this rule and passes the result to `docker.yml` and
   `desktop-release.yml` (which hands it to each desktop platform build as its `edition` input, and
   so to the build steps as `TRACEROOST_DESKTOP_EDITION`) and to the winget manifests;
 - a manual **Run workflow** (workflow_dispatch) uses its `edition` input (default `core`). A manual
-  `release.yml` run only builds the VSIX as an artifact — publishing happens only from a tag. A
+  `release.yml` run only builds the VSIX as an artifact; publishing happens only from a tag. A
   manual `docker.yml` run builds and pushes a `sha-…`-tagged image only (never a version tag or
   `:latest`).
 
 **Docker is gated on the release.** `docker.yml` has no tag trigger of its own: the tag runs
 `release.yml`, whose `docker` job calls `docker.yml` (a reusable workflow) only after `package` has
-passed — and `package` itself waits on `privacy-scan`. A tag whose lint, type check, unit tests,
+passed, and `package` itself waits on `privacy-scan`. A tag whose lint, type check, unit tests,
 privacy scan or edition check fails therefore publishes no image and leaves `:latest` alone. The
 Docker push runs alongside `publish-vsce` / `publish-npm`, not after them.
 
@@ -74,7 +74,7 @@ What the `core` release does differently:
    `**/cloud/**` to `.vscodeignore`, removes every `### TraceRoost Cloud (full edition only)`
    section from `CHANGELOG.md` (the VSIX and the npm package both ship it), and points
    `vscode:prepublish` / `prepublishOnly` at `pnpm run package:core`.
-2. `vsce package` / `npm publish` therefore run `package:core` — type check, lint,
+2. `vsce package` / `npm publish` therefore run `package:core`: type check, lint,
    `node esbuild.js --production --edition=core`, and `scripts/check-edition.mjs core`, which fails
    the release if any Cloud marker is in a bundle, the manifest still lists an Org command, or
    `CHANGELOG.md` still has a cloud-only section.
@@ -104,7 +104,7 @@ node scripts/prepare-edition.mjs restore   # always restore — never commit the
 ```
 
 **Flipping to `full` at launch:** set the repository variable `TRACEROOST_RELEASE_EDITION=full`
-(Settings → Secrets and variables → Actions → Variables) — `release.yml` reads it and passes it on
+(Settings → Secrets and variables → Actions → Variables); `release.yml` reads it and passes it on
 to `docker.yml` and `desktop-release.yml`. **The desktop app follows it:** a full release builds,
 tests and attaches the full desktop app on every platform (and `publish-winget` submits it), just as
 a core release ships the core one. (To hold desktop back on core for a release, give the `desktop`
@@ -122,11 +122,11 @@ assembles every platform without attaching anything) and open a downloaded app's
 
 Cut from `main` @ v0.15.4. Its `release.yml` publishes **only** the frozen `agentlens-dashboard`
 npm package and `agentlens/agentlens` Docker image (via the unprefixed `DOCKERHUB_*` secrets and
-its own OIDC trusted publisher) — the `publish-vsce` job is removed, since `main` publishes the
+its own OIDC trusted publisher). The `publish-vsce` job is removed, since `main` publishes the
 `agentlens.agentlens-dashboard` extension listing.
 
-Intended use: **one final release** — bump its version (e.g. `0.15.5`), add a CHANGELOG entry and
-an in-app / `npm deprecate` "AgentLens is now TraceRoost — switch to `traceroost` / `traceroost/traceroost`"
+Intended use: **one final release**. Bump its version (e.g. `0.15.5`), add a CHANGELOG entry and
+an in-app / `npm deprecate` "AgentLens is now TraceRoost: switch to `traceroost` / `traceroost/traceroost`"
 notice, tag it, then leave the branch dormant. Not for ongoing work.
 
 ## Future one-time task: extension id cutover
@@ -135,7 +135,7 @@ When the TraceRoost brand is established and you want the marketplace URL to say
 
 1. Create VS Code Marketplace publisher `traceroost` + claim Open VSX namespace `traceroost`; add
    `TR_VSCE_PAT` / `TR_OVSX_PAT` repo secrets.
-2. Restore `publish-vsce` to a two-identity matrix (git history has it) — leg `agentlens` +
+2. Restore `publish-vsce` to a two-identity matrix (git history has it): leg `agentlens` +
    leg `traceroost`, each gated on its PAT.
 3. Before that release, rework `handleDuplicateInstall` in `extension.ts`: until now it treats
    `agentlens.agentlens-dashboard` as the one published listing to keep and `traceroost.traceroost`
@@ -144,62 +144,62 @@ When the TraceRoost brand is established and you want the marketplace URL to say
    `--disable-extension` should name the right id).
 4. Cut one release: it publishes `traceroost.traceroost` alongside `agentlens.agentlens-dashboard`.
 5. In the marketplace publisher portal, mark `agentlens.agentlens-dashboard` **deprecated** with
-   `traceroost.traceroost` as the replacement — VS Code then shows every user of it a
-   "publisher recommends TraceRoost — Install" prompt.
+   `traceroost.traceroost` as the replacement. VS Code then shows every user of it a
+   "publisher recommends TraceRoost" prompt with an Install button.
 6. After the population moves, stop publishing to `agentlens.agentlens-dashboard` (drop the matrix
    leg); the deprecated listing stays up as a redirect. Keep `handleDuplicateInstall` in
    `extension.ts` for the transition window.
 
 ## Steps
 
-1. `git checkout main && git pull` — confirm a clean working tree and that everything you intend
+1. `git checkout main && git pull`, then confirm a clean working tree and that everything you intend
    to release has actually merged.
 
-2. Pick the version number. This repo is pre-1.0 and doesn't follow semver strictly — it's a
+2. Pick the version number. This repo is pre-1.0 and doesn't follow semver strictly; it's a
    judgment call on significance, not a mechanical rule:
    - **Patch** (`0.10.0` → `0.10.1`): bug fixes, small tweaks, even minor additions (e.g. a couple
      of new pricing table entries) when nothing shipped that's meaningfully new-feature-shaped.
    - **Minor** (`0.9.x` → `0.10.0`): one or more genuinely new user-facing features.
    - **Major**: reserved, hasn't happened yet in this repo's history.
-   - Having an `### Added` section in the changelog entry doesn't automatically mean minor — v0.9.3
+   - Having an `### Added` section in the changelog entry doesn't automatically mean minor: v0.9.3
      had both `### Fixed` and `### Added` and was still a patch release. Weigh what a user reading
      the changelog would consider significant, not which headings are present.
-   - **State your pick and the reasoning before writing anything** — "this looks like a patch bump
-     (0.10.0 → 0.10.1), since it's one bug fix plus internal tooling, nothing new-feature-shaped" —
+   - **State your pick and the reasoning before writing anything** ("this looks like a patch bump
+     (0.10.0 → 0.10.1), since it's one bug fix plus internal tooling, nothing new-feature-shaped")
      and let the user correct it before you commit to a version number the changelog entry, commit
      message, and tag will all repeat several times over.
 
 3. Write the `CHANGELOG.md` entry. PRs merged since the last release have already added their
    bullets under `## [Unreleased]` (CONTRIBUTING.md asks for that); turn that section into the
-   release entry — rename its heading, check every merge since the last tag has a bullet
-   (`git log --first-parent --oneline v<prev>..HEAD`), tidy the wording — and start a fresh, empty
+   release entry: rename its heading, check every merge since the last tag has a bullet
+   (`git log --first-parent --oneline v<prev>..HEAD`), tidy the wording, and start a fresh, empty
    `## [Unreleased]` above it. The entry sits directly under the `All notable changes...` line, above
    the previous latest entry (newest-first), separated from the entry below it by a `---` line (every
-   version section in this file has one — easy to forget when inserting at the top, since there isn't
+   version section in this file has one; it's easy to forget when inserting at the top, since there isn't
    one *above* the newest entry to copy from by pattern-matching what's directly below).
-   - Heading: `## [X.Y.Z] — YYYY-MM-DD` (today's date).
+   - Heading: `## [X.Y.Z] (YYYY-MM-DD)` (today's date).
    - Subsections in this order, whichever apply: `### Added`, `### Fixed`, `### Changed`.
    - Each bullet: **bold lead-in naming the thing**, then a sentence or two of concrete detail (what
-     broke and why, or what it does — not just a category label), ending with the relevant PR
+     broke and why, or what it does, not just a category label), ending with the relevant PR
      number(s) in parens: `(#192)`, or `(#176, #182, #189, #190)` if several PRs contributed to one
      bullet.
-   - Scope it to what a user deciding whether to update would care about — this is a product
+   - Scope it to what a user deciding whether to update would care about; this is a product
      changelog, not a commit log. A real product bug fix belongs in `### Fixed` with full detail,
-     even if you found it incidentally while doing unrelated work (this has happened — a demo-data
+     even if you found it incidentally while doing unrelated work (this has happened: a demo-data
      verification pass surfaced a real bug in `src/summarizers/codex.ts`, and that fix was the
      headline item of a release). Internal/dev-only tooling changes (e.g. demo script work, CI
-     tweaks) get at most one brief `### Changed` bullet noting "no user-facing product change" —
+     tweaks) get at most one brief `### Changed` bullet noting "no user-facing product change",
      not an exhaustive rundown of every commit.
 
 4. Bump `"version"` in `package.json`. As of writing this is the *only* file that tracks the
-   version — `pnpm-lock.yaml` doesn't carry a root package version field, and there's no separate
+   version: `pnpm-lock.yaml` doesn't carry a root package version field, and there's no separate
    `standalone/`/`media/` package.json. Grep to confirm this is still true before assuming it:
    `grep -rn "\"version\": \"<old-version>\"" --include=package.json .`
    `release.yml` (and `docker.yml`, which it calls) refuses a `vX.Y.Z` tag that doesn't equal this
    version, so a forgotten bump fails the release instead of publishing (or pushing Docker
    `:latest`) under the wrong number.
 
-5. Commit directly to `main` — release commits in this repo are the one established exception to
+5. Commit directly to `main`. Release commits in this repo are the one established exception to
    the normal "always branch + PR" workflow used for everything else. `main` has branch protection
    requiring PRs; pushing anyway will succeed with a `Bypassed rule violations` warning if your
    account has bypass permissions, which is expected here, not an error to work around.
@@ -213,19 +213,19 @@ When the TraceRoost brand is established and you want the marketplace URL to say
 6. **Confirm with the user before pushing the tag.** `.github/workflows/release.yml` triggers on
    `push` of a `v*` tag, and is what builds the VSIX, creates the GitHub Release, and publishes to
    the VS Code Marketplace, Open VSX, npm (via OIDC trusted publishing) and Docker Hub / ghcr (its
-   `docker` job) — a public, essentially
+   `docker` job), a public, essentially
    irreversible action once it lands (npm doesn't allow unpublishing after the fact in the general
-   case; if a release turns out broken, [`WITHDRAW_RELEASE.md`](WITHDRAW_RELEASE.md)). The commit from step 5 landing on `main` does **not** publish anything by itself — that
+   case; if a release turns out broken, [`WITHDRAW_RELEASE.md`](WITHDRAW_RELEASE.md)). The commit from step 5 landing on `main` does **not** publish anything by itself; that
    part alone is safe and doesn't need a separate confirmation. Ask explicitly before the tag push,
    e.g. "push the vX.Y.Z tag now to trigger the actual publish (npm, Homebrew, Docker, VS Code
-   Marketplace, Open VSX, desktop installers, winget PR) as the core edition?" — say which edition it ships (see [Editions](#editions)), since
-   that's the one thing the tag doesn't show — don't fold this into the same confirmation as the version-number pick in step 2, since
+   Marketplace, Open VSX, desktop installers, winget PR) as the core edition?" Say which edition it ships (see [Editions](#editions)), since
+   that's the one thing the tag doesn't show. Don't fold this into the same confirmation as the version-number pick in step 2, since
    the user may want to review the drafted changelog entry and commit before green-lighting the
    irreversible part.
 
    Once confirmed, tag the release commit and push the tag. Skipping this step silently leaves the
-   release half-done — version bumped and documented, but nothing actually shipped anywhere. Past
-   tags are lightweight, not annotated — match that:
+   release half-done: version bumped and documented, but nothing actually shipped anywhere. Past
+   tags are lightweight, not annotated; match that:
 
    ```bash
    git tag vX.Y.Z <release-commit-sha>
@@ -233,23 +233,23 @@ When the TraceRoost brand is established and you want the marketplace URL to say
    ```
 
 7. Verify the workflow picked it up and is running: `gh run list --workflow=release.yml --limit 3`.
-   No need to wait for it to finish before considering the release "done" from your end — it runs
+   No need to wait for it to finish before considering the release "done" from your end: it runs
    lint, typecheck, and the full unit suite before packaging, so a red run there means something
    real broke, not a rerun-and-hope situation.
 
 ## Verifying afterward
 
-- `gh release view vX.Y.Z` — GitHub Release exists with the VSIX attached.
-- `gh run list --workflow=release.yml --limit 1` — shows `completed` / `success`, and the
+- `gh release view vX.Y.Z`: GitHub Release exists with the VSIX attached.
+- `gh run list --workflow=release.yml --limit 1`: shows `completed` / `success`, and the
   `package` job's "Check the … edition bundles" step names the edition you meant to ship.
 - If the marketplace/npm publish steps matter for this release (they usually do), spot-check
   `publish-vsce`, `publish-npm`, `publish-homebrew`, `docker`, `desktop` and `publish-winget` job
-  logs specifically — `package` succeeding only means the VSIX
+  logs specifically; `package` succeeding only means the VSIX
   built, not that it published anywhere.
 - traceroost.com's download links read this repository's latest GitHub release and cache the
   answer for up to an hour, so the site can keep offering the previous version's installers for a
   while after the `desktop` job attaches the new ones. That is TraceRoost Cloud's cache to purge,
-  not something this release does — if the site still shows the old version an hour after the run
+  not something this release does. If the site still shows the old version an hour after the run
   went green, that is where to look.
 
 ## Homebrew
@@ -282,7 +282,7 @@ are accepted; winget checks every download against the sha256 in the manifest.
 Each `v*` tag's `publish-winget` job writes the three manifests
 (`desktop/scripts/winget-manifests.mjs`, hashing the installers it downloads from the release) and
 opens a pull request on microsoft/winget-pkgs with `wingetcreate submit`. The package appears in
-`winget search traceroost` once that pull request merges — usually within a day or two, longer for
+`winget search traceroost` once that pull request merges, usually within a day or two, longer for
 the first one.
 
 **Try the manifests before a release** (on Windows): download a release's installers, write the
@@ -319,10 +319,10 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
 `gh attestation verify <file> --repo traceroost/core`.
 
 - **Linux** (.deb and AppImage, x64 and arm64) is attached on every release.
-- **macOS is built and tested on every release and attached only notarized** — there is no
+- **macOS is built and tested on every release and attached only notarized**: there is no
   unnotarized fallback. Signing and notarization come from secrets (`MAC_CSC_LINK`,
   `MAC_CSC_KEY_PASSWORD`, plus either `APPLE_API_KEY_P8`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` or
-  `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` — [`MACOS_SIGNING.md`](MACOS_SIGNING.md)).
+  `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID`; see [`MACOS_SIGNING.md`](MACOS_SIGNING.md)).
   If they are missing, the release leaves macOS out, attaches the other platforms, and the
   `desktop` job goes red; fix the secrets before the next tag.
 - **Windows** (NSIS installer and portable zip, x64 and arm64) is built, tested and attached on
@@ -332,7 +332,7 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
   with the *Artifact Signing Certificate Profile Signer* role; the account `TraceRoost`, profile
   `traceroost-public` and publisher `Roger Reed` are in `desktop/electron-builder.cjs`, not
   secrets). The client secret expires (24 months at most): renew it before then. With signing
-  configured, `desktop-windows.yml` **fails** a build whose executables are not validly signed —
+  configured, `desktop-windows.yml` **fails** a build whose executables are not validly signed:
   an expired secret or a missing role assignment (Azure answers `403 Forbidden`) turns the
   release's Windows job red and attaches no Windows installer, so `publish-winget` has nothing to
   submit. Before tagging while signing is broken, pause it: `gh variable set
@@ -341,10 +341,10 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
   choice after Azure began answering 403); triage, rotation and resuming are in
   [`WINDOWS_SIGNING.md`](WINDOWS_SIGNING.md). `release.yml` passes each secret by name.
 - **Unsigned Windows builds** are still attached, under the plain name they were built as
-  (`TraceRoost-<v>-win-<arch>.exe`) — there is no `-preview` suffix. They are covered by the same
+  (`TraceRoost-<v>-win-<arch>.exe`); there is no `-preview` suffix. They are covered by the same
   SHA256SUMS and attestations, and the release notes get a section on getting past SmartScreen
   (More info → Run anyway). Once the signing secrets work again, the same names carry signed
-  builds — nothing to switch.
+  builds, with nothing to switch.
 - **Switches**: the repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default
   `linux,macos,windows`) turns a platform off without a code change; `TRACEROOST_WINDOWS_SIGNING=off`
   pauses Windows signing with the secrets left in place. There is no edition switch: the desktop

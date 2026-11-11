@@ -82,7 +82,7 @@ suite('agent-watch — release watcher', () => {
     const f = fakeFetch({ ...V, '@openai/codex': '0.167.0' })
     const r = await watch.check({ statePath: state, fetchImpl: f.impl })
     assert.strictEqual(r.changes.length, 1)
-    assert.strictEqual(r.subject, 'TraceRoost: new agent release — Codex 0.167.0')
+    assert.strictEqual(r.subject, 'TraceRoost: new agent release (Codex 0.167.0)')
     const created = f.calls.find(c => c.method === 'POST' && c.url.endsWith('/repos/traceroost/core/issues'))!
     assert.deepStrictEqual(created.body, { title: 'Codex 0.167.0 released: verification running', body: (created.body as { body: string }).body, labels: ['agent-release'] })
     assert.match((created.body as { body: string }).body, /previously 0\.166\.0/)

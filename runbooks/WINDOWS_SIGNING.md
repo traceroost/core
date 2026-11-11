@@ -6,7 +6,7 @@ when Azure refuses to sign. The configuration itself is described in
 
 **Current state (2026-10-26): paused.** Azure Artifact Signing began answering `403 Forbidden` on
 2026-10-23, and the owner chose to leave signing off for now. The repository variable
-`TRACEROOST_WINDOWS_SIGNING=off` is set, so every build — including a release — is unsigned and
+`TRACEROOST_WINDOWS_SIGNING=off` is set, so every build (including a release) is unsigned and
 attached under its plain name; SmartScreen warns on first run (**More info → Run anyway**), and the
 release notes say so. Update this line when signing is switched back on.
 
@@ -36,7 +36,7 @@ attaches it unsigned with the SmartScreen note. Re-run any red Windows job; it w
 
 1. Fix whatever made Azure refuse (below), then prove it on a branch **before** deleting the
    variable for everyone: run `Desktop (Windows)` by hand (`workflow_dispatch`) on a branch where
-   you have temporarily removed the `TRACEROOST_WINDOWS_SIGNING` check — or simply delete the
+   you have temporarily removed the `TRACEROOST_WINDOWS_SIGNING` check, or simply delete the
    variable and run the workflow on `main` with no tag pending, watching the `package` jobs.
 2. ```bash
    gh variable delete TRACEROOST_WINDOWS_SIGNING --repo traceroost/core
@@ -62,7 +62,7 @@ A 403 means Azure authenticated the service principal and then refused it. Check
    signing app → *Certificates & secrets*. A secret's lifetime is 24 months at most. If it's
    expired, or the value in GitHub isn't the current one, rotate it (below). (An expired secret
    usually fails earlier, at token acquisition, with `AADSTS7000222`; a 403 at signing is more
-   often step 2 — but check the date first, it's the cheapest.)
+   often step 2, but check the date first, it's the cheapest.)
 2. **The role assignment is missing.** Azure portal → the Artifact Signing account `TraceRoost` →
    *Access control (IAM)* → *Role assignments*. The service principal needs **Artifact Signing
    Certificate Profile Signer** on the account (or on the `traceroost-public` profile). Re-add it if

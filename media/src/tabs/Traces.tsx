@@ -50,7 +50,7 @@ function BgSummaryBlock({ bgSpans }: { bgSpans: BackgroundSpanSummary[] }) {
   const descriptions: Record<string, string> = {
     'Generate chat title': 'Creates the title shown in the chat history sidebar.',
     'Generate progress messages': 'Produces the status messages shown while the agent works.',
-    'Extension language model call': 'LLM call made by a VS Code extension — often used for completions or inline suggestions.',
+    'Extension language model call': 'LLM call made by a VS Code extension, often used for completions or inline suggestions.',
   }
 
   const purposes = Object.keys(groups).sort((a, b) => groups[b].tokens - groups[a].tokens)
@@ -91,7 +91,7 @@ function StepSignals({ mark }: { mark?: StepMark }) {
         {mark.notes.map((n, i) => (
           <div key={i} class="sw-step-signal">
             <span class="wf-ev-dot" style={'background:' + n.color} />
-            <b>{n.name}</b> — {n.note}{n.role === 'context' ? ' (what the signal is measured against)' : ''}
+            <b>{n.name}</b>: {n.note}{n.role === 'context' ? ' (what the signal is measured against)' : ''}
           </div>
         ))}
       </div>
@@ -318,7 +318,7 @@ export function StepRow({ step, idx, sessIdx, sessionDur, sessionModel, tlIndex,
         onClick={() => setOpen(v => !v)}
         onKeyDown={activateOnKey(() => setOpen(v => !v))}
       >
-        <div class="wf-label" title={(subtitle ? rowLabel + ' — ' + subtitle : rowLabel) + (markTip ? '\n\n' + markTip : '')}>
+        <div class="wf-label" title={(subtitle ? rowLabel + ': ' + subtitle : rowLabel) + (markTip ? '\n\n' + markTip : '')}>
           {mark && mark.state !== 'dimmed' && mark.notes.length > 0
             ? (
               <span class="wf-ev-dots" aria-label={markTip}>

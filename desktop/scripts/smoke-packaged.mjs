@@ -61,7 +61,7 @@ const isAppImage = appPath.endsWith('.AppImage')
 const quitWithArg = isWindows || process.env.SMOKE_QUIT === 'arg'
 const binary = isLinux || isWindows ? appPath : path.join(appPath, 'Contents', 'MacOS', 'TraceRoost')
 if (!fs.existsSync(binary)) {
-  console.error(`smoke: ${binary} does not exist — run \`pnpm run pack\` / \`pnpm run pack:linux\` / \`pnpm run pack:win\` (or pass the path)`)
+  console.error(`smoke: ${binary} does not exist. Run \`pnpm run pack\` / \`pnpm run pack:linux\` / \`pnpm run pack:win\` (or pass the path)`)
   process.exit(2)
 }
 // Which edition to expect: TRACEROOST_DESKTOP_EDITION when set (CI's package jobs set it), else read
@@ -73,7 +73,7 @@ const resourcesDir = isLinux || isWindows ? path.join(path.dirname(binary), 'res
 const edition = process.env.TRACEROOST_DESKTOP_EDITION?.trim()
   || (isAppImage ? undefined : fs.existsSync(path.join(resourcesDir, 'LICENSE-BSL-1.1')) ? 'full' : 'core')
 if (isLinux && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
-  console.error('smoke: no display — run this under `xvfb-run -a` (or in a desktop session)')
+  console.error('smoke: no display. Run this under `xvfb-run -a` (or in a desktop session)')
   process.exit(2)
 }
 // The version the app ships: read from its staged collector, except inside an AppImage (a
@@ -163,7 +163,7 @@ try {
   // pinned to production TraceRoost Cloud. Core: the route does not exist.
   const org = await get(`http://127.0.0.1:${UI_PORT}/api/org`)
   if (edition === undefined) {
-    console.log('  – edition unknown (an AppImage, and TRACEROOST_DESKTOP_EDITION unset) — Org route not checked')
+    console.log('  – edition unknown (an AppImage, and TRACEROOST_DESKTOP_EDITION unset), so the Org route was not checked')
   } else if (edition === 'full') {
     const status = org.status === 200 ? (JSON.parse(org.body).messages ?? []).find(m => m.type === 'orgStatus')?.status : undefined
     check(status?.linked === false, `/api/org answers with the unlinked Org status (full edition; status ${org.status})`)
@@ -209,12 +209,12 @@ try {
   check(released === true, 'data dir lock released')
   check(!pidAlive(collectorPid), `collector (pid ${collectorPid}) is gone`)
   const finalLog = readText(logPath) ?? ''
-  check(/quitting — stopping and flushing the collector first/.test(finalLog), 'quit went through the owned-collector flush path')
+  check(/quitting: stopping and flushing the collector first/.test(finalLog), 'quit went through the owned-collector flush path')
   check(!/killing it/.test(finalLog), 'the collector did not need to be force-killed')
   check(/asking the collector \(pid \d+\) to shut down \(owner channel\)/.test(finalLog), 'the stop request went over the owner channel')
   check(/Shutdown requested by the app that started this collector/.test(finalLog), 'the collector honoured the request')
   check(/Saved \d+ spans to /.test(finalLog), 'the collector\'s shutdown saved its spans')
-  check((readText(path.join(dataDir, 'spans.json')) ?? '').includes(traceId), 'the span sent just before quitting is in spans.json — flushed, not lost')
+  check((readText(path.join(dataDir, 'spans.json')) ?? '').includes(traceId), 'the span sent just before quitting is in spans.json: flushed, not lost')
   if (quitWithArg) check(/a second launch asked this instance to quit/.test(finalLog), 'the running instance received the --quit request')
 
   if (isLinux) {
