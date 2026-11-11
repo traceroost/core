@@ -28,6 +28,7 @@ const lock = { pid: process.pid, hostname: require('os').hostname(), startedAt: 
 if (process.env.STUB_PORTS !== '0') Object.assign(lock, { uiPort: 31990, otlpPort: 31991, mcpPort: 31992 })
 fs.writeFileSync(path.join(dataDir, '${LOCK_FILENAME}'), JSON.stringify(lock))
 fs.writeFileSync(path.join(dataDir, 'channel'), JSON.stringify({ env: process.env.TRACEROOST_OWNER_CHANNEL ?? null, ipc: typeof process.send === 'function', noOpen: process.env.TRACEROOST_NO_OPEN ?? null, desktop: process.env.TRACEROOST_DESKTOP ?? null }))
+fs.writeFileSync(path.join(dataDir, 'system-ca'), String(process.env.NODE_USE_SYSTEM_CA))
 const flush = via => { fs.writeFileSync(path.join(dataDir, 'flushed'), via); process.exit(0) }
 if (process.env.STUB_IGNORE_TERM === '1') {
   // An explicit no-op handler is what makes it wedged: with no handler at all, Node's default
@@ -120,6 +121,23 @@ suite('collector — supervised child', () => {
     await make().start()
     const env = fs.readFileSync(path.join(dataDir, LOCK_FILENAME), 'utf-8')
     assert.match(env, /"service":false/)
+  })
+
+  test('the child trusts the OS certificate store, unless the user turned that off', async () => {
+    // A company root installed by IT (HTTPS inspection) is in the OS store only: without this,
+    // linking and every upload fail as "fetch failed" on a managed laptop.
+    await make().start()
+    assert.strictEqual(fs.readFileSync(path.join(dataDir, 'system-ca'), 'utf-8'), '1')
+    await collector!.stop()
+    const before = process.env.NODE_USE_SYSTEM_CA
+    process.env.NODE_USE_SYSTEM_CA = '0'
+    try {
+      await make().start()
+      assert.strictEqual(fs.readFileSync(path.join(dataDir, 'system-ca'), 'utf-8'), '0')
+    } finally {
+      if (before === undefined) delete process.env.NODE_USE_SYSTEM_CA
+      else process.env.NODE_USE_SYSTEM_CA = before
+    }
   })
 
   for (const platform of ['darwin', 'linux', 'win32'] as const) {

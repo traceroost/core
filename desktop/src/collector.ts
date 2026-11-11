@@ -125,6 +125,13 @@ export class OwnedCollector {
     const child = spawn(this.opts.execPath, [this.opts.serverScript], {
       cwd: path.dirname(this.opts.serverScript),
       env: {
+        // Trust the operating system's certificate store as well as Node's bundled list. On a
+        // managed laptop whose network inspects HTTPS (Zscaler and the like), every site's
+        // certificate is re-signed by a company root that IT installed in the OS store: browsers
+        // trust it, Node's own list does not, and every request the collector makes to the cloud
+        // (linking, then each upload) dies as a bare "fetch failed". Before process.env, so a
+        // user's own NODE_USE_SYSTEM_CA=0 still wins.
+        NODE_USE_SYSTEM_CA: '1',
         ...process.env,
         ...this.opts.env,
         // Re-enter Electron's binary as plain Node: no Chromium, no app lifecycle, just the
