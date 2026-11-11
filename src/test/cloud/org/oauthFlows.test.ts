@@ -65,6 +65,24 @@ suite('org/oauthClient — device flow, cap errors, roster summary', () => {
     await assert.rejects(exchangeCode({ code: 'c', verifier: 'v', redirectUri: 'http://127.0.0.1/cb' }), /link failed: invalid_grant/)
   })
 
+  test('a code exchange that never reaches the server says why, not just "fetch failed"', async () => {
+    const tls = Object.assign(new Error('self-signed certificate in certificate chain'), { code: 'SELF_SIGNED_CERT_IN_CHAIN' })
+    globalThis.fetch = (async () => { throw new TypeError('fetch failed', { cause: tls }) }) as typeof fetch
+    await assert.rejects(exchangeCode({ code: 'c', verifier: 'v', redirectUri: 'http://127.0.0.1/cb' }), (err: Error) => {
+      assert.match(err.message, /^link failed: could not reach [^ ]+ — fetch failed: self-signed certificate in certificate chain \(SELF_SIGNED_CERT_IN_CHAIN\)\./)
+      assert.match(err.message, /inspect HTTPS/)
+      assert.strictEqual(((err.cause as Error).cause as { code: string }).code, 'SELF_SIGNED_CERT_IN_CHAIN', 'the original error stays on cause')
+      return true
+    })
+    const dns = Object.assign(new Error('getaddrinfo ENOTFOUND traceroost.com'), { code: 'ENOTFOUND' })
+    globalThis.fetch = (async () => { throw new TypeError('fetch failed', { cause: dns }) }) as typeof fetch
+    await assert.rejects(exchangeCode({ code: 'c', verifier: 'v', redirectUri: 'http://127.0.0.1/cb' }), (err: Error) => {
+      assert.match(err.message, /ENOTFOUND/)
+      assert.doesNotMatch(err.message, /inspect HTTPS/)
+      return true
+    })
+  })
+
   test('roster/me\'s teammate_visibility_summary is read, cached on the credential and shown by status', async () => {
     globalThis.fetch = (async () => new Response(JSON.stringify({ org_name: 'Acme', role: 'developer', per_developer_visibility: true, email: 'e@x', teammate_visibility_summary: 'An admin of Acme sees your individual figures.' }), { status: 200 })) as typeof fetch
     const self = await fetchRosterSelf('tok', 'https://x')

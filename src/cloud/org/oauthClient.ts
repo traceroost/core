@@ -139,6 +139,39 @@ export function isUnansweredPresentation(failure: RefreshFailure): boolean {
   return failure.status !== 407
 }
 
+/** TLS verification failures that mean something between this machine and the server re-signed
+ *  the certificate with a root Node doesn't trust: a company's HTTPS-inspecting proxy. */
+const UNTRUSTED_ISSUER_CODES = new Set([
+  'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'UNABLE_TO_GET_ISSUER_CERT',
+  'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+])
+
+function untrustedIssuer(err: unknown): boolean {
+  let cur: unknown = err
+  for (let i = 0; i < 8 && cur && typeof cur === 'object'; i++) {
+    const e = cur as { code?: unknown; cause?: unknown }
+    if (typeof e.code === 'string' && UNTRUSTED_ISSUER_CODES.has(e.code)) return true
+    cur = e.cause
+  }
+  return false
+}
+
+/**
+ * A request that never got an answer, said in a way someone can act on. Node's fetch throws a
+ * bare `TypeError('fetch failed')` and keeps the reason (DNS, refused, a certificate it doesn't
+ * trust) on `cause`; "link failed: fetch failed" told nobody anything. The original error stays
+ * on `cause` for callers that read its codes.
+ */
+function unreachable(what: string, url: string, err: unknown): Error {
+  const host = (() => { try { return new URL(url).host } catch { return url } })()
+  const timedOut = (err as { name?: unknown } | null)?.name === 'AbortError'
+  const reason = timedOut ? `no answer within ${REQUEST_TIMEOUT_MS / 1000} seconds` : describeThrown(err)
+  const hint = untrustedIssuer(err)
+    ? ' This network appears to inspect HTTPS with a certificate this app does not trust (common on company laptops).'
+    : ''
+  return new Error(`${what}: could not reach ${host} — ${reason}.${hint}`, { cause: err })
+}
+
 function describeThrown(err: unknown): string {
   const parts: string[] = []
   let cur: unknown = err
@@ -248,13 +281,18 @@ export async function exchangeCode(opts: {
   verifier: string
   redirectUri: string
 }): Promise<TokenResponse> {
-  const res = await postForm(tokenUrl(), {
-    grant_type: 'authorization_code',
-    client_id: OAUTH_CLIENT_ID,
-    code: opts.code,
-    code_verifier: opts.verifier,
-    redirect_uri: opts.redirectUri,
-  })
+  let res: Response
+  try {
+    res = await postForm(tokenUrl(), {
+      grant_type: 'authorization_code',
+      client_id: OAUTH_CLIENT_ID,
+      code: opts.code,
+      code_verifier: opts.verifier,
+      redirect_uri: opts.redirectUri,
+    })
+  } catch (err) {
+    throw unreachable('link failed', tokenUrl(), err)
+  }
   const raw = (await res.json().catch(() => ({}))) as RawTokenBody
   if (!res.ok) throw new Error(`link failed: ${describeOAuthError(raw, res.status)}`)
   return parseTokenBody(raw)
