@@ -233,9 +233,34 @@ When the TraceRoost brand is established and you want the marketplace URL to say
    ```
 
 7. Verify the workflow picked it up and is running: `gh run list --workflow=release.yml --limit 3`.
-   No need to wait for it to finish before considering the release "done" from your end: it runs
-   lint, typecheck, and the full unit suite before packaging, so a red run there means something
-   real broke, not a rerun-and-hope situation.
+   It runs lint, typecheck, and the full unit suite before packaging, so a red run there means
+   something real broke, not a rerun-and-hope situation.
+
+8. **When the run is green, purge traceroost.com's caches**, on prod and stage, so the site
+   offers the new installers straight away. The release is not done until this is. The site's
+   download links (home page, `/install`, the org home) read this repository's latest GitHub
+   release and cache the answer for an hour, and a core release deploys nothing there, so without
+   the purge the site keeps handing out the previous version. Wait for the whole run, `desktop`
+   job included: it attaches the installers last, and a purge before that caches a release with no
+   files. Purge both caches (`--type all`): the data cache holds the GitHub answer, and the CDN
+   cache holds the prerendered home page built from it. With `--type data` alone, `/install`
+   updated and the home page kept offering the old version for the rest of its hour (v1.0.3).
+   From anywhere with the Vercel CLI and `VERCEL_API_TOKEN` (see also the cloud repo's
+   `runbooks/deploy.md`, "Purge the data cache"):
+
+   ```bash
+   gh run watch <run-id> --exit-status        # the release.yml run from step 7
+   for env in prod stage; do
+     vercel cache purge --type all --project traceroost-cloud-$env \
+       --scope team_3wnQ0fAkrdjGPILYmTHSlUh5 --token "$VERCEL_API_TOKEN" --yes
+   done
+   for page in / /install; do                 # both name the new version, and only it
+     curl -s https://traceroost.com$page | grep -oE 'TraceRoost-[0-9.]+-mac-arm64\.dmg' | sort -u
+   done
+   ```
+
+   If the `desktop` job went red and macOS or Windows is missing, fix and re-run it first (safe:
+   files already attached are never replaced), then purge.
 
 ## Verifying afterward
 
@@ -246,11 +271,9 @@ When the TraceRoost brand is established and you want the marketplace URL to say
   `publish-vsce`, `publish-npm`, `publish-homebrew`, `docker`, `desktop` and `publish-winget` job
   logs specifically; `package` succeeding only means the VSIX
   built, not that it published anywhere.
-- traceroost.com's download links read this repository's latest GitHub release and cache the
-  answer for up to an hour, so the site can keep offering the previous version's installers for a
-  while after the `desktop` job attaches the new ones. That is TraceRoost Cloud's cache to purge,
-  not something this release does. If the site still shows the old version an hour after the run
-  went green, that is where to look.
+- traceroost.com's download strip names the new version (step 8's `curl`). If it still shows the
+  previous one, the caches were purged before the `desktop` job attached the installers, only the
+  data cache was purged, or neither was: run step 8 again.
 
 ## Homebrew
 
