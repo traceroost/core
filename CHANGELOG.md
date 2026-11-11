@@ -4,6 +4,15 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+## [1.0.3] (2026-11-10)
+
+### TraceRoost Cloud (full edition only)
+
+- **The desktop app can link and upload on a network that inspects HTTPS**: on a managed laptop behind Zscaler or a similar proxy, every site's certificate is re-signed by a company root that IT installs in the operating system's certificate store. Browsers trust it, but the app's collector trusted only Node's built-in list, so signing in worked in the browser and then **Link this machine** ended on "Link failed: fetch failed", and uploads would have failed the same way. The desktop app's collector now trusts the operating system's store as well (set `NODE_USE_SYSTEM_CA=0` in the app's environment to turn that off). `npx traceroost`, Homebrew and the background service run on your own Node and are unchanged: start them with `NODE_USE_SYSTEM_CA=1` on such a network (#423)
+- **A link that can't reach TraceRoost Cloud says why**: instead of "link failed: fetch failed", the message names the host and the underlying reason (DNS, a refused connection, a timeout, a certificate that isn't trusted), and says so when the certificate looks like an HTTPS-inspecting proxy's (#423)
+
+---
+
 ## [1.0.2] (2026-11-10)
 
 ### Fixed
