@@ -143,7 +143,7 @@ export class SessionRepository {
     const effectiveLimit = filter?.limit ?? MAX_SESSIONS_TO_WEBVIEW
     if (merged.length > effectiveLimit) {
       if (filter?.limit === undefined) {
-        this.log(`[TraceRoost] Session list (${merged.length}) exceeds the ${MAX_SESSIONS_TO_WEBVIEW}-session safety cap — returning the most recent ${MAX_SESSIONS_TO_WEBVIEW} only.`)
+        this.log(`[TraceRoost] Session list (${merged.length}) exceeds the ${MAX_SESSIONS_TO_WEBVIEW}-session safety cap; returning the most recent ${MAX_SESSIONS_TO_WEBVIEW} only.`)
       }
       return merged.slice(0, effectiveLimit)
     }

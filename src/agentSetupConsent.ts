@@ -56,7 +56,7 @@ export function leftAloneMessage(agents: string[], port: number): string | undef
   if (agents.length === 0) return undefined
   const names = agents.length === 1 ? agents[0] : `${agents.slice(0, -1).join(', ')} and ${agents[agents.length - 1]}`
   const [they, their] = agents.length === 1 ? ['it', 'its'] : ['they', 'their']
-  return `TraceRoost: left ${names} alone — ${they} already send${agents.length === 1 ? 's' : ''} OTel to another collector, so ${their} traces won't reach port ${port}. Show Log has the details.`
+  return `TraceRoost: left ${names} alone, since ${they} already send${agents.length === 1 ? 's' : ''} OTel to another collector, so ${their} traces won't reach port ${port}. Show Log has the details.`
 }
 
 /** The one line printed when startup output has pushed the terminal question out of sight. */

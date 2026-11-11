@@ -267,7 +267,7 @@ suite('mcpServer tools', () => {
   suite('workspace-scoped tools', () => {
     test('get_instruction_suggestions requires a workspace and ≥5 sessions in it', async () => {
       assert.deepStrictEqual(await call(client, 'get_instruction_suggestions', { workspace: '  ' }),
-        { error: 'workspace is required — instruction suggestions are repo-scoped.' })
+        { error: 'workspace is required: instruction suggestions are repo-scoped.' })
       sessions = [card({ sessionId: '1' }), card({ sessionId: '2', workspace: '/elsewhere' })]
       const r = await call(client, 'get_instruction_suggestions', { workspace: '/repo/a' }) as { message: string; suggestions: unknown[] }
       assert.match(r.message, /1 sessions, need 5/)
@@ -289,7 +289,7 @@ suite('mcpServer tools', () => {
 
     test('check_automation_triggers requires a workspace and reports none for an idle one', async () => {
       assert.deepStrictEqual(await call(client, 'check_automation_triggers', {}),
-        { error: 'workspace is required — automation triggers are project-scoped.' })
+        { error: 'workspace is required: automation triggers are project-scoped.' })
       sessions = [card({ sessionId: '1', startTime: new Date(Date.now() - 30 * DAY).toISOString() })]
       assert.deepStrictEqual(await call(client, 'check_automation_triggers', { workspace: '/repo/a' }),
         { message: 'No triggered automations for workspace "/repo/a".', triggers: [] })

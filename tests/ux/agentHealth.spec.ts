@@ -68,6 +68,6 @@ test('Settings → Agents shows every version with unrecognized records, with wh
   await expect(agents).toContainText('Missing data')
   await expect(agents).toContainText('Unrecognized data')
   await expect(agents).toContainText('2.1.318: sessions read, skipped 152 unrecognized records: session-owner, tools-used')
-  await expect(agents).toContainText('0.154.0-alpha.6.1: 2 sessions couldn\'t be fully read — 57 unrecognized records: world_state (last 40d ago)')
+  await expect(agents).toContainText('0.154.0-alpha.6.1: 2 sessions couldn\'t be fully read; 57 unrecognized records: world_state (last 40d ago)')
   await agents.screenshot({ path: test.info().outputPath('settings-agents.png') })
 })

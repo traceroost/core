@@ -22,7 +22,7 @@ const artifacts = fs.existsSync(dist)
   ? fs.readdirSync(dist).filter(f => /^TraceRoost-.*\.(dmg|deb|AppImage|exe)$/.test(f)).sort()
   : []
 if (artifacts.length === 0) {
-  throw new Error(`checksums: no TraceRoost-*.dmg / .deb / .AppImage / .exe in ${dist} — run electron-builder first`)
+  throw new Error(`checksums: no TraceRoost-*.dmg / .deb / .AppImage / .exe in ${dist}; run electron-builder first`)
 }
 
 const lines = artifacts.map(name => {

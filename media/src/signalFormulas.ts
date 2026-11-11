@@ -110,7 +110,7 @@ export const SIGNAL_FORMULAS: Record<
     ],
     caveat: 'Experimental: no real session has reached this threshold yet, so it isn’t tuned.',
     short: 'A tool returned so much text that it crowds the context.',
-    tip: 'Ask for narrower reads — line ranges, not whole files.',
+    tip: 'Ask for narrower reads: line ranges, not whole files.',
     prompt: 'A tool result was far too large to keep in context. From now on read files with a line range, use narrower search patterns, and pipe long command output through head or a filter.',
     dataSource: 'otel',
     dataSourceNote:

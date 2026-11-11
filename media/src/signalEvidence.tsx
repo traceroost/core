@@ -64,10 +64,10 @@ export function insightColor(ins: Insight): string {
   return 'var(--accent)'
 }
 
-/** "Tool Call Deadlock" out of "[Trace 12] Tool Call Deadlock — 1 tool call repeated…". */
+/** "Tool Call Deadlock" out of "[Trace 12] Tool Call Deadlock: 1 tool call repeated…". */
 export function insightShortName(ins: Insight): string {
   const title = ins.title.replace(/^\[Trace\s+\d+\]\s*/, '')
-  const dash = title.indexOf(' — ')
+  const dash = title.indexOf(': ')
   return dash > 0 ? title.slice(0, dash) : title
 }
 
@@ -340,7 +340,7 @@ export function evidenceClipboardLines(ins: Insight): string[] {
   if (steps.length > 0) {
     lines.push('Steps involved:')
     for (const s of steps.slice(0, 12)) {
-      lines.push('  - ' + s.label + ' — ' + s.note)
+      lines.push('  - ' + s.label + ': ' + s.note)
       if (s.detail) lines.push('      ' + s.detail)
     }
     const total = ins.stepsTotal ?? steps.length

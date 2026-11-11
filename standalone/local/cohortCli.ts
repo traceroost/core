@@ -64,7 +64,7 @@ export async function runCohortCli(args: string[], resolveHash?: RepoHashResolve
 
   console.log(`Turnover:   ${(result.turnoverRate * 100).toFixed(1)}%   (${result.aiLinesSurviving}/${result.aiLinesAuthored} AI lines still stand)`)
   console.log(`Commits:    ${result.commitCount}, merged ${result.mergeRange.fromIso.slice(0, 10)}–${result.mergeRange.toIso.slice(0, 10)}`)
-  console.log(`Benchmark:  ${(result.benchmark.low * 100).toFixed(0)}–${(result.benchmark.high * 100).toFixed(0)}% — ${result.benchmark.verdict}\n`)
+  console.log(`Benchmark:  ${(result.benchmark.low * 100).toFixed(0)}–${(result.benchmark.high * 100).toFixed(0)}%: ${result.benchmark.verdict}\n`)
   console.log('The commits behind this number (resolved to real SHAs locally):')
   for (const sha of result.cohortShas.slice(0, 40)) console.log(`  ${sha}`)
   console.log('\nOpen the Outcomes tab in the editor for the file- and trace-level breakdown.')

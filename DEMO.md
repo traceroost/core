@@ -1,6 +1,6 @@
 # Demo toolchain
 
-Scripts for generating realistic TraceRoost trace data without a real AI agent, a real API key, or any real/sensitive data — useful for local development, screenshots, and live demos. Every scenario plays out against a single running example (a pet store app: adoption flow, inventory, checkout, pet-image uploads) so the demo tells one coherent story across scenarios and agents instead of unrelated snippets.
+Scripts for generating realistic TraceRoost trace data without a real AI agent, a real API key, or any real/sensitive data, useful for local development, screenshots, and live demos. Every scenario plays out against a single running example (a pet store app: adoption flow, inventory, checkout, pet-image uploads) so the demo tells one coherent story across scenarios and agents instead of unrelated snippets.
 
 All commands assume the standalone server is running:
 
@@ -20,7 +20,7 @@ pnpm run demo -- --speed 5                       # 5x faster than real-time
 pnpm run demo -- --scenario story                # 10-trace petstore build-out (see below)
 ```
 
-`demo/replay.ts` sends synthetic OTLP spans directly to the collector's `/v1/traces` endpoint — no real agent runs, no API cost is incurred.
+`demo/replay.ts` sends synthetic OTLP spans directly to the collector's `/v1/traces` endpoint: no real agent runs, no API cost is incurred.
 
 **Flags:**
 
@@ -31,16 +31,16 @@ pnpm run demo -- --scenario story                # 10-trace petstore build-out (
 | `--speed` | multiplier | `1` | e.g. `--speed 5` runs 5x faster |
 | `--spread-days` | days | `0` | `story` only: dates the 10 chapters across the last n days, oldest chapter first, instead of all of them landing in the hour the replay runs. Analytics' over-time charts bin by UTC day, so without it they draw a single bar. Keep it under 56 or the bars turn weekly. |
 | `--port` | port number | `4318` | must match the collector's OTLP port |
-| `--token` | bearer token | `$TRACEROOST_TOKEN` | only for a server bound beyond loopback (the Docker image), whose OTLP port requires it — `/data/.traceroost/config.json`'s `authToken` |
+| `--token` | bearer token | `$TRACEROOST_TOKEN` | only for a server bound beyond loopback (the Docker image), whose OTLP port requires it: `/data/.traceroost/config.json`'s `authToken` |
 
 **Scenarios** (each runs once per requested agent, except `compaction`):
 
-- `normal` — clean multi-turn task. Populates a trace's Overview, Waterfall, Flow, Tools and Files sub-tabs, plus Analytics.
-- `loop` — the same failing command repeated several times. Triggers the Loop Breaker automation and the "Tool Call Deadlock" / "Repeated Error" signals.
-- `errors` — a type error followed by a fix. Populates the error counts and Insights in a trace's Overview sub-tab.
-- `compaction` — input tokens grow ~4x per turn (Claude only). Triggers the Context Compaction automation.
-- `all` — every scenario above, in sequence.
-- `story` — a fixed 10-chapter narrative building out the same petstore app from scratch: scaffold → data model → inventory service → checkout discount → image upload → search + caching → e2e tests → a Docker build stuck in a loop → a type error and its fix → a TODO sweep that triggers context compaction. Every chapter has a claude/codex/copilot variant and touches a distinct, realistic set of files (not just `cart.ts`/`discounts.ts`), so the Files tab reads like one real app taking shape. Runs **10 traces per requested agent** — unfiltered (default, all three agents) that's 30 traces; `--agents codex` narrows it to the 10 Codex-told chapters, not fewer.
+- `normal`: clean multi-turn task. Populates a trace's Overview, Waterfall, Flow, Tools and Files sub-tabs, plus Analytics.
+- `loop`: the same failing command repeated several times. Triggers the Loop Breaker automation and the "Tool Call Deadlock" / "Repeated Error" signals.
+- `errors`: a type error followed by a fix. Populates the error counts and Insights in a trace's Overview sub-tab.
+- `compaction`: input tokens grow ~4x per turn (Claude only). Triggers the Context Compaction automation.
+- `all`: every scenario above, in sequence.
+- `story`: a fixed 10-chapter narrative building out the same petstore app from scratch: scaffold → data model → inventory service → checkout discount → image upload → search + caching → e2e tests → a Docker build stuck in a loop → a type error and its fix → a TODO sweep that triggers context compaction. Every chapter has a claude/codex/copilot variant and touches a distinct, realistic set of files (not just `cart.ts`/`discounts.ts`), so the Files tab reads like one real app taking shape. Runs **10 traces per requested agent**. Unfiltered (default, all three agents) that's 30 traces; `--agents codex` narrows it to the 10 Codex-told chapters, not fewer.
 
 ### Browser demo
 
@@ -53,19 +53,19 @@ pnpm run demo:show -- --speed 4                         # flags pass through to 
 pnpm run demo:show -- --cdp                             # reuse an already-open demo browser (see below)
 ```
 
-Note: for the plain (non-`story`) scenario matrix, `--agents` still *filters* rather than adds — `--agents codex` alone runs the default `all` matrix restricted to Codex, which is only 3 traces (`normal`/`loop`/`errors`; `compaction` stays Claude-only outside of `story` mode). Only `--scenario story` guarantees 10 traces per requested agent.
+Note: for the plain (non-`story`) scenario matrix, `--agents` still *filters* rather than adds: `--agents codex` alone runs the default `all` matrix restricted to Codex, which is only 3 traces (`normal`/`loop`/`errors`; `compaction` stays Claude-only outside of `story` mode). Only `--scenario story` guarantees 10 traces per requested agent.
 
-**`--cdp`** — by default every `demo:show`/`demo:tour` run opens a brand new Chromium window. `--cdp` attaches to a browser this script already left open instead, over the Chrome DevTools Protocol, so repeated runs reuse the same window/tab rather than piling up new ones. There's no port to hunt for: it always uses the same fixed port (`9223`, override with `--cdp-port`), so the first `--cdp` run finds nothing there yet and just launches a fresh window with that debug port open; every run after that attaches to it. Ctrl+C in `--cdp` mode leaves the browser running for next time instead of closing it. This can only attach to a browser started this way — it can't reach into an arbitrary Chrome window you already had open without a debug port exposed.
+**`--cdp`**: by default every `demo:show`/`demo:tour` run opens a brand new Chromium window. `--cdp` attaches to a browser this script already left open instead, over the Chrome DevTools Protocol, so repeated runs reuse the same window/tab rather than piling up new ones. There's no port to hunt for: it always uses the same fixed port (`9223`, override with `--cdp-port`), so the first `--cdp` run finds nothing there yet and just launches a fresh window with that debug port open; every run after that attaches to it. Ctrl+C in `--cdp` mode leaves the browser running for next time instead of closing it. This can only attach to a browser started this way; it can't reach into an arbitrary Chrome window you already had open without a debug port exposed.
 
-`--tour` walks: the Traces tab → expands the most recent trace and steps through its Overview / Waterfall / Flow / Files detail nav (Tools is skipped on purpose — see `demo/tour.ts`) → Analytics, down its whole jump rail (agent breakdown, by language, outcome & token spend, code changes, estimated cost, token usage, context growth) → the Alerts panel behind the header bell, where Alerts and Automation live (they aren't top-level tabs) → Advisor, down its rail too (how to spend less, instructions file, efficiency map, hot files) → back to Traces and the Export drawer, then leaves the browser open.
+`--tour` walks: the Traces tab → expands the most recent trace and steps through its Overview / Waterfall / Flow / Files detail nav (Tools is skipped on purpose; see `demo/tour.ts`) → Analytics, down its whole jump rail (agent breakdown, by language, outcome & token spend, code changes, estimated cost, token usage, context growth) → the Alerts panel behind the header bell, where Alerts and Automation live (they aren't top-level tabs) → Advisor, down its rail too (how to spend less, instructions file, efficiency map, hot files) → back to Traces and the Export drawer, then leaves the browser open.
 
-Both rails are walked by position, so a section added to `navSections` is visited without touching the tour; `demo/tour.ts`'s `ANALYTICS_RAIL` / `ADVISOR_RAIL` only set how long each one holds, and charts hold about twice as long as the tables beside them. A section the tour can't click is logged with a `!` rather than passed over — a stop that silently vanishes looks like a clean run otherwise, which is how the detail nav went missing for two weeks.
+Both rails are walked by position, so a section added to `navSections` is visited without touching the tour; `demo/tour.ts`'s `ANALYTICS_RAIL` / `ADVISOR_RAIL` only set how long each one holds, and charts hold about twice as long as the tables beside them. A section the tour can't click is logged with a `!` rather than passed over: a stop that silently vanishes looks like a clean run otherwise, which is how the detail nav went missing for two weeks.
 
 Requires `pnpm exec playwright install chromium` once. The browser window stays open after replay finishes; close it manually or `Ctrl+C` the terminal.
 
 ### Regenerating the README demo GIF
 
-`pnpm run demo:gif` runs the same `--tour` walkthrough above, headless, on a fully isolated instance — a scratch server, scratch `HOME`, real agent config never touched — records it to `media/demo.gif` (gitignored), uploads it to `https://static.traceroost.com/demo.<hash>.gif`, and rewrites the README's image link to that URL. Commit the README change to publish the new GIF.
+`pnpm run demo:gif` runs the same `--tour` walkthrough above, headless, on a fully isolated instance (a scratch server, scratch `HOME`, real agent config never touched), records it to `media/demo.gif` (gitignored), uploads it to `https://static.traceroost.com/demo.<hash>.gif`, and rewrites the README's image link to that URL. Commit the README change to publish the new GIF.
 
 Everything on static.traceroost.com is immutable: names carry a content hash, the bucket refuses to overwrite an existing file, and responses are cached for a year. A new recording is always a new URL, and old URLs keep serving the GIF they always did. The bucket is provisioned by the `traceroost/static` repo; the upload reads its name from that repo's Pulumi stack outputs, so it needs `aws` and `pulumi` on `PATH` and logged in.
 
@@ -89,13 +89,13 @@ To stay within the size budget, the encoder drops near-duplicate frames (the tou
 
 **Why the recording dates the story in the past, and runs the replay ahead of the tour.** Two defaults exist only for the GIF; `demo:show` has neither, because watching sessions arrive is the point there.
 
-`--spread-days 9` dates the story's ten chapters across the last ten days (`replay.ts --spread-days`). Analytics' two over-time charts bin by UTC day, so with every session landing in one hour they drew a single bar each — the chart was accurate and useless. The last chapter is still ~now, so the newest session still arrives live at the top of the table while the tour watches.
+`--spread-days 9` dates the story's ten chapters across the last ten days (`replay.ts --spread-days`). Analytics' two over-time charts bin by UTC day, so with every session landing in one hour they drew a single bar each. The chart was accurate and useless. The last chapter is still ~now, so the newest session still arrives live at the top of the table while the tour watches.
 
 `--replay-speed 2` runs the replay at twice the tour's speed. They used to share `--speed`, which meant the story was less than half sent when the tour reached Analytics, so it recorded half-drawn charts and an Advisor still saying it hadn't seen enough traces to suggest anything. At 2x the story has essentially landed by then, and the Traces stop earlier in the tour still catches sessions arriving.
 
-By default the replay also seeds a scratch git repo (`demo/replay.ts --demo-repo`) — some story files merged into `main`, some only committed on a feature branch, some left uncommitted — and backdates the sessions past the dashboard's 2-minute active-session grace window, so the Traces table's Out column and Analytics' Outcome & Token Spend chart show real merged / committed / uncommitted verdicts for the Claude and Codex sessions. (Copilot's OTEL spans carry no workspace, so its rows stay unclassified.)
+By default the replay also seeds a scratch git repo (`demo/replay.ts --demo-repo`), with some story files merged into `main`, some only committed on a feature branch and some left uncommitted, and backdates the sessions past the dashboard's 2-minute active-session grace window, so the Traces table's Out column and Analytics' Outcome & Token Spend chart show real merged / committed / uncommitted verdicts for the Claude and Codex sessions. (Copilot's OTEL spans carry no workspace, so its rows stay unclassified.)
 
-Requires `pnpm exec playwright install chromium` (once) and `ffmpeg` on `PATH` (`brew install ffmpeg` / `apt install ffmpeg`) — the conversion from the recorded video to an optimized, palette-based GIF shells out to it in two passes. See `demo/capture-gif.ts`'s header comment for why it's built this way (two independent layers keep it from ever touching the real machine's agent config, not just one).
+Requires `pnpm exec playwright install chromium` (once) and `ffmpeg` on `PATH` (`brew install ffmpeg` / `apt install ffmpeg`); the conversion from the recorded video to an optimized, palette-based GIF shells out to it in two passes. See `demo/capture-gif.ts`'s header comment for why it's built this way (two independent layers keep it from ever touching the real machine's agent config, not just one).
 
 ## Capturing real agent runs as fixtures
 
@@ -110,9 +110,9 @@ pnpm run capture -- --delete my-session     # remove a fixture
 pnpm run demo -- --fixture my-session       # replay a saved fixture
 ```
 
-Works with Claude Code and Codex, both of which route telemetry through the standalone server's OTLP endpoint. Copilot telemetry routes through the VS Code extension instead, so it can't be captured this way — record a mixed Claude Code / Codex run if you need fixture coverage.
+Works with Claude Code and Codex, both of which route telemetry through the standalone server's OTLP endpoint. Copilot telemetry routes through the VS Code extension instead, so it can't be captured this way. Record a mixed Claude Code / Codex run if you need fixture coverage.
 
-**Before committing any fixture file**, run the redaction script — fixture JSON is gitignored by default specifically to prevent accidental PII exposure:
+**Before committing any fixture file**, run the redaction script (fixture JSON is gitignored by default specifically to prevent accidental PII exposure):
 
 ```bash
 node scripts/redact-spans.js
@@ -126,11 +126,11 @@ pnpm run demo -- --file /path/to/export_redacted_claude_main_20260522_152343.jso
 
 Accepts three kinds of JSON file: a trace summary export from the dashboard's **Export…** (full or redacted), a raw span file from the `TraceRoost: Export Live OTel Spans (debug)` command (like the example above), or a capture fixture. CSV and Markdown exports aren't supported as replay input. Without `--speed`, a file is sent all at once rather than paced.
 
-> A trace summary export can't reconstruct the original per-turn timeline — it carries the trace's aggregate fields, not raw OTEL spans — so each trace is replayed as approximate synthetic spans. Use a raw span export or a capture fixture when the timeline matters.
+> A trace summary export can't reconstruct the original per-turn timeline (it carries the trace's aggregate fields, not raw OTEL spans), so each trace is replayed as approximate synthetic spans. Use a raw span export or a capture fixture when the timeline matters.
 
 ## Generating and validating fixtures for tests
 
-Separate from the demo/capture flow above — these back the automated test suite, not live demos:
+Separate from the demo/capture flow above: these back the automated test suite, not live demos:
 
 ```bash
 pnpm run fixtures:generate    # (re)generate demo/fixtures/*.json from generate-fixtures.js

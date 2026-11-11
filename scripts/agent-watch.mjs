@@ -134,7 +134,7 @@ export async function check({ statePath, pretendSeen = {}, dryRun = false, fetch
   state.failures ??= {}
   const firstRun = Object.keys(state.seen).length === 0
   const github = gh(fetchImpl, dryRun)
-  const lines = [`# Agent release watch — ${now.toISOString().slice(0, 16).replace('T', ' ')} UTC`, '']
+  const lines = [`# Agent release watch: ${now.toISOString().slice(0, 16).replace('T', ' ')} UTC`, '']
   const changes = [], errors = []
 
   for (const agent of WATCHED) {
@@ -145,7 +145,7 @@ export async function check({ statePath, pretendSeen = {}, dryRun = false, fetch
     } catch (err) {
       state.failures[agent.key] = (state.failures[agent.key] ?? 0) + 1
       errors.push({ agent, error: String(err.message ?? err), streak: state.failures[agent.key] })
-      lines.push(`- **${agent.label}**: could not check (${err.message ?? err}) — ${state.failures[agent.key]} run(s) in a row`)
+      lines.push(`- **${agent.label}**: could not check (${err.message ?? err}), ${state.failures[agent.key]} run(s) in a row`)
       continue
     }
     const prev = state.seen[agent.key]
@@ -186,11 +186,11 @@ export async function check({ statePath, pretendSeen = {}, dryRun = false, fetch
   if (firstRun) subject = 'TraceRoost agent release watch: baseline recorded'
   // An agent whose capture was turned off doesn't mail on its own: it is listed when another
   // release mails.
-  else if (changes.some(c => !skip.has(c.agent.key))) subject = `TraceRoost: new agent release — ${changes.map(c => `${c.agent.label} ${c.to}`).join(', ')}`
+  else if (changes.some(c => !skip.has(c.agent.key))) subject = `TraceRoost: new agent release (${changes.map(c => `${c.agent.label} ${c.to}`).join(', ')})`
   else if (stuck.length) subject = `TraceRoost agent release watch: could not check ${stuck.map(e => e.agent.label).join(', ')} for a day`
   if (changes.length) {
     const what = c => (!captured(c.agent) ? 'check by hand' : github.enabled && !dryRun ? 'verification dispatched' : 'verification not dispatched (no GitHub repository, or --dry-run)')
-    lines.push('', ...changes.map(c => `${c.agent.label} ${c.to}: ${what(c)}${c.issue ? ` — issue #${c.issue}` : ''}`))
+    lines.push('', ...changes.map(c => `${c.agent.label} ${c.to}: ${what(c)}${c.issue ? ` (issue #${c.issue})` : ''}`))
   }
   const text = lines.join('\n')
   let mailed = false
@@ -225,7 +225,7 @@ export async function report({ agentKey, version, outcome, issue, diff = '', dry
       ? 'Nothing to do; close this issue, or leave it for the next release to retitle.'
       : outcome === 'skipped'
       ? 'Add the agent\'s secret (see .github/workflows/agent-capture.yml), or check it by hand: runbooks/AGENT_FORMAT_BREAK.md.'
-      : 'Next: runbooks/AGENT_FORMAT_BREAK.md — commit the capture as a fixture, let the failing contract test be the spec.',
+      : 'Next: runbooks/AGENT_FORMAT_BREAK.md. Commit the capture as a fixture, let the failing contract test be the spec.',
   ].join('\n')
   const github = gh(fetchImpl, dryRun)
   if (github.enabled && issue) await github.comment(issue, title, body)

@@ -18,37 +18,37 @@ const TERMS: [string, string][] = [
   ['Agent',                  'The AI coding assistant (e.g. GitHub Copilot, Claude Code, Codex) that receives your prompt, reasons about the task, and decides which tools to use. It manages the workflow, breaks down tasks, and may call the underlying LLM multiple times per trace to complete a single request. The agent is the orchestrator; the LLM is the engine it drives.'],
   ['Avg Input/Call',         'Average number of input tokens sent to the language model per LLM call. Lower means leaner prompts. Under 10K is lean; 10-30K is normal; 30K+ suggests large instruction files, verbose tool definitions, or accumulated context bloat.'],
   ['Avg Turns/Trace',        'Average number of turns (LLM calls) per trace. Lower is more efficient. 1-3 turns is typical for simple tasks; 5+ may indicate the agent is struggling or the prompt needs more specifics.'],
-  ['Background Span',        'A span that runs outside the main request/response cycle — e.g., telemetry uploads, extension lifecycle events, or periodic health checks.'],
+  ['Background Span',        'A span that runs outside the main request/response cycle, e.g., telemetry uploads, extension lifecycle events, or periodic health checks.'],
   ['Cache Create Tokens',    'Tokens written into the prompt cache on the server during this request. These tokens become available for cache hits on subsequent requests.'],
   ['Cache Hit Rate',         'The percentage of input tokens served from a server-side prompt cache instead of being reprocessed. Higher rates reduce latency and cost.'],
   ['Cache Read Tokens',      'Input tokens served from the server-side prompt cache, avoiding reprocessing. Shown in efficiency metrics.'],
-  ['Context',                'The content sent to the model on a given LLM call: system instructions, conversation history, tool definitions, and the current prompt. Must fit within the context window. Every token costs money — agents that read large files or accumulate long conversation histories use more context per call, driving up cost.'],
+  ['Context',                'The content sent to the model on a given LLM call: system instructions, conversation history, tool definitions, and the current prompt. Must fit within the context window. Every token costs money: agents that read large files or accumulate long conversation histories use more context per call, driving up cost.'],
   ['Context Bloat',          'An efficiency insight triggered when input tokens grow significantly across turns within a trace.'],
-  ['Context Window',         'The maximum number of tokens an LLM can process in a single request, counting both input and output tokens combined. For example, Claude Sonnet has a 200K token context window. This is a hard per-call limit set by the model architecture — not the same as context, which is what actually fills that window on a given call.'],
-  ['Conversation',           'One continuous back-and-forth with an agent — a Claude Code or Codex session, a Copilot chat, an OpenCode, Cursor CLI or Antigravity CLI conversation. Each of its prompts is its own trace; the Traces tab marks a conversation\'s traces with a matching colored bar (see Traces). A resumed session continues the same conversation.'],
-  ['Files Changed',          'The distinct files the agent edited or wrote in a trace, code or not. Shown with lines added and removed in the Traces table\'s Changes column — see Change size in the Traces section.'],
+  ['Context Window',         'The maximum number of tokens an LLM can process in a single request, counting both input and output tokens combined. For example, Claude Sonnet has a 200K token context window. This is a hard per-call limit set by the model architecture, not the same as context, which is what actually fills that window on a given call.'],
+  ['Conversation',           'One continuous back-and-forth with an agent: a Claude Code or Codex session, a Copilot chat, an OpenCode, Cursor CLI or Antigravity CLI conversation. Each of its prompts is its own trace; the Traces tab marks a conversation\'s traces with a matching colored bar (see Traces). A resumed session continues the same conversation.'],
+  ['Files Changed',          'The distinct files the agent edited or wrote in a trace, code or not. Shown with lines added and removed in the Traces table\'s Changes column; see Change size in the Traces section.'],
   ['Git Outcome',            'What happened to a trace\'s changed files afterward, according to local git: Merged (reached the trunk branch), Committed (not on trunk yet), or Uncommitted (not committed yet). A trace takes the worst of its files\' outcomes, and shows nothing when git can\'t tell. Shown as the Traces table\'s Out column, the Outcome filter, and the Files sub-tab banner. Not available in Docker. See Git Outcome in the Traces section.'],
   ['Input Tokens',           'The number of tokens sent to the language model in a request, including system instructions, conversation history, tool definitions, and the user prompt. The Traces table\'s Tokens column adds input and output across all turns; because each turn re-sends the conversation so far, it grows with trace length. Peak ctx/turn in the expanded trace shows the actual context size per call.'],
   ['LLM',                    'Large Language Model. The underlying AI model (e.g. GPT-4o, Claude Sonnet) that generates text, answers questions, or produces code. The agent sends requests to the LLM as needed; the model itself does not manage tools or workflow. It is the engine that generates language and code for the agent to act on.'],
-  ['LLM Call',               'A single request-response cycle to the language model — one turn. One trace typically includes multiple LLM calls as the agent iterates.'],
+  ['LLM Call',               'A single request-response cycle to the language model: one turn. One trace typically includes multiple LLM calls as the agent iterates.'],
   ['One-Shot Rate',          'The percentage of files edited during a trace that needed only one edit pass to reach their final state, versus files that needed retries (2+ edit passes). A proxy for correction effort, not a signal that the resulting code actually worked. Needs at least 2 edited files to show a rate; shown in the Traces tab\'s Files sub-tab and aggregated per-agent in Analytics.'],
-  ['OTLP',                   'OpenTelemetry Protocol — the standard format used to collect and transmit telemetry from AI agents to this extension. TraceRoost accepts trace spans and log-derived events.'],
+  ['OTLP',                   'OpenTelemetry Protocol: the standard format used to collect and transmit telemetry from AI agents to this extension. TraceRoost accepts trace spans and log-derived events.'],
   ['Outcome',                'How a trace ended, shown in its Waterfall header: "Responded" (a text answer) or "Tool calls" (the last action was a tool call). Not the same as the Traces table\'s Out column, which is the Git Outcome.'],
   ['Output Tokens',          'The number of tokens generated by the language model in its response, including reasoning, tool call instructions, and final answers.'],
   ['Output Ratio',           'Percentage of total tokens that are output (generated by the model). In cached agentic coding traces this can be naturally tiny, so TraceRoost no longer uses it as a standalone alert.'],
   ['Prompt',                 'The text you type into the AI chat to request work. Each prompt initiates a new trace.'],
   ['Request',                'The user-visible message sent to the agent in a single prompt. In OTel terms, the request anchor differs by agent: Copilot uses invoke_agent, Claude uses claude_code.interaction, and Codex is normalized from prompt log events.'],
-  ['Signal',                 'A behavioral pattern in a trace indicating the agent is stuck, oscillating, or spiraling into unproductive work — also called a loop signal. Shown with a ↺ icon in the Insights panel (Overview sub-tab) and in the Traces table\'s Sig column. See the Signals section for the full catalog.'],
-  ['Span',                   'A single timed operation recorded by OpenTelemetry — an LLM call, a tool call, a background task. TraceRoost displays true trace spans and normalized log events with a span-like name, duration, and attributes. Spans are the rows in a Trace\'s Waterfall.'],
+  ['Signal',                 'A behavioral pattern in a trace indicating the agent is stuck, oscillating, or spiraling into unproductive work, also called a loop signal. Shown with a ↺ icon in the Insights panel (Overview sub-tab) and in the Traces table\'s Sig column. See the Signals section for the full catalog.'],
+  ['Span',                   'A single timed operation recorded by OpenTelemetry: an LLM call, a tool call, a background task. TraceRoost displays true trace spans and normalized log events with a span-like name, duration, and attributes. Spans are the rows in a Trace\'s Waterfall.'],
   ['Span ID',                'A unique identifier for a single span within a trace. Used to establish parent-child relationships between operations.'],
   ['Sparkline',              'A small inline chart shown below summary cards, depicting the trend of a metric over recent time buckets.'],
   ['Tokens',                 'The fundamental unit language models use to process text. Roughly 1 token ≈ 4 characters or ¾ of a word.'],
-  ['Tool Call',              'A single invocation of a tool by the agent — e.g., reading a file, running a search, or executing a terminal command.'],
+  ['Tool Call',              'A single invocation of a tool by the agent, e.g., reading a file, running a search, or executing a terminal command.'],
   ['Tool Definition Overhead', 'An efficiency insight triggered when a large fraction of input tokens is consumed by tool definition schemas rather than actual content.'],
-  ['Trace',                  'One prompt-to-response cycle of an agent, the unit shown as a row in the Traces tab. Starts when you send a prompt and ends when the agent delivers its final response, and includes every LLM call, tool call, subagent, and file change in between — so one trace can contain many turns. In OpenTelemetry terms a trace is the spans sharing one Trace ID; TraceRoost normalizes the different Copilot, Claude, and Codex OTel shapes (and log-only sources, which have no real trace) into this one model. Each trace has one stable ID taken from the agent\'s own ID for the prompt (Claude\'s prompt ID, Codex\'s turn ID, Copilot Chat\'s request ID), so the OTel copy and the log copy of the same prompt are one row, and the row keeps its ID as more evidence arrives — OTel detail replaces log detail, never the other way round. Agents with no such ID of their own (OpenCode, Cursor CLI, Copilot CLI) get an ID derived from the conversation and the prompt. Messages you type while the agent is still working belong to the running trace; they don\'t start a new one.'],
+  ['Trace',                  'One prompt-to-response cycle of an agent, the unit shown as a row in the Traces tab. Starts when you send a prompt and ends when the agent delivers its final response, and includes every LLM call, tool call, subagent, and file change in between, so one trace can contain many turns. In OpenTelemetry terms a trace is the spans sharing one Trace ID; TraceRoost normalizes the different Copilot, Claude, and Codex OTel shapes (and log-only sources, which have no real trace) into this one model. Each trace has one stable ID taken from the agent\'s own ID for the prompt (Claude\'s prompt ID, Codex\'s turn ID, Copilot Chat\'s request ID), so the OTel copy and the log copy of the same prompt are one row, and the row keeps its ID as more evidence arrives: OTel detail replaces log detail, never the other way round. Agents with no such ID of their own (OpenCode, Cursor CLI, Copilot CLI) get an ID derived from the conversation and the prompt. Messages you type while the agent is still working belong to the running trace; they don\'t start a new one.'],
   ['Trace ID',               'The OpenTelemetry identifier that links all spans belonging to one trace. Present on OTel-sourced traces; log-only traces are reconstructed without one.'],
   ['Turn',                   'A turn is a single, complete unit of back-and-forth communication with a large language model: one input message and its corresponding response. In TraceRoost that is one LLM call, so a trace can contain many turns: the agent calls the LLM, runs tools, then calls the LLM again. The Turns column counts them.'],
-  ['TTFT',                   'Time to First Token — the latency between sending a prompt and receiving the first token of the response.'],
+  ['TTFT',                   'Time to First Token: the latency between sending a prompt and receiving the first token of the response.'],
   ['Waterfall',              'The span visualization inside a Trace: every LLM call and tool call as a horizontal bar on a time axis, with nesting depth shown by indentation. Expand a bar for its arguments, results, tokens, and cost. It is the Waterfall sub-tab of an expanded trace row.'],
 ]
 
@@ -89,13 +89,13 @@ const AGENT_OTEL_SHAPES: Array<{
     agent: 'Copilot',
     format: 'OpenTelemetry <a href="#gl-trace">trace</a> <a href="#gl-span">spans</a> with a clean single-trace hierarchy. Each conversation is one trace; <a href="#gl-llm-call">LLM calls</a> and tool calls are child spans nested under a trace root. No extra configuration needed.',
     coverage: 'Prompt text, token counts (<a href="#gl-input-tokens">input</a>, <a href="#gl-output-tokens">output</a>, <a href="#gl-cache-read-tokens">cache read</a>), model name, <a href="#gl-ttft">TTFT</a>, tool names, tool arguments, tool results, and file paths are all present natively without any extra configuration.',
-    gaps: 'Cache <em>write</em> token counts are not available — Copilot manages cache creation server-side and does not expose it in telemetry. Cache <em>read</em> tokens are available. No additional configuration unlocks further data — what Copilot exposes is already fully available.',
+    gaps: 'Cache <em>write</em> token counts are not available: Copilot manages cache creation server-side and does not expose it in telemetry. Cache <em>read</em> tokens are available. No additional configuration unlocks further data; what Copilot exposes is already fully available.',
   },
   {
     agent: 'Claude Code',
     format: 'OpenTelemetry trace spans. The trace root span closes when the interaction ends, with LLM calls and tool calls as children. Optional supplemental log records are emitted when enhanced telemetry env vars are set.',
     coverage: 'With the recommended configuration (all three OTEL_LOG_* vars set): prompt text, token counts, model, tool names, tool arguments, file paths, and full file diff content are all available.',
-    gaps: 'The three OTEL_LOG_* env vars are not enabled by default — without them, tool arguments are absent, prompt text is omitted, and file diff content is unavailable. Cache token data is only present when using a model that supports prompt caching.',
+    gaps: 'The three OTEL_LOG_* env vars are not enabled by default. Without them, tool arguments are absent, prompt text is omitted, and file diff content is unavailable. Cache token data is only present when using a model that supports prompt caching.',
   },
   {
     agent: 'Codex',
@@ -240,8 +240,8 @@ function OverviewSection() {
       </div>
       <h3 class="help-heading">{HELP_SECTIONS.overview.heading}</h3>
       <div class="help-overview-body">
-        <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a desktop app (macOS, Linux, Windows), a background service or terminal run (<code style={codeStyle}>npx traceroost@latest</code>, Homebrew), or Docker, and your traces stay on your machine. Docker is the least capable option: it receives OTel only — no local log files, no agent auto-configuration, no git outcomes — so prefer the background service or the IDE extension. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database and Cursor CLI's transcript files — so history loads even without OTel configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
-        <p style="font-size:13px;margin:10px 0 0"><strong>TraceRoost detects {SIGNAL_COUNT_WORD} signals</strong> indicating an agent is stuck, spiraling, or wasting tokens/cost, each with a ready-to-paste correction prompt — see <a href="#help-signals">Signals</a> below for the full catalog.</p>
+        <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent: see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a desktop app (macOS, Linux, Windows), a background service or terminal run (<code style={codeStyle}>npx traceroost@latest</code>, Homebrew), or Docker, and your traces stay on your machine. Docker is the least capable option: it receives OTel only (no local log files, no agent auto-configuration, no git outcomes), so prefer the background service or the IDE extension. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback, including OpenCode's local SQLite database and Cursor CLI's transcript files, so history loads even without OTel configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
+        <p style="font-size:13px;margin:10px 0 0"><strong>TraceRoost detects {SIGNAL_COUNT_WORD} signals</strong> indicating an agent is stuck, spiraling, or wasting tokens/cost, each with a ready-to-paste correction prompt. See <a href="#help-signals">Signals</a> below for the full catalog.</p>
       </div>
     </div>
   )
@@ -260,7 +260,7 @@ function ConfigSection() {
     <div style="margin-bottom:20px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--warning,#ffb74d);border-radius:4px;padding:10px 14px">
       <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:var(--foreground)">Not seeing any detailed OTel data?</p>
       <p style="font-size:12px;color:var(--muted);margin:0 0 6px">TraceRoost attempts to configure OTel automatically when the standalone server starts. The VS Code-family extension does the same when it activates.</p>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 6px">Configuration is read at startup — restart each <a href="#gl-agent">agent</a> after making changes:</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 6px">Configuration is read at startup, so restart each <a href="#gl-agent">agent</a> after making changes:</p>
       <table style="font-size:12px;border-collapse:collapse;width:100%">
         <tbody style="color:var(--muted)">
           <tr style="border-bottom:1px solid var(--border)">
@@ -279,26 +279,26 @@ function ConfigSection() {
       </table>
       <p style="font-size:12px;color:var(--muted);margin:8px 0 0">Start a short <a href="#gl-trace">trace</a> and check whether a trace card appears in the sidebar to confirm data is arriving.</p>
       <p style="font-size:12px;color:var(--muted);margin:8px 0 6px">If configuration is missing or stale, use <strong>Set up agents</strong> in Settings, or review the <a href="https://github.com/traceroost/core/tree/main/scripts" target="_blank" rel="noreferrer">configuration scripts in the repository</a>.</p>
-      <pre style="font-size:12px;background:var(--panel-bg);border:1px solid var(--border);border-radius:3px;padding:6px 10px;margin:0 0 8px;overflow-x:auto;white-space:pre">{`# macOS / Linux — make executable (once), then run:
+      <pre style="font-size:12px;background:var(--panel-bg);border:1px solid var(--border);border-radius:3px;padding:6px 10px;margin:0 0 8px;overflow-x:auto;white-space:pre">{`# macOS / Linux: make executable (once), then run:
 chmod +x scripts/configure-agents.sh
 ./scripts/configure-agents.sh             # all agents
 ./scripts/configure-agents.sh --agent claude
 ./scripts/configure-agents.sh --agent codex
 ./scripts/configure-agents.sh --agent copilot
 
-# Windows (PowerShell) — if blocked, allow scripts first (once):
+# Windows (PowerShell): if blocked, allow scripts first (once):
 # Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .\\scripts\\configure-agents.ps1
 .\\scripts\\configure-agents.ps1 -Agent claude
 .\\scripts\\configure-agents.ps1 -Agent codex
 .\\scripts\\configure-agents.ps1 -Agent copilot`}</pre>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 0">Prefer not to run the script? Use <strong>Set up agents</strong> in Settings to re-apply it manually. Check the server terminal or TraceRoost Output channel for configuration messages. If the server itself isn't running, data has nowhere to go — see <a href="#help-background-service">Run as a Background Service</a> below to keep it running automatically.</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 0">Prefer not to run the script? Use <strong>Set up agents</strong> in Settings to re-apply it manually. Check the server terminal or TraceRoost Output channel for configuration messages. If the server itself isn't running, data has nowhere to go; see <a href="#help-background-service">Run as a Background Service</a> below to keep it running automatically.</p>
     </div>
   ) : (
     <div style="margin-bottom:20px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--warning,#ffb74d);border-radius:4px;padding:10px 14px">
       <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:var(--foreground)">Not seeing any detailed OTel data?</p>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 8px">TraceRoost asks before it sets your agents up — a notification in VS Code, a question in the terminal, or a banner here when it runs as a background service. <strong>Not now</strong> asks again the next time it starts; <strong>Don't set up</strong> stops asking (in the terminal: Enter, or type <code style={codeStyle}>never</code>). Saying yes lets it edit Claude Code's <code style={codeStyle}>~/.claude/settings.json</code>, Codex's <code style={codeStyle}>[otel]</code> section in <code style={codeStyle}>~/.codex/config.toml</code> and your editors' Copilot settings so they send their activity, including prompts and tool output, to TraceRoost on this computer; after that, each start only keeps TraceRoost's port in them current — a setting you remove stays removed, and nothing missing is added back. A file that already sends to a different collector is left alone. While the background service (or another standalone TraceRoost) runs, it alone sets agents up — the VS Code extension leaves their settings to it. Works in VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro, and other VS Code-family IDEs. After configuration, restart each <a href="#gl-agent">agent</a> once so it reads the new settings. <strong>Not in Docker</strong> — there it writes to the container's filesystem, not your host's agent configs, so run the <a href="https://github.com/traceroost/core/tree/main/scripts" target="_blank" rel="noreferrer">setup scripts</a> with your token instead. Changed an agent's OTel settings yourself? Use the <strong>Set up agents</strong> button in Settings (gear icon) to write them all again, or <strong>Remove agent setup</strong> next to it (also <code style={codeStyle}>traceroost agents remove</code>) to take out only what TraceRoost added and stop it setting agents up; or review the <a href="https://github.com/traceroost/core/tree/main/scripts" target="_blank" rel="noreferrer">repository scripts</a>. Disable auto-configuration entirely via the <code style={codeStyle}>traceRoost.autoConfigureAgents</code> setting.</p>
-      <p style="font-size:11px;color:var(--muted);margin:0 0 6px">Config is read at startup — restart after TraceRoost activates:</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 8px">TraceRoost asks before it sets your agents up: a notification in VS Code, a question in the terminal, or a banner here when it runs as a background service. <strong>Not now</strong> asks again the next time it starts; <strong>Don't set up</strong> stops asking (in the terminal: Enter, or type <code style={codeStyle}>never</code>). Saying yes lets it edit Claude Code's <code style={codeStyle}>~/.claude/settings.json</code>, Codex's <code style={codeStyle}>[otel]</code> section in <code style={codeStyle}>~/.codex/config.toml</code> and your editors' Copilot settings so they send their activity, including prompts and tool output, to TraceRoost on this computer; after that, each start only keeps TraceRoost's port in them current: a setting you remove stays removed, and nothing missing is added back. A file that already sends to a different collector is left alone. While the background service (or another standalone TraceRoost) runs, it alone sets agents up; the VS Code extension leaves their settings to it. Works in VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro, and other VS Code-family IDEs. After configuration, restart each <a href="#gl-agent">agent</a> once so it reads the new settings. <strong>Not in Docker</strong>: there it writes to the container's filesystem, not your host's agent configs, so run the <a href="https://github.com/traceroost/core/tree/main/scripts" target="_blank" rel="noreferrer">setup scripts</a> with your token instead. Changed an agent's OTel settings yourself? Use the <strong>Set up agents</strong> button in Settings (gear icon) to write them all again, or <strong>Remove agent setup</strong> next to it (also <code style={codeStyle}>traceroost agents remove</code>) to take out only what TraceRoost added and stop it setting agents up; or review the <a href="https://github.com/traceroost/core/tree/main/scripts" target="_blank" rel="noreferrer">repository scripts</a>. Disable auto-configuration entirely via the <code style={codeStyle}>traceRoost.autoConfigureAgents</code> setting.</p>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 6px">Config is read at startup, so restart after TraceRoost activates:</p>
       <table style="font-size:11px;border-collapse:collapse;width:100%">
         <tbody style="color:var(--muted)">
           <tr style="border-bottom:1px solid var(--border)">
@@ -320,12 +320,12 @@ chmod +x scripts/configure-agents.sh
         </tbody>
       </table>
       <p style="font-size:11px;color:var(--muted);margin:8px 0 0">Open the <em>TraceRoost</em> output channel (<em>View → Output → TraceRoost</em>) to confirm spans are arriving.</p>
-      <p style="font-size:11px;color:var(--muted);margin:6px 0 0"><strong style="color:var(--fg)">OpenCode:</strong> No configuration needed. TraceRoost reads OpenCode's local SQLite database automatically from <code style={codeStyle}>~/.local/share/opencode/</code> — traces appear as <strong>Log</strong> badge entries without any OTel setup.</p>
+      <p style="font-size:11px;color:var(--muted);margin:6px 0 0"><strong style="color:var(--fg)">OpenCode:</strong> No configuration needed. TraceRoost reads OpenCode's local SQLite database automatically from <code style={codeStyle}>~/.local/share/opencode/</code>; traces appear as <strong>Log</strong> badge entries without any OTel setup.</p>
     </div>
   )
 
   const portNote = (
-    <p style={mutedP}>Manual configuration — replace <code style={codeStyle}>4318</code> with your custom port if you changed <em>traceRoost.otlpPort</em>.</p>
+    <p style={mutedP}>Manual configuration: replace <code style={codeStyle}>4318</code> with your custom port if you changed <em>traceRoost.otlpPort</em>.</p>
   )
 
   const copilotSection = (
@@ -334,11 +334,11 @@ chmod +x scripts/configure-agents.sh
       {standalone ? (
         <>
           <p style={mutedP}>Set these environment variables so they are available when you run <code style={codeStyle}>copilot</code>. The configure script updates your shell profile automatically; or set them manually.</p>
-          <pre style={preStyle}>{`# macOS / Linux — add to ~/.zshrc or ~/.bashrc, then: source ~/.zshrc
+          <pre style={preStyle}>{`# macOS / Linux: add to ~/.zshrc or ~/.bashrc, then: source ~/.zshrc
 export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
 export OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
 
-# Windows — run once in PowerShell (persists across sessions):
+# Windows: run once in PowerShell (persists across sessions):
 [System.Environment]::SetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318", "User")
 [System.Environment]::SetEnvironmentVariable("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "true", "User")`}</pre>
         </>
@@ -373,7 +373,7 @@ export OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
   }
 }`}</pre>
       <p style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.6">
-        <strong>CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1</strong> enables span-level tracing — without it <a href="#gl-turn">turns</a> and <a href="#gl-llm-call">LLM calls</a> are indistinguishable and cache token breakdowns are unavailable.{' '}
+        <strong>CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1</strong> enables span-level tracing. Without it <a href="#gl-turn">turns</a> and <a href="#gl-llm-call">LLM calls</a> are indistinguishable and cache token breakdowns are unavailable.{' '}
         The three <strong>OTEL_LOG_*</strong> vars unlock tool details, file diff content (needed for the Files tab), and your typed prompt.
       </p>
     </div>
@@ -404,7 +404,7 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
     <div id="help-background-service" style="scroll-margin-top:44px;margin-bottom:20px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--accent,#42a5f5);border-radius:4px;padding:10px 14px">
       <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:var(--foreground)">Run as a Background Service</p>
       <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
-        If TraceRoost isn't running, incoming OTel data has nowhere to go and is lost — agents don't queue
+        If TraceRoost isn't running, incoming OTel data has nowhere to go and is lost: agents don't queue
         or retry failed exports. Running it in a terminal only lasts until that terminal closes, so a forgotten
         window, a closed laptop lid, or a reboot means a gap in your trace history. Installing it as a
         background service keeps it running automatically instead:
@@ -418,14 +418,14 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
       <pre style="font-size:12px;background:var(--panel-bg);border:1px solid var(--border);border-radius:3px;padding:6px 10px;margin:0 0 8px;overflow-x:auto;white-space:pre">{`brew install traceroost/tap/traceroost\ntraceroost service install`}</pre>
       <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
         Add <code style={codeStyle}>--ui-port &lt;port&gt;</code> to <code style={codeStyle}>service install</code> to put the
-        dashboard on another port (4315 by default) — see <a href="#help-dashboard-port">Moving the dashboard to another port</a>.
+        dashboard on another port (4315 by default); see <a href="#help-dashboard-port">Moving the dashboard to another port</a>.
       </p>
       <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
         Works as a single command whether or not <code style={codeStyle}>traceroost</code> is
-        already installed — if it's running via <code style={codeStyle}>npx</code>, which has no stable
+        already installed. If it's running via <code style={codeStyle}>npx</code>, which has no stable
         location to launch from later, it installs the package globally first (visibly, printing what
         it's doing) and then continues. On macOS this registers a <code style={codeStyle}>launchd</code> LaunchAgent,
-        on Linux a <code style={codeStyle}>systemd --user</code> unit, and on Windows a Scheduled Task —
+        on Linux a <code style={codeStyle}>systemd --user</code> unit, and on Windows a Scheduled Task,
         all per-user, no admin/root privileges needed. Once installed, it starts automatically at login
         (and immediately on install); on macOS and Linux it also restarts itself if it crashes.
       </p>
@@ -433,7 +433,7 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
         <code style={codeStyle}>traceroost service status</code> checks whether it's running,{' '}
         <code style={codeStyle}>logs</code> (or <code style={codeStyle}>logs --follow</code>) shows its
         output, <code style={codeStyle}>stop</code>/<code style={codeStyle}>start</code>/<code style={codeStyle}>restart</code> control
-        it, and <code style={codeStyle}>uninstall</code> removes it — your data in{' '}
+        it, and <code style={codeStyle}>uninstall</code> removes it; your data in{' '}
         <code style={codeStyle}>~/.traceroost</code> is untouched either way. See{' '}
         <a href="https://github.com/traceroost/core#background-service-macos--windows--linux" target="_blank" rel="noreferrer">the README</a> for
         the full command reference and custom port/data-dir options.
@@ -493,15 +493,15 @@ function AgentOtelSection() {
             <dd class="glossary-def" style="display:block">
               <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>Local SQLite database at <code style={codeStyle}>~/.local/share/opencode/opencode.db</code> (Linux/Mac) or <code style={codeStyle}>%APPDATA%\opencode\opencode.db</code> (Windows). TraceRoost reads it rather than OpenCode's telemetry, whose OpenTelemetry export is still experimental. TraceRoost reads the database directly using WASM SQLite, merging the WAL file at read time. Override the path with the <code style={codeStyle}>OPENCODE_DATA_DIR</code> environment variable.</p>
               <p style="margin:0 0 6px"><strong style="color:var(--fg)">What's included: </strong>Session ID, workspace directory, model name, timestamps, all token counts (input, output, cache read/write), user request (last user message in the trace), tool call names and inputs/outputs, file paths accessed by tools, and a full per-turn timeline of LLM calls and tool calls.</p>
-              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>Live traces, time-to-first-token, per-tool execution timing, and streaming speed. Because the database records per-tool error status, most <a href="#help-signals">signals</a> still fire from it — the note under each signal says which don't. Traces show a <strong>Log</strong> badge and a blue info banner in the Overview sub-tab noting these limitations.</p>
+              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>Live traces, time-to-first-token, per-tool execution timing, and streaming speed. Because the database records per-tool error status, most <a href="#help-signals">signals</a> still fire from it; the note under each signal says which don't. Traces show a <strong>Log</strong> badge and a blue info banner in the Overview sub-tab noting these limitations.</p>
             </dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:6px">
             <dt class="glossary-term">Cursor CLI</dt>
             <dd class="glossary-def" style="display:block">
-              <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>The standalone terminal agent (<code style={codeStyle}>cursor-agent</code>) — not Cursor the IDE, whose built-in Copilot Chat is read like any other VS Code-family IDE's. One transcript per session at <code style={codeStyle}>~/.cursor/projects/&lt;workspace&gt;/agent-transcripts/&lt;id&gt;/&lt;id&gt;.jsonl</code>. No OTel support.</p>
+              <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>The standalone terminal agent (<code style={codeStyle}>cursor-agent</code>), not Cursor the IDE, whose built-in Copilot Chat is read like any other VS Code-family IDE's. One transcript per session at <code style={codeStyle}>~/.cursor/projects/&lt;workspace&gt;/agent-transcripts/&lt;id&gt;/&lt;id&gt;.jsonl</code>. No OTel support.</p>
               <p style="margin:0 0 6px"><strong style="color:var(--fg)">What's included: </strong>Prompt, tool calls (names, arguments, file paths touched), and session-level success or failure. Start and end times come from the transcript file's own timestamps.</p>
-              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>Token counts, model name, workspace path, per-turn timestamps, and per-tool error detail — none of these are stored anywhere by Cursor CLI, so its traces show no cost rather than a guessed one. Cursor's OpenTelemetry export (enterprise accounts, or third-party hooks) isn't read by TraceRoost yet.</p>
+              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>Token counts, model name, workspace path, per-turn timestamps, and per-tool error detail: none of these are stored anywhere by Cursor CLI, so its traces show no cost rather than a guessed one. Cursor's OpenTelemetry export (enterprise accounts, or third-party hooks) isn't read by TraceRoost yet.</p>
             </dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:6px">
@@ -523,9 +523,9 @@ function SessionsSection() {
     <div class="help-section" id="help-traces">
       <h3 class="help-heading">{HELP_SECTIONS.traces.heading}</h3>
       <div class="help-overview-body">
-        <p>The Traces tab lists every recorded <a href="#gl-trace">trace</a> — one prompt-to-response cycle — in a sortable table. Each row shows the agent, start time, data source and initiator, then <strong>Model</strong>, <strong>Lang</strong> (<a href="#help-language">language</a>), <strong>Changes</strong> (<a href="#help-changes">change size</a>), <strong>Prompt</strong>, <strong>Repo</strong>, <strong>Out</strong> (<a href="#help-outcome">git outcome</a>), <strong>Sig</strong> (<a href="#help-signals">signals</a>), <strong>Turns</strong>, <strong>Duration</strong>, <strong>Tokens</strong>, <strong>Est Cost</strong> and, on a Claude or ChatGPT plan, <strong>Limit</strong> (see <a href="#help-plan-limits">Plan limits</a>). Repo, Out and Limit appear only when they have something to show. Click a column header to sort; changing the sort returns to page 1.</p>
-        <p>The filter bar narrows the table by time range and <strong>Agent</strong>. The <strong>Filters</strong> button beside them opens the rest: <strong>Prompt</strong> text, <strong>Language</strong>, <strong>Repo</strong>, <strong>Outcome</strong>, <strong>Source</strong> (OTel / Log) and <strong>From</strong> (User / Agent — Agent also covers non-interactive <code>claude -p</code> runs; see <a href="#help-initiator">Initiator</a>). Its count says how many of those are on, and each one that is shows as a chip next to the button — click a chip's × to turn just that filter off. The Agent pills and the Language list offer only the agents and languages your loaded traces contain; the Agent pills are hidden when only one agent has traces. <strong>Clear Filters</strong> resets everything, and the menu beside the pager sets how many traces show per page.</p>
-        <p>Each row is one prompt and everything the agent did for it. Rows from the same <a href="#gl-conversation">conversation</a> get a matching colored bar on the left edge. Hover the bar for its position (e.g. "Part 2 of 5"); click it to show only that conversation, with a banner naming its first prompt and a <strong>Show all traces</strong> button (or click the bar again). Only rows visible under the current filters get a bar, so a lone colored row never hints at a hidden sibling. Work Claude delegates to subagents is part of the prompt that started it — their tokens and tool calls are in that row, not rows of their own.</p>
+        <p>The Traces tab lists every recorded <a href="#gl-trace">trace</a> (one prompt-to-response cycle) in a sortable table. Each row shows the agent, start time, data source and initiator, then <strong>Model</strong>, <strong>Lang</strong> (<a href="#help-language">language</a>), <strong>Changes</strong> (<a href="#help-changes">change size</a>), <strong>Prompt</strong>, <strong>Repo</strong>, <strong>Out</strong> (<a href="#help-outcome">git outcome</a>), <strong>Sig</strong> (<a href="#help-signals">signals</a>), <strong>Turns</strong>, <strong>Duration</strong>, <strong>Tokens</strong>, <strong>Est Cost</strong> and, on a Claude or ChatGPT plan, <strong>Limit</strong> (see <a href="#help-plan-limits">Plan limits</a>). Repo, Out and Limit appear only when they have something to show. Click a column header to sort; changing the sort returns to page 1.</p>
+        <p>The filter bar narrows the table by time range and <strong>Agent</strong>. The <strong>Filters</strong> button beside them opens the rest: <strong>Prompt</strong> text, <strong>Language</strong>, <strong>Repo</strong>, <strong>Outcome</strong>, <strong>Source</strong> (OTel / Log) and <strong>From</strong> (User / Agent; Agent also covers non-interactive <code>claude -p</code> runs; see <a href="#help-initiator">Initiator</a>). Its count says how many of those are on, and each one that is shows as a chip next to the button; click a chip's × to turn just that filter off. The Agent pills and the Language list offer only the agents and languages your loaded traces contain; the Agent pills are hidden when only one agent has traces. <strong>Clear Filters</strong> resets everything, and the menu beside the pager sets how many traces show per page.</p>
+        <p>Each row is one prompt and everything the agent did for it. Rows from the same <a href="#gl-conversation">conversation</a> get a matching colored bar on the left edge. Hover the bar for its position (e.g. "Part 2 of 5"); click it to show only that conversation, with a banner naming its first prompt and a <strong>Show all traces</strong> button (or click the bar again). Only rows visible under the current filters get a bar, so a lone colored row never hints at a hidden sibling. Work Claude delegates to subagents is part of the prompt that started it: their tokens and tool calls are in that row, not rows of their own.</p>
         <p>Click any row to expand it in-place. Five sub-tabs appear beneath the row:</p>
 
         <h4 style={subHeadStyle}>Sub-tabs</h4>
@@ -533,7 +533,7 @@ function SessionsSection() {
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Overview</dt>
             <dd class="glossary-def" style="display:block">
-              Stat tiles — total tokens, estimated cost, duration, turn count, error count, and cache hit rate. A burn rate card shows tokens per minute for the trace. Below the tiles is the <strong>Insights panel</strong>, which surfaces efficiency signals and loop detection results for that trace (see <a href="#help-insights">Insights</a> and <a href="#help-signals">Signals</a> below).
+              Stat tiles: total tokens, estimated cost, duration, turn count, error count, and cache hit rate. A burn rate card shows tokens per minute for the trace. Below the tiles is the <strong>Insights panel</strong>, which surfaces efficiency signals and loop detection results for that trace (see <a href="#help-insights">Insights</a> and <a href="#help-signals">Signals</a> below).
             </dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
@@ -545,56 +545,56 @@ function SessionsSection() {
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Flow</dt>
             <dd class="glossary-def" style="display:block">
-              A turn-to-tool semantic graph showing how the agent moved through the trace — which LLM turns triggered which tools, and in what order. Useful for spotting repeated tool calls or unusual branching. The badge shows the trace's LLM call count.
+              A turn-to-tool semantic graph showing how the agent moved through the trace: which LLM turns triggered which tools, and in what order. Useful for spotting repeated tool calls or unusual branching. The badge shows the trace's LLM call count.
             </dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Tools</dt>
             <dd class="glossary-def" style="display:block">
-              A donut chart of tool call distribution for the trace — how many times each tool was invoked, expressed as a percentage of all tool calls. The badge shows the total tool call count.
+              A donut chart of tool call distribution for the trace: how many times each tool was invoked, expressed as a percentage of all tool calls. The badge shows the total tool call count.
             </dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Files</dt>
             <dd class="glossary-def" style="display:block">
-              Every file created or modified during the trace, grouped by path. Click any file to open a diff in the editor. The badge shows the number of unique files touched. A one-shot/retry-rate line summarizes edit passes per file (e.g. "80% one-shot (4/5 files, avg 1.2 edit passes/file)") — hidden entirely when no files were edited, and shown as "not enough data" below 2 edited files. A <a href="#help-outcome">git outcome</a> banner compares each changed file's content against git history, with a matching badge per file — worked out when you open this sub-tab.
+              Every file created or modified during the trace, grouped by path. Click any file to open a diff in the editor. The badge shows the number of unique files touched. A one-shot/retry-rate line summarizes edit passes per file (e.g. "80% one-shot (4/5 files, avg 1.2 edit passes/file)"), hidden entirely when no files were edited, and shown as "not enough data" below 2 edited files. A <a href="#help-outcome">git outcome</a> banner compares each changed file's content against git history, with a matching badge per file, worked out when you open this sub-tab.
             </dd>
           </div>
         </div>
 
         <h4 id="help-language" style={subHeadStyle}>Language</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 8px">Each trace gets a primary programming language — and a secondary one when it touched more than one — from the file paths in the agent's read, edit and write tool calls. Each distinct file counts once (re-reading a file fifty times doesn't outweigh ten other files) and the most common language wins; ties go to the language with more <em>changed</em> files, then to list order. Code always decides when there is any: a TypeScript trace that also edited the README reads TypeScript.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 8px">Each trace gets a primary programming language (and a secondary one when it touched more than one) from the file paths in the agent's read, edit and write tool calls. Each distinct file counts once (re-reading a file fifty times doesn't outweigh ten other files) and the most common language wins; ties go to the language with more <em>changed</em> files, then to list order. Code always decides when there is any: a TypeScript trace that also edited the README reads TypeScript.</p>
         <p style="font-size:12px;color:var(--muted);margin:0 0 8px">A trace that touched no code file is named by the kind of file it did touch, ranked the same way: <strong>Docs</strong> (Markdown, text, reStructuredText, README, LICENSE, …), <strong>Config</strong> (JSON, YAML, TOML, <code>.ini</code>, <code>.env</code>, XML, lockfiles such as <code>package-lock.json</code> or <code>yarn.lock</code>, dotfiles, Dockerfile, Makefile, …), <strong>Data</strong> (CSV, TSV, JSON Lines, Parquet, spreadsheets, SQLite) or <strong>Assets</strong> (images, fonts, audio and video). <strong>No files</strong> means the trace read or changed no file at all; <strong>No code</strong> means it touched only files of no recognised kind.</p>
         <p style="font-size:12px;color:var(--muted);margin:0 0 8px">The languages are TypeScript, JavaScript, Python, Go, Rust, Java, C#, C/C++, Ruby, PHP, Swift, Kotlin, Dart, Shell, SQL, HTML and CSS, plus <strong>Other code</strong> (e.g. PowerShell, Scala, Lua, R, Elixir, Haskell), and for traces without code Docs, Config, Data, Assets, No code and No files. Vue and Svelte components count as TypeScript when the trace also touched a TypeScript file, otherwise as JavaScript (only paths are read, never contents, so a component's <code>lang="ts"</code> isn't seen).</p>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">You'll see it in the <strong>Lang</strong> column, abbreviated (TS, JS, Py, C++, Kt, Sh, Docs, Cfg, … — blank for No files; hover for the full name) with a "+1" badge when there's a secondary language; in a tile in the expanded trace; in the <strong>Language</strong> filter, which matches a trace whose primary <em>or</em> secondary language is the one picked; in Analytics' By language section; and in exports. Traces stored before language tracking show "—" ("Not reported" in By language) until their log is re-read. Codex and Copilot Chat (VS Code) log files record no file paths, so those log-only traces read No files; with OTel on they get a real language.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">You'll see it in the <strong>Lang</strong> column, abbreviated (TS, JS, Py, C++, Kt, Sh, Docs, Cfg, …; blank for No files; hover for the full name) with a "+1" badge when there's a secondary language; in a tile in the expanded trace; in the <strong>Language</strong> filter, which matches a trace whose primary <em>or</em> secondary language is the one picked; in Analytics' By language section; and in exports. Traces stored before language tracking show "—" ("Not reported" in By language) until their log is re-read. Codex and Copilot Chat (VS Code) log files record no file paths, so those log-only traces read No files; with OTel on they get a real language.</p>
 
         <h4 id="help-changes" style={subHeadStyle}>Change size</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">The <strong>Changes</strong> column (e.g. <code>3f +120 −40</code>) and the expanded trace's <strong>Files changed</strong> / <strong>Lines +/−</strong> tiles measure what the agent's <em>own</em> edit and write tool calls did, not git commit stats (for those, see <a href="#help-outcome">Git Outcome</a>). <strong>Files changed</strong> counts every distinct file the agent edited or wrote, code or not — unlike <a href="#help-language">Language</a>, which ignores README, config and lockfiles. <strong>Lines added/removed</strong> are summed per edit: an old→new replacement is line-diffed (common lines don't count), an <code>apply_patch</code> hunk counts its <code>-</code> and <code>+</code> lines, and a full-file write counts every line as added (an overwritten file's earlier contents aren't in the trace, so nothing counts as removed). Files changed by shell commands are counted as files but contribute no lines. When an agent's data records no edit contents (OpenCode, Cursor CLI, and the Codex / Copilot log files), lines show <code>+? −?</code> — unknown, not zero. Traces stored before this existed show "—".</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">The <strong>Changes</strong> column (e.g. <code>3f +120 −40</code>) and the expanded trace's <strong>Files changed</strong> / <strong>Lines +/−</strong> tiles measure what the agent's <em>own</em> edit and write tool calls did, not git commit stats (for those, see <a href="#help-outcome">Git Outcome</a>). <strong>Files changed</strong> counts every distinct file the agent edited or wrote, code or not, unlike <a href="#help-language">Language</a>, which ignores README, config and lockfiles. <strong>Lines added/removed</strong> are summed per edit: an old→new replacement is line-diffed (common lines don't count), an <code>apply_patch</code> hunk counts its <code>-</code> and <code>+</code> lines, and a full-file write counts every line as added (an overwritten file's earlier contents aren't in the trace, so nothing counts as removed). Files changed by shell commands are counted as files but contribute no lines. When an agent's data records no edit contents (OpenCode, Cursor CLI, and the Codex / Copilot log files), lines show <code>+? −?</code>: unknown, not zero. Traces stored before this existed show "—".</p>
 
         <h4 id="help-outcome" style={subHeadStyle}>Git Outcome</h4>
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px">TraceRoost can compare a trace's changed files against local git history to classify what happened to the work afterward. It needs direct access to a local git repo, so it works in the VS Code extension and standalone (native process) mode, but not in Docker mode. It shows up in three places: the Traces table's <strong>Out</strong> column (M, C or U), the <strong>Outcome</strong> filter pills, and the git outcome banner in a trace's Files sub-tab.</p>
         <div class="glossary" style="margin-bottom:12px">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Merged</dt>
-            <dd class="glossary-def" style="display:block">The file is committed, and that commit's content also matches the tip of the repo's trunk branch (main/master) — the change has reached the shared branch, not just a local commit. Detected by content, not commit ancestry, so it still recognizes a squash or rebase merge, where the commit on trunk has a different sha than the original.</dd>
+            <dd class="glossary-def" style="display:block">The file is committed, and that commit's content also matches the tip of the repo's trunk branch (main/master): the change has reached the shared branch, not just a local commit. Detected by content, not commit ancestry, so it still recognizes a squash or rebase merge, where the commit on trunk has a different sha than the original.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Committed</dt>
-            <dd class="glossary-def" style="display:block">The file is committed — nothing has undone it since — but that commit hasn't reached the trunk branch yet: still sitting on a feature branch, or no trunk branch (no <code>origin/HEAD</code>, no local <code>main</code>/<code>master</code>) could be resolved locally to check against.</dd>
+            <dd class="glossary-def" style="display:block">The file is committed (nothing has undone it since), but that commit hasn't reached the trunk branch yet: still sitting on a feature branch, or no trunk branch (no <code>origin/HEAD</code>, no local <code>main</code>/<code>master</code>) could be resolved locally to check against.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Uncommitted</dt>
-            <dd class="glossary-def" style="display:block">The file still differs from HEAD right now — it just hasn't been committed <em>yet</em>. This is a snapshot of the current moment, not a verdict on the work: it reads exactly the same whether the edit happened five minutes ago or five weeks ago, and flips to Committed (or Merged) automatically the next time it's checked after you commit. TraceRoost also skips checking a session for its first two minutes after it ends, specifically so a brand-new edit isn't caught mid-flight and shown this way before there's been any real chance to commit it.</dd>
+            <dd class="glossary-def" style="display:block">The file still differs from HEAD right now; it just hasn't been committed <em>yet</em>. This is a snapshot of the current moment, not a verdict on the work: it reads exactly the same whether the edit happened five minutes ago or five weeks ago, and flips to Committed (or Merged) automatically the next time it's checked after you commit. TraceRoost also skips checking a session for its first two minutes after it ends, specifically so a brand-new edit isn't caught mid-flight and shown this way before there's been any real chance to commit it.</dd>
           </div>
         </div>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">A trace's outcome is the <em>worst</em> of its files' outcomes — Uncommitted, then Committed, then Merged — so one uncommitted file marks the whole trace Uncommitted even if nine others have merged. When git can't give a verdict (no local repo, a deleted or moved file, or not checked yet), the cell is simply blank and the trace appears only under "All". Outcomes are worked out on demand — for the rows on the current page, when you open a trace's Files sub-tab, or when you turn on the Outcome filter — and cached until something relevant changes: a new commit to that trace's files, or the trunk branch moving (which can turn Committed into Merged, e.g. when a teammate merges the PR). A small spinner next to the <strong>Filters</strong> button shows while visible traces are still being checked.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">A trace's outcome is the <em>worst</em> of its files' outcomes (Uncommitted, then Committed, then Merged), so one uncommitted file marks the whole trace Uncommitted even if nine others have merged. When git can't give a verdict (no local repo, a deleted or moved file, or not checked yet), the cell is simply blank and the trace appears only under "All". Outcomes are worked out on demand (for the rows on the current page, when you open a trace's Files sub-tab, or when you turn on the Outcome filter) and cached until something relevant changes: a new commit to that trace's files, or the trunk branch moving (which can turn Committed into Merged, e.g. when a teammate merges the PR). A small spinner next to the <strong>Filters</strong> button shows while visible traces are still being checked.</p>
 
         <h4 id="help-insights" style={subHeadStyle}>Insights</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">The Insights panel appears inside the <strong>Overview</strong> sub-tab of each expanded trace row. It surfaces efficiency signals for <a href="#gl-tokens">token</a> waste, <a href="#gl-cache-hit-rate">cache</a> patterns, tool behavior, and prompt shape — the signals meant to help you spend fewer <a href="#gl-turn">turns</a> and fewer tokens on the same work.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">The Insights panel appears inside the <strong>Overview</strong> sub-tab of each expanded trace row. It surfaces efficiency signals for <a href="#gl-tokens">token</a> waste, <a href="#gl-cache-hit-rate">cache</a> patterns, tool behavior, and prompt shape: the signals meant to help you spend fewer <a href="#gl-turn">turns</a> and fewer tokens on the same work.</p>
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><strong style="color:var(--fg)">Why it fired.</strong> Every insight and signal on a trace ends with the evidence behind it: the value TraceRoost measured against the threshold it crossed, how long the stretch between its first and last step ran and what the model calls in it cost, then the specific turns and tool calls involved, each with what it did (<em>"occurrence 3 of 5"</em>, <em>"undoes the earlier edit to session.ts"</em>) and, where there is one, the text itself: the edit's old → new text, the error line, the import line. The token and cache insights add a chart of the tokens sent on each model call, split into what was reused from the cache and what was processed fresh. Click a step, or <strong>Highlight in waterfall</strong>, to open the <strong>Waterfall</strong> sub-tab with that signal's steps lit and the rest dimmed, and step through them with ‹ ›. In the waterfall, the <strong>Signal evidence</strong> chips switch between signals, a dot marks every row that is evidence for one, the ticks under the time ruler show when each step happened, and opening a row lists the signals it is part of. A trace analyzed before evidence was recorded says so instead.</p>
         <div class="glossary">
           <InsightBlock id="help-context-bloat" title="Context Bloat"
-            why="Every LLM turn receives the full conversation so far. When tool results are large — full file reads, wide search outputs — the context balloons quickly. Instruction files that repeat the same guidance across turns are another common cause."
+            why="Every LLM turn receives the full conversation so far. When tool results are large (full file reads, wide search outputs), the context balloons quickly. Instruction files that repeat the same guidance across turns are another common cause."
             steps={`<li>Run <code style="${codeStyle}">wc -c ~/.claude/CLAUDE.md</code> to measure instruction file size. Target under 4 KB.</li><li>Remove verbose examples from instruction files.</li><li>Replace broad <code style="${codeStyle}">read_file</code> calls with line-ranged reads.</li><li>Add to your prompt: "Only include relevant excerpts in your reasoning."</li>`}
             impact="Reducing context size by 30% typically halves cost per trace and cuts TTFT by 15–25%."
           />
@@ -610,7 +610,7 @@ function SessionsSection() {
           />
           <InsightBlock id="help-large-context" title="Large Starting Context"
             why="If your instruction files (CLAUDE.md, .agent.md, copilot-instructions.md) are large, every trace starts expensive. Common culprits: long examples, full API docs pasted inline, duplicate instructions."
-            steps={`<li>Audit instruction files — look for sections longer than 20 lines.</li><li>Move reference material into separate docs the agent can read on demand.</li><li>Check for duplicate instruction sources across file levels.</li><li>Target a meaningful reduction in combined static instructions — even halving them cuts baseline cost per call.</li>`}
+            steps={`<li>Audit instruction files: look for sections longer than 20 lines.</li><li>Move reference material into separate docs the agent can read on demand.</li><li>Check for duplicate instruction sources across file levels.</li><li>Target a meaningful reduction in combined static instructions; even halving them cuts baseline cost per call.</li>`}
             impact={`Trimming 10,000 tokens from starting context saves those tokens on <em>every</em> LLM call. For a 10-turn trace, that is 100,000 tokens recovered.`}
           />
           <InsightBlock id="help-duplicate-searches" title="Duplicate Searches"
@@ -621,7 +621,7 @@ function SessionsSection() {
           <InsightBlock id="help-tool-failures" title="Tool Failures"
             why="Tool failures come from: (1) guessed file paths that don't exist, (2) unavailable commands, or (3) hallucinated APIs. Each failure adds error text to context."
             steps={`<li>Provide exact file paths in your prompt.</li><li>Tell the agent which package manager and runtime are available.</li><li>Verify files exist before prompting.</li>`}
-            impact="Each eliminated failure can save a full LLM recovery turn — often tens of thousands of tokens per failure cascade."
+            impact="Each eliminated failure can save a full LLM recovery turn, often tens of thousands of tokens per failure cascade."
           />
           <InsightBlock id="help-large-results" title="Large Tool Results"
             why="When the agent reads entire large files or runs broad searches, results are appended to context in full. A 50KB file adds ~12,500 tokens to every subsequent call."
@@ -634,13 +634,13 @@ function SessionsSection() {
             impact="Reducing from 70 to 10 tools saves ~10,000 tokens per LLM call."
           />
           <InsightBlock id="help-cache-rate" title="Low Cache Reuse"
-            why="The model provider keeps a copy of the start of the context (the part that stays the same from call to call) so later calls can reuse it for much less. Reuse stops when that part changes between calls — timestamps, reordered instructions, or modified instruction files."
+            why="The model provider keeps a copy of the start of the context (the part that stays the same from call to call) so later calls can reuse it for much less. Reuse stops when that part changes between calls: timestamps, reordered instructions, or modified instruction files."
             steps={`<li>Keep static content at the <em>top</em> of prompts, identical across calls.</li><li>Avoid timestamps or counters in instruction files.</li><li>Reuse will be low right after you edit instruction files, until the new version has been stored once.</li><li>Ensure system prompt templates are not dynamically generated.</li>`}
             impact={`Going from 0% to 60% of the context reused reduces effective cost by 80–90%. The time to the first reply also drops significantly.`}
           />
         </div>
 
-        <p style="font-size:12px;color:var(--muted);margin:16px 0 0">See <a href="#help-signals">Signals</a> for the full signal catalog — what triggers each one, and whether it's computed from OTel telemetry, local logs, or both.</p>
+        <p style="font-size:12px;color:var(--muted);margin:16px 0 0">See <a href="#help-signals">Signals</a> for the full signal catalog: what triggers each one, and whether it's computed from OTel telemetry, local logs, or both.</p>
       </div>
     </div>
   )
@@ -650,7 +650,7 @@ function SignalsSection() {
   return (
     <div class="help-section" id="help-signals">
       <h3 class="help-heading">{HELP_SECTIONS.signals.heading}</h3>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><a href="#gl-signal">Loop signals</a> are behavioral patterns indicating the <a href="#gl-agent">agent</a> is stuck, oscillating, or spiraling into unproductive work — or, for the cache and cost signals, spending more than the work needed. They appear in the Insights panel (inside the <strong>Overview</strong> sub-tab of each trace) with warning or critical severity. Each entry below says exactly when it fires, how well that threshold has been checked against real sessions, what <em>you</em> do about it, and the one instruction to paste to the agent. The <strong>OTel</strong>/<strong>Log</strong> badge on each one below shows what a trace actually needs to capture for it to fire — most need live OpenTelemetry, since a reconstructed log-only trace usually lacks the tool-result detail these read; the note under each badge names the one log source (if any) that's the exception. See <a href="#help-badges">Badges</a> for what a Log-sourced trace is missing more generally.</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><a href="#gl-signal">Loop signals</a> are behavioral patterns indicating the <a href="#gl-agent">agent</a> is stuck, oscillating, or spiraling into unproductive work or, for the cache and cost signals, spending more than the work needed. They appear in the Insights panel (inside the <strong>Overview</strong> sub-tab of each trace) with warning or critical severity. Each entry below says exactly when it fires, how well that threshold has been checked against real sessions, what <em>you</em> do about it, and the one instruction to paste to the agent. The <strong>OTel</strong>/<strong>Log</strong> badge on each one below shows what a trace actually needs to capture for it to fire; most need live OpenTelemetry, since a reconstructed log-only trace usually lacks the tool-result detail these read; the note under each badge names the one log source (if any) that's the exception. See <a href="#help-badges">Badges</a> for what a Log-sourced trace is missing more generally.</p>
       <p class="sig-legend" style="font-size:12px;color:var(--muted);margin:-4px 0 12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span>Icon key:</span>
         <SignalBadge type="retry-loop" severity="critical" size="sm" aria-hidden="true" /><span>solid tile = critical</span>
@@ -664,7 +664,7 @@ function SignalsSection() {
             dataSource={SIGNAL_FORMULAS.exact_tool_repeat.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.exact_tool_repeat.dataSourceNote}
             example={`The agent ran <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file src/types.ts</code> forty times in one trace, unchanged each time.`}
-            steps={`<li>Add: <em>"After reading a file, do not read it again unless you have modified it."</em></li><li>Scope the task so fewer files are needed.</li><li>If the repeated call is a command whose output changes on its own (a clock, a live log, a poll), it isn't a loop — <strong>Ignore</strong> it.</li><li>Otherwise stop the trace and restart with what was already read.</li>`}
+            steps={`<li>Add: <em>"After reading a file, do not read it again unless you have modified it."</em></li><li>Scope the task so fewer files are needed.</li><li>If the repeated call is a command whose output changes on its own (a clock, a live log, a poll), it isn't a loop, so <strong>Ignore</strong> it.</li><li>Otherwise stop the trace and restart with what was already read.</li>`}
             impact="Stopping this pattern prevents runaway token accumulation. 200K tokens looping → 20K tokens with a direct prompt."
           />
           <LoopBlock id="help-state-spiral" title="Edit Reverted" signalType="edit_revert_cycle"
@@ -672,7 +672,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.edit_revert_cycle.caveat}
             dataSource={SIGNAL_FORMULAS.edit_revert_cycle.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.edit_revert_cycle.dataSourceNote}
-            example="The agent added a null check (fixing one test), removed it (breaking another), then added it back — cycling."
+            example="The agent added a null check (fixing one test), removed it (breaking another), then added it back, cycling."
             steps={`<li>Clarify success criteria with explicit priority ordering.</li><li>Provide the exact final file state if possible.</li><li>Check if tests assert contradictory behavior.</li><li>Use the Files tab to spot A→B→A patterns.</li>`}
             impact="Resolving the conflict takes 2–3 focused turns vs. 20–40 oscillating turns."
           />
@@ -690,9 +690,9 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.runaway_steps.caveat}
             dataSource={SIGNAL_FORMULAS.runaway_steps.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.runaway_steps.dataSourceNote}
-            example={`"Fix the login bug" accumulated 90+ steps — the agent then noticed unrelated issues and updated 3 extra files.`}
-            steps={`<li>Add explicit stopping conditions.</li><li>Avoid open-ended phrasing — name specific functions and files.</li><li>Specify scope: <em>"Only change files in src/auth/"</em>.</li><li>Monitor the context growth chart for steep rises.</li>`}
-            impact="A 5-step prompt vs. a 90-step trace can save 85 tool calls — often a several-fold token reduction."
+            example={`"Fix the login bug" accumulated 90+ steps; the agent then noticed unrelated issues and updated 3 extra files.`}
+            steps={`<li>Add explicit stopping conditions.</li><li>Avoid open-ended phrasing; name specific functions and files.</li><li>Specify scope: <em>"Only change files in src/auth/"</em>.</li><li>Monitor the context growth chart for steep rises.</li>`}
+            impact="A 5-step prompt vs. a 90-step trace can save 85 tool calls, often a several-fold token reduction."
           />
           <LoopBlock id="help-context-accumulation" title="Context Runaway" signalType="token_runaway"
             why={formulaHtml(SIGNAL_FORMULAS.token_runaway.bullets)}
@@ -700,7 +700,7 @@ function SignalsSection() {
             dataSource={SIGNAL_FORMULAS.token_runaway.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.token_runaway.dataSourceNote}
             example="First call: 8K tokens sent → 600 out (7.5%). Last call: 65K tokens sent → 80 out (0.12%). Five turns reading the same files without edits."
-            steps={`<li>Stop immediately — cost compounds with no progress.</li><li>Start fresh with a focused prompt stating what was already read.</li><li>Include the specific target state, not just the problem.</li><li>Use the Traces tab to review what was accomplished.</li>`}
+            steps={`<li>Stop immediately: cost compounds with no progress.</li><li>Start fresh with a focused prompt stating what was already read.</li><li>Include the specific target state, not just the problem.</li><li>Use the Traces tab to review what was accomplished.</li>`}
             impact="Catching at 4 calls instead of 10 saves ~390,000 input tokens at peak context size."
           />
           <LoopBlock id="help-chronic-tool-unreliability" title="Chronic Tool Unreliability" signalType="chronic_tool_failures"
@@ -710,7 +710,7 @@ function SignalsSection() {
             dataSourceNote={SIGNAL_FORMULAS.chronic_tool_failures.dataSourceNote}
             example="7 of 12 tool calls failed (58%): bash ×4 (command not found), read_file ×3 (path guessed incorrectly)."
             steps={`<li>Be explicit about file locations and the exact commands available.</li><li>State the package manager and runtime in use.</li><li>Verify paths and commands exist before prompting.</li>`}
-            impact="Each eliminated failure can save a full LLM recovery turn — often tens of thousands of tokens per cascade."
+            impact="Each eliminated failure can save a full LLM recovery turn, often tens of thousands of tokens per cascade."
           />
           <LoopBlock id="help-context-flooding-risk" title="Context Flooding Risk" signalType="context_flooding_risk"
             why={formulaHtml(SIGNAL_FORMULAS.context_flooding_risk.bullets)}
@@ -726,7 +726,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.hallucinated_import.caveat}
             dataSource={SIGNAL_FORMULAS.hallucinated_import.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.hallucinated_import.dataSourceNote}
-            example={`<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">import { retry } from 'p-retry-async'</code> — no such package in package.json or node_modules.`}
+            example={`<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">import { retry } from 'p-retry-async'</code>: no such package in package.json or node_modules.`}
             steps={`<li>Verify the package actually exists and is spelled correctly before asking the agent to use it.</li><li>Add it to the manifest yourself if it's intentional (e.g. you're about to run the install).</li>`}
             impact="Catching this before install/runtime avoids a confusing failure several steps later that looks unrelated to the actual cause."
           />
@@ -735,7 +735,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.failed_check_submission.caveat}
             dataSource={SIGNAL_FORMULAS.failed_check_submission.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.failed_check_submission.dataSourceNote}
-            example="The trace ends immediately after `pnpm test` prints 3 failing specs — no edits follow."
+            example="The trace ends immediately after `pnpm test` prints 3 failing specs; no edits follow."
             steps={`<li>Ask the agent to re-run the check and confirm it passes before considering the task done.</li><li>Review the failure yourself before accepting the change.</li>`}
             impact="Catches work that looks finished but silently failed its own validation step."
           />
@@ -745,7 +745,7 @@ function SignalsSection() {
             dataSource={SIGNAL_FORMULAS.tool_call_cycle.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.tool_call_cycle.dataSourceNote}
             example={`The agent alternated <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">bash npm test</code> → <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file test.log</code> six times in a row, with no edit in between, without changing approach.`}
-            steps={`<li>Ask the agent to explain what changed between attempts before trying again.</li><li>Supply the missing information yourself — a stack trace, an expected value, a spec.</li><li>Interrupt and restart with a more specific instruction.</li>`}
+            steps={`<li>Ask the agent to explain what changed between attempts before trying again.</li><li>Supply the missing information yourself: a stack trace, an expected value, a spec.</li><li>Interrupt and restart with a more specific instruction.</li>`}
             impact="Catching the cycle at 5 repeats instead of letting it run to 15+ saves ten or more redundant tool round-trips."
           />
           <LoopBlock id="help-file-reread" title="Redundant Context Reload" signalType="file_reread"
@@ -762,17 +762,17 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.cache_miss.caveat}
             dataSource={SIGNAL_FORMULAS.cache_miss.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.cache_miss.dataSourceNote}
-            example="A tool definition changed between turns, so the next call saved 8,000 tokens of context to the cache again instead of reusing the stored copy. Saving cost 1.25× the normal token price (for the 5-minute cache); reusing would have cost 0.1× — about 12.5× less."
-            steps={`<li>Don't switch model (<code>/model</code>), effort or thinking settings, or permission mode mid-task — each forces the stored context to be saved again.</li><li>Don't add or remove MCP servers mid-session; their tool definitions sit at the start of every call.</li><li>Check whether a timestamp or counter is embedded near the start of the context (a status line or hook that stamps the time).</li>`}
-            impact="Avoiding one 8,000-token re-save saves the difference between the saving price and the reuse price — about 1.15× the normal cost of that many tokens (1.9× for the 1-hour cache)."
+            example="A tool definition changed between turns, so the next call saved 8,000 tokens of context to the cache again instead of reusing the stored copy. Saving cost 1.25× the normal token price (for the 5-minute cache); reusing would have cost 0.1×, about 12.5× less."
+            steps={`<li>Don't switch model (<code>/model</code>), effort or thinking settings, or permission mode mid-task; each forces the stored context to be saved again.</li><li>Don't add or remove MCP servers mid-session; their tool definitions sit at the start of every call.</li><li>Check whether a timestamp or counter is embedded near the start of the context (a status line or hook that stamps the time).</li>`}
+            impact="Avoiding one 8,000-token re-save saves the difference between the saving price and the reuse price, about 1.15× the normal cost of that many tokens (1.9× for the 1-hour cache)."
           />
           <LoopBlock id="help-ttl-expiry" title="Cache TTL Expiry" signalType="ttl_expiry"
             why={formulaHtml(SIGNAL_FORMULAS.ttl_expiry.bullets)}
             caveat={SIGNAL_FORMULAS.ttl_expiry.caveat}
             dataSource={SIGNAL_FORMULAS.ttl_expiry.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.ttl_expiry.dataSourceNote}
-            example="Two turns were 90 minutes apart; the second saved the whole context to the cache again even though nothing about the prompt had changed — the stored copy had simply expired."
-            steps={`<li>Work in tighter bursts if you want to keep benefiting from the cache.</li><li>On an API key or usage credits the cache lasts 5 minutes, not an hour: Claude Code lets you choose the 1-hour cache lifetime yourself (its prompt-caching docs), at a higher price for saving.</li><li>Otherwise accept the re-processing cost for turns that are naturally spaced out — it's a timing effect, not a prompt problem.</li>`}
+            example="Two turns were 90 minutes apart; the second saved the whole context to the cache again even though nothing about the prompt had changed; the stored copy had simply expired."
+            steps={`<li>Work in tighter bursts if you want to keep benefiting from the cache.</li><li>On an API key or usage credits the cache lasts 5 minutes, not an hour: Claude Code lets you choose the 1-hour cache lifetime yourself (its prompt-caching docs), at a higher price for saving.</li><li>Otherwise accept the re-processing cost for turns that are naturally spaced out; it's a timing effect, not a prompt problem.</li>`}
             impact="Recognizing this as a timing effect, not a prompt problem, avoids chasing a caching bug that isn't there."
           />
           <LoopBlock id="help-low-cache-hit-ratio" title="Poor Cache Utilization" signalType="low_cache_hit_ratio"
@@ -780,8 +780,8 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.low_cache_hit_ratio.caveat}
             dataSource={SIGNAL_FORMULAS.low_cache_hit_ratio.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.low_cache_hit_ratio.dataSourceNote}
-            example="A trace reused only 12% of its context from the cache despite 200,000+ tokens saved to or reused from it — most of the context was processed fresh every turn."
-            steps={`<li>Check what's changing turn to turn near the start of the context — that's usually what stops the stored copy from being reused.</li><li>See Avoidable Cache Miss and Cache TTL Expiry above for the two most common causes.</li>`}
+            example="A trace reused only 12% of its context from the cache despite 200,000+ tokens saved to or reused from it; most of the context was processed fresh every turn."
+            steps={`<li>Check what's changing turn to turn near the start of the context; that's usually what stops the stored copy from being reused.</li><li>See Avoidable Cache Miss and Cache TTL Expiry above for the two most common causes.</li>`}
             impact="Going from 12% to 60%+ of the context reused can cut the cost of what's sent to the model dramatically on a long session."
           />
           <LoopBlock id="help-budget-overrun" title="Budget Overrun" signalType="budget_overrun"
@@ -789,7 +789,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.budget_overrun.caveat}
             dataSource={SIGNAL_FORMULAS.budget_overrun.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.budget_overrun.dataSourceNote}
-            example={`A trace cost $9.40 against a configured $5 cap (<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">TRACEROOST_BUDGET_CAP_USD=5</code>) — 1.9× over.`}
+            example={`A trace cost $9.40 against a configured $5 cap (<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">TRACEROOST_BUDGET_CAP_USD=5</code>), 1.9× over.`}
             steps={`<li>Check whether a loop or retry pattern elsewhere in this list is driving the cost.</li><li>Raise the cap if the task genuinely needed this much work.</li>`}
             impact="Catching an overrun mid-session, rather than after the fact, is the point of setting a cap at all."
           />
@@ -799,11 +799,11 @@ function SignalsSection() {
             dataSource={SIGNAL_FORMULAS.model_tier_mismatch.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.model_tier_mismatch.dataSourceNote}
             example={`A trace ran 14 straight <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">grep</code>/<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file</code> calls on a premium model with no edits and ~80 output tokens per call.`}
-            steps={`<li>Give research to a smaller model: in Claude Code, a subagent with <code>model: haiku</code>, or <code>/model</code> for a read-only stretch.</li><li>Reserve the premium model for turns that actually produce edits.</li><li>"Premium" means an input rate above $3/M — Opus-class and the equivalent OpenAI tiers. Sonnet, at $3, doesn't count, so a question-and-answer session on the default model is never flagged.</li>`}
+            steps={`<li>Give research to a smaller model: in Claude Code, a subagent with <code>model: haiku</code>, or <code>/model</code> for a read-only stretch.</li><li>Reserve the premium model for turns that actually produce edits.</li><li>"Premium" means an input rate above $3/M: Opus-class and the equivalent OpenAI tiers. Sonnet, at $3, doesn't count, so a question-and-answer session on the default model is never flagged.</li>`}
             impact="Switching a read-only stretch from a premium to a mid-tier model can cut that portion's cost 5–10× with no quality loss."
           />
         </div>
-      <p style="margin-top:16px;font-size:12px;color:var(--muted)">In the Insights panel, signals are sorted by severity; use <strong>Ignore</strong> to dismiss one that was intentional. The Traces table's <strong>Sig</strong> column shows which traces have signals — click its header to sort by it.</p>
+      <p style="margin-top:16px;font-size:12px;color:var(--muted)">In the Insights panel, signals are sorted by severity; use <strong>Ignore</strong> to dismiss one that was intentional. The Traces table's <strong>Sig</strong> column shows which traces have signals; click its header to sort by it.</p>
     </div>
   )
 }
@@ -817,7 +817,7 @@ function AnalyticsSection() {
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Agent Breakdown</dt>
-            <dd class="glossary-def" style="display:block">One card per agent with traces in view — Copilot, Claude, Codex, OpenCode, Cursor CLI and Antigravity — showing LLM and tool call counts, input and output tokens, cache hit rate, average duration and TTFT (OTel only), lines added and removed, <a href="#gl-one-shot-rate">One-shot rate</a>, and top tools. Cursor CLI records no token counts (Antigravity none without its conversation database), so its token and cache figures show as —. One-shot rate is hidden when fewer than 2 files were edited.</dd>
+            <dd class="glossary-def" style="display:block">One card per agent with traces in view (Copilot, Claude, Codex, OpenCode, Cursor CLI and Antigravity), showing LLM and tool call counts, input and output tokens, cache hit rate, average duration and TTFT (OTel only), lines added and removed, <a href="#gl-one-shot-rate">One-shot rate</a>, and top tools. Cursor CLI records no token counts (Antigravity none without its conversation database), so its token and cache figures show as —. One-shot rate is hidden when fewer than 2 files were edited.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">By Language</dt>
@@ -825,15 +825,15 @@ function AnalyticsSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Plan Limits</dt>
-            <dd class="glossary-def" style="display:block">How full your Claude Pro/Max and ChatGPT plan's 5-hour and weekly windows are, and when they reset. Shown only once Claude Code or Codex has recorded a reading — see <a href="#help-plan-limits">Plan limits</a>.</dd>
+            <dd class="glossary-def" style="display:block">How full your Claude Pro/Max and ChatGPT plan's 5-hour and weekly windows are, and when they reset. Shown only once Claude Code or Codex has recorded a reading; see <a href="#help-plan-limits">Plan limits</a>.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Outcome &amp; Token Spend Over Time</dt>
-            <dd class="glossary-def" style="display:block">Tokens and traces per day (or week), stacked by each trace's <a href="#help-outcome">git outcome</a> — merged, committed, or still uncommitted — with the share of tokens that went to work that landed. Traces with no changed files, or outside a git repo, aren't counted.</dd>
+            <dd class="glossary-def" style="display:block">Tokens and traces per day (or week), stacked by each trace's <a href="#help-outcome">git outcome</a> (merged, committed, or still uncommitted), with the share of tokens that went to work that landed. Traces with no changed files, or outside a git repo, aren't counted.</dd>
           </div>
           <div class="glossary-item" id="help-code-changes" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Code Changes Over Time</dt>
-            <dd class="glossary-def" style="display:block">Lines added (green, above the line) and removed (red, below) per day (or week), with files changed as a dashed line on the right axis. Counts the agent's own edit and write tool calls — agent-authored edits, not git commit stats (see <a href="#help-changes">Change size</a>). Traces with no recorded line counts — stored before change tracking, or from an agent that doesn't record edit contents — aren't counted, and the chart says how many were left out.</dd>
+            <dd class="glossary-def" style="display:block">Lines added (green, above the line) and removed (red, below) per day (or week), with files changed as a dashed line on the right axis. Counts the agent's own edit and write tool calls: agent-authored edits, not git commit stats (see <a href="#help-changes">Change size</a>). Traces with no recorded line counts (stored before change tracking, or from an agent that doesn't record edit contents) aren't counted, and the chart says how many were left out.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Estimated Cost</dt>
@@ -861,10 +861,10 @@ function PatternsSection() {
         <p>The Advisor tab analyzes your trace history to surface actionable improvements for your agent instruction file. All panels respect the shared filter bar. Instruction-file suggestions are always worked out per repo, from that repo's traces only: in VS Code they cover the folder the window has open; in standalone/npx mode they cover every repo in your traces, one group per repo (repo name and path), and the Repo filter narrows which groups show.</p>
 
         <h4 style={subHeadStyle}>How to Spend Less</h4>
-        <p style={mutedP}>When there's something to act on, the Advisor opens with one ranked list of the biggest savings — loop signals, hot files, and cache problems combined — ranked by priority, with an estimated dollar (or weekly plan-limit) saving where one can be priced, so you can start at the top.</p>
+        <p style={mutedP}>When there's something to act on, the Advisor opens with one ranked list of the biggest savings (loop signals, hot files, and cache problems combined), ranked by priority, with an estimated dollar (or weekly plan-limit) saving where one can be priced, so you can start at the top.</p>
 
         <h4 style={subHeadStyle}>Instructions File</h4>
-        <p style={mutedP}>TraceRoost scans trace patterns and generates specific, ready-to-copy suggestions for improving your instruction file — <code>CLAUDE.md</code> (Claude Code), <code>.github/copilot-instructions.md</code> (Copilot), <code>AGENTS.md</code> (read by Codex, OpenCode, the Cursor CLI and Antigravity — Antigravity's legacy <code>GEMINI.md</code> isn't checked) or <code>.cursor/rules/traceroost.mdc</code> (a Cursor project rule, created with <code>alwaysApply: true</code> frontmatter). Each card lists the agents it applies to. Suggestions are grouped by type:</p>
+        <p style={mutedP}>TraceRoost scans trace patterns and generates specific, ready-to-copy suggestions for improving your instruction file: <code>CLAUDE.md</code> (Claude Code), <code>.github/copilot-instructions.md</code> (Copilot), <code>AGENTS.md</code> (read by Codex, OpenCode, the Cursor CLI and Antigravity; Antigravity's legacy <code>GEMINI.md</code> isn't checked) or <code>.cursor/rules/traceroost.mdc</code> (a Cursor project rule, created with <code>alwaysApply: true</code> frontmatter). Each card lists the agents it applies to. Suggestions are grouped by type:</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Hot file context</dt>
@@ -887,10 +887,10 @@ function PatternsSection() {
             <dd class="glossary-def" style="display:block">Triggered when a significant share of traces exceed 1.5× the average turn count, indicating missing upfront context. Works for all agent types including Copilot.</dd>
           </div>
         </div>
-        <p style={mutedP}>Each suggestion card shows a <strong>Recommended addition</strong> — text ready to paste into your instruction file — and an <strong>Ask your agent</strong> prompt you can copy and send directly to your agent to get its own recommendation. Both have Copy buttons. <strong>TraceRoost only writes to your instruction file when you click Apply</strong> — it appends the suggestion as a block wrapped in <code>&lt;!-- TraceRoost suggestion … --&gt;</code> markers, and Remove deletes exactly that block, never text you wrote around it. Copy-and-paste works too, applied by you (or by the agent, if you paste the "Ask your agent" prompt into it). Apply writes into the repo the suggestion came from (in VS Code, the open folder) — pick the file from the card's picker; "(create)" marks one that doesn't exist yet. In standalone mode a repo whose folder has since been moved or deleted keeps its suggestions but not the Apply button.</p>
+        <p style={mutedP}>Each suggestion card shows a <strong>Recommended addition</strong> (text ready to paste into your instruction file) and an <strong>Ask your agent</strong> prompt you can copy and send directly to your agent to get its own recommendation. Both have Copy buttons. <strong>TraceRoost only writes to your instruction file when you click Apply</strong>: it appends the suggestion as a block wrapped in <code>&lt;!-- TraceRoost suggestion … --&gt;</code> markers, and Remove deletes exactly that block, never text you wrote around it. Copy-and-paste works too, applied by you (or by the agent, if you paste the "Ask your agent" prompt into it). Apply writes into the repo the suggestion came from (in VS Code, the open folder); pick the file from the card's picker; "(create)" marks one that doesn't exist yet. In standalone mode a repo whose folder has since been moved or deleted keeps its suggestions but not the Apply button.</p>
 
         <h4 style={subHeadStyle}>Efficiency Map</h4>
-        <p style={mutedP}>A scatter plot where each dot is one trace. Right = more expensive. Up = more turns (LLM calls). Color = cache hit rate (green ≥60%, orange 20–60%, red &lt;20%). Click a dot to navigate to that trace. The table below shows the top 10 traces sorted by the active column — click any column header to re-sort.</p>
+        <p style={mutedP}>A scatter plot where each dot is one trace. Right = more expensive. Up = more turns (LLM calls). Color = cache hit rate (green ≥60%, orange 20–60%, red &lt;20%). Click a dot to navigate to that trace. The table below shows the top 10 traces sorted by the active column; click any column header to re-sort.</p>
 
         <h4 style={subHeadStyle}>Hot Files</h4>
         <p style={mutedP}>Files the agent accessed most frequently across traces, ranked by trace count. Switch between Read, Changed, Written, and Both modes. Frequently read files cost tokens every trace and are strong candidates for your instruction file; frequently changed files benefit from explicit constraints.</p>
@@ -920,20 +920,20 @@ function CostSection() {
         <p style="font-size:12px;color:var(--muted)"><strong style="color:var(--fg)">Plan limits not showing?</strong> You haven't used Claude Code or Codex on a subscription plan since installing TraceRoost, you're signed in with an API key rather than a plan, or TraceRoost is running in Docker, which can't see these files.</p>
 
         <h4 style={subHeadStyle}>Why TraceRoost costs look higher than your subscription</h4>
-        <p>TraceRoost calculates every trace's cost using the published <strong>API metered rates</strong> — the per-token prices a developer pays when calling the Anthropic, OpenAI, or GitHub Copilot APIs directly. These are real public rates, not estimates.</p>
-        <p>If you use Claude Code on a <strong>Claude Pro or Max plan</strong>, or Copilot on a subscription plan, the cost TraceRoost shows is the <em>API-equivalent value</em> of the compute you consumed — not what appears on your credit card. Subscription plans bundle a large monthly compute allowance at a flat rate that works out to roughly <strong>15–30× cheaper per token</strong> than paying metered API rates with the same dollar amount.</p>
-        <p style="font-size:12px;color:var(--muted);margin-bottom:0">Think of it like a cell plan: you pay $50/month for unlimited data, but if you counted each byte at the retail pay-as-you-go rate, the number would look enormous. TraceRoost shows you the pay-as-you-go equivalent — which tells you how much compute you're consuming and which traces are expensive, even when you're not paying per token.</p>
+        <p>TraceRoost calculates every trace's cost using the published <strong>API metered rates</strong>: the per-token prices a developer pays when calling the Anthropic, OpenAI, or GitHub Copilot APIs directly. These are real public rates, not estimates.</p>
+        <p>If you use Claude Code on a <strong>Claude Pro or Max plan</strong>, or Copilot on a subscription plan, the cost TraceRoost shows is the <em>API-equivalent value</em> of the compute you consumed, not what appears on your credit card. Subscription plans bundle a large monthly compute allowance at a flat rate that works out to roughly <strong>15–30× cheaper per token</strong> than paying metered API rates with the same dollar amount.</p>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:0">Think of it like a cell plan: you pay $50/month for unlimited data, but if you counted each byte at the retail pay-as-you-go rate, the number would look enormous. TraceRoost shows you the pay-as-you-go equivalent, which tells you how much compute you're consuming and which traces are expensive, even when you're not paying per token.</p>
 
         <h4 style={subHeadStyle}>What the cost number is still useful for on a subscription</h4>
         <ul style="font-size:12px;color:var(--muted);padding-left:18px;line-height:1.8;margin-bottom:0">
-          <li><strong style="color:var(--fg)">Relative cost</strong> — trace A used 10× more compute than trace B, regardless of billing model</li>
-          <li><strong style="color:var(--fg)">Budget draw-down</strong> — identify which traces eat through your monthly allowance fastest</li>
-          <li><strong style="color:var(--fg)">Model comparison</strong> — see whether a cheaper model would give equivalent results for your typical trace shape</li>
-          <li><strong style="color:var(--fg)">Overage warning</strong> — once you hit your included limit, additional usage is billed at metered rates; the TraceRoost number tells you what that would cost</li>
-          <li><strong style="color:var(--fg)">Prompt efficiency</strong> — context bloat and repeated reads show up as real cost differences even when you aren't paying per token</li>
+          <li><strong style="color:var(--fg)">Relative cost</strong>: trace A used 10× more compute than trace B, regardless of billing model</li>
+          <li><strong style="color:var(--fg)">Budget draw-down</strong>: identify which traces eat through your monthly allowance fastest</li>
+          <li><strong style="color:var(--fg)">Model comparison</strong>: see whether a cheaper model would give equivalent results for your typical trace shape</li>
+          <li><strong style="color:var(--fg)">Overage warning</strong>: once you hit your included limit, additional usage is billed at metered rates; the TraceRoost number tells you what that would cost</li>
+          <li><strong style="color:var(--fg)">Prompt efficiency</strong>: context bloat and repeated reads show up as real cost differences even when you aren't paying per token</li>
         </ul>
 
-        <h4 style={subHeadStyle}>Claude Code — Pro and Max plans</h4>
+        <h4 style={subHeadStyle}>Claude Code: Pro and Max plans</h4>
         <table style={tblStyle}>
           <thead><tr>
             <th style={thStyle}>Plan</th>
@@ -944,12 +944,12 @@ function CostSection() {
             <tr><td style={tdBold}>Claude Pro</td><td style={tdStyle}>$20/month</td><td style={tdStyle}>Large bundled compute allowance shared between claude.ai and Claude Code CLI; resets on a rolling cycle</td></tr>
             <tr><td style={tdBold}>Claude Max 5×</td><td style={tdStyle}>$100/month</td><td style={tdStyle}>~5× the Pro allowance</td></tr>
             <tr><td style={tdBold}>Claude Max 20×</td><td style={tdStyle}>$200/month</td><td style={tdStyle}>~20× the Pro allowance</td></tr>
-            <tr><td style={tdBold}>API (no plan)</td><td style={tdStyle}>Pay-per-token</td><td style={tdStyle}>Billed exactly at published Anthropic rates — TraceRoost cost = your actual charge</td></tr>
+            <tr><td style={tdBold}>API (no plan)</td><td style={tdStyle}>Pay-per-token</td><td style={tdStyle}>Billed exactly at published Anthropic rates; TraceRoost cost = your actual charge</td></tr>
           </tbody>
         </table>
-        <p style={mutedP}>Claude Code CLI draws from the same compute pool as claude.ai. At published rates (e.g. claude-sonnet-4-6: $3.00 input / $15.00 output per million tokens), $20/month buys roughly 6–7M input tokens — but a Pro subscriber can typically use far more than that within the plan. When you exhaust your monthly allowance, additional usage is billed at standard API rates. Subscribers billed via the Anthropic API directly (not a claude.ai plan) see costs that match TraceRoost exactly.</p>
+        <p style={mutedP}>Claude Code CLI draws from the same compute pool as claude.ai. At published rates (e.g. claude-sonnet-4-6: $3.00 input / $15.00 output per million tokens), $20/month buys roughly 6–7M input tokens, but a Pro subscriber can typically use far more than that within the plan. When you exhaust your monthly allowance, additional usage is billed at standard API rates. Subscribers billed via the Anthropic API directly (not a claude.ai plan) see costs that match TraceRoost exactly.</p>
 
-        <h4 style={subHeadStyle}>GitHub Copilot — AI Credits model (from June 2026)</h4>
+        <h4 style={subHeadStyle}>GitHub Copilot: AI Credits model (from June 2026)</h4>
         <table style={tblStyle}>
           <thead><tr>
             <th style={thStyle}>Plan</th>
@@ -963,10 +963,10 @@ function CostSection() {
             <tr><td style={tdBold}>Copilot Max</td><td style={tdStyle}>Enterprise</td><td style={tdStyle}>20,000 credits</td><td style={tdStyle}>$0.01/credit</td></tr>
           </tbody>
         </table>
-        <p style={mutedP}>1 AI Credit = $0.01. Some models are <strong>included</strong> (zero credits — they show as $0.00 in TraceRoost). Premium models consume credits from your monthly allowance; usage above the allowance is charged at the overage rate. Code completions and Next Edit Suggestions are free and not tracked by TraceRoost. The TraceRoost cost for a Copilot trace divided by $0.01 gives the credit count consumed. Copilot switched from a request-multiplier model to token-based AI Credits in June 2026; TraceRoost auto-detects which billing model applies based on the trace date.</p>
+        <p style={mutedP}>1 AI Credit = $0.01. Some models are <strong>included</strong> (zero credits; they show as $0.00 in TraceRoost). Premium models consume credits from your monthly allowance; usage above the allowance is charged at the overage rate. Code completions and Next Edit Suggestions are free and not tracked by TraceRoost. The TraceRoost cost for a Copilot trace divided by $0.01 gives the credit count consumed. Copilot switched from a request-multiplier model to token-based AI Credits in June 2026; TraceRoost auto-detects which billing model applies based on the trace date.</p>
 
-        <h4 style={subHeadStyle}>Codex CLI — API key or ChatGPT plan</h4>
-        <p style={mutedP}>With an OpenAI API key, Codex CLI is billed at metered token rates, and the TraceRoost cost shown for Codex traces is what OpenAI charges. Signed in with a ChatGPT plan instead, Codex usage counts against the plan's 5-hour and weekly windows rather than a per-token bill — TraceRoost's cost is then the API-equivalent value, and <a href="#help-plan-limits">Plan limits</a> above shows how much of each window you've used.</p>
+        <h4 style={subHeadStyle}>Codex CLI: API key or ChatGPT plan</h4>
+        <p style={mutedP}>With an OpenAI API key, Codex CLI is billed at metered token rates, and the TraceRoost cost shown for Codex traces is what OpenAI charges. Signed in with a ChatGPT plan instead, Codex usage counts against the plan's 5-hour and weekly windows rather than a per-token bill. TraceRoost's cost is then the API-equivalent value, and <a href="#help-plan-limits">Plan limits</a> above shows how much of each window you've used.</p>
         <table style={tblStyle}>
           <thead><tr>
             <th style={thStyle}>Model</th>
@@ -990,12 +990,12 @@ function SettingsSection() {
     <div class="help-section" id="help-settings">
       <h3 class="help-heading">{HELP_SECTIONS.settings.heading}</h3>
       <div class="help-overview-body">
-        <p>The icons at the right of the tab bar hold everything that isn't a tab: the bell (the Alerts panel), the action log (every command TraceRoost has run on your machine, such as <code style={codeStyle}>git</code>), the gear (settings), the <strong>$</strong> icon (the pricing tables behind every cost estimate), the shouting-person icon (<strong>Make a suggestion</strong> — opens TraceRoost's public suggestion page in your browser; the link carries only the TraceRoost version and the current tab's name, never your traces or workspace), and the Help icon (this page). The standalone dashboard also shows an update button when a newer version is on npm.</p>
+        <p>The icons at the right of the tab bar hold everything that isn't a tab: the bell (the Alerts panel), the action log (every command TraceRoost has run on your machine, such as <code style={codeStyle}>git</code>), the gear (settings), the <strong>$</strong> icon (the pricing tables behind every cost estimate), the shouting-person icon (<strong>Make a suggestion</strong>: opens TraceRoost's public suggestion page in your browser; the link carries only the TraceRoost version and the current tab's name, never your traces or workspace), and the Help icon (this page). The standalone dashboard also shows an update button when a newer version is on npm.</p>
 
-        <h4 style={subHeadStyle}>Bell icon — Alerts panel</h4>
-        <p>The bell icon shows a numbered badge when one or more alert thresholds are currently triggered; with none firing it has no badge. Click it to open the slide-in Alerts panel, which has three tabs: <strong>Active</strong> lists every alert firing now — severity, name, and detail about which trace tripped it, with <strong>View trace →</strong> to open that trace and <strong>Adjust threshold →</strong> to jump to its settings; <strong>Configure</strong> turns each <a href="#help-alerts">alert</a> on or off and sets its thresholds; <strong>Automation</strong> sets up the <a href="#help-automation">automations</a>. Close it with the × button or by pressing Escape.</p>
+        <h4 style={subHeadStyle}>Bell icon: Alerts panel</h4>
+        <p>The bell icon shows a numbered badge when one or more alert thresholds are currently triggered; with none firing it has no badge. Click it to open the slide-in Alerts panel, which has three tabs: <strong>Active</strong> lists every alert firing now: severity, name, and detail about which trace tripped it, with <strong>View trace →</strong> to open that trace and <strong>Adjust threshold →</strong> to jump to its settings; <strong>Configure</strong> turns each <a href="#help-alerts">alert</a> on or off and sets its thresholds; <strong>Automation</strong> sets up the <a href="#help-automation">automations</a>. Close it with the × button or by pressing Escape.</p>
 
-        <h4 style={subHeadStyle}>Gear icon — settings panel</h4>
+        <h4 style={subHeadStyle}>Gear icon: settings panel</h4>
         <p>The gear icon opens a slide-in settings panel: the theme (standalone only), traces per page, the OTel and log ingestion toggles with <a href="#help-clear-all">Clear All Data</a>, the <strong>Set up agents</strong> button, the <a href="#help-dashboard-port">Dashboard port</a> (standalone only), <a href="#help-cloud-storage">Projects in cloud storage</a> (standalone on macOS only), the MCP server toggle, and <a href="#help-import">Import traces…</a>. Alerts and Automation have their own panel, under the bell. Close it with the × button or by pressing Escape.</p>
 
         <h4 id="help-dashboard-port" style={subHeadStyle}>Moving the dashboard to another port</h4>
@@ -1008,10 +1008,10 @@ function SettingsSection() {
         <p>Your agents aren't affected. They send to TraceRoost's OTLP port (4318) and use the MCP port (4316), which don't change. Bookmarks to the old address stop working. In Docker the port is the <code style={codeStyle}>-p &lt;port&gt;:3000</code> mapping on <code style={codeStyle}>docker run</code> instead.</p>
 
         <h4 id="help-cloud-storage" style={subHeadStyle}>Projects in OneDrive, Dropbox, Google Drive or Box (macOS)</h4>
-        <p>TraceRoost never scans your disk, but it follows each trace into its project folder to run <code style={codeStyle}>git</code> and read a few files (CLAUDE.md, AGENTS.md, package.json). On macOS a folder under <code style={codeStyle}>~/Library/CloudStorage</code> — OneDrive, Dropbox, Google Drive, Box, and <code style={codeStyle}>~/Desktop</code> or <code style={codeStyle}>~/Documents</code> when OneDrive backs them up — makes macOS ask whether TraceRoost may access files managed by that provider. So the desktop app, <code style={codeStyle}>npx traceroost</code> and the background service leave those folders alone: their traces still show, but the git outcome, AI attribution and turnover, the repo name and the Instructions tab's file checks read as not available, as for a folder that isn't a git repository. To include them, turn on <strong>Settings → Projects in cloud storage</strong> (gear icon), or set <code style={codeStyle}>"readCloudStorageProjects": true</code> in <code style={codeStyle}>~/.traceroost/config.json</code>; macOS then asks once. iCloud Drive is always read, and the VS Code extension isn't affected.</p>
+        <p>TraceRoost never scans your disk, but it follows each trace into its project folder to run <code style={codeStyle}>git</code> and read a few files (CLAUDE.md, AGENTS.md, package.json). On macOS a folder under <code style={codeStyle}>~/Library/CloudStorage</code> (OneDrive, Dropbox, Google Drive, Box, and <code style={codeStyle}>~/Desktop</code> or <code style={codeStyle}>~/Documents</code> when OneDrive backs them up) makes macOS ask whether TraceRoost may access files managed by that provider. So the desktop app, <code style={codeStyle}>npx traceroost</code> and the background service leave those folders alone: their traces still show, but the git outcome, AI attribution and turnover, the repo name and the Instructions tab's file checks read as not available, as for a folder that isn't a git repository. To include them, turn on <strong>Settings → Projects in cloud storage</strong> (gear icon), or set <code style={codeStyle}>"readCloudStorageProjects": true</code> in <code style={codeStyle}>~/.traceroost/config.json</code>; macOS then asks once. iCloud Drive is always read, and the VS Code extension isn't affected.</p>
 
         <h4 id="help-alerts" style={subHeadStyle}>Alerts</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for nine alerts on the Alerts panel's <strong>Configure</strong> tab (bell icon). When a live trace crosses a threshold the bell badge increments and the alert appears on the panel's <strong>Active</strong> tab. The per-trace alerts can be tuned per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI, Antigravity); the daily cost and plan-limit thresholds are single global values. Defaults below are Claude Code / Copilot / Codex — OpenCode, Cursor CLI and Antigravity use Claude Code's (Antigravity's Context Window alert: 850K, 85% of its 1M window).</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for nine alerts on the Alerts panel's <strong>Configure</strong> tab (bell icon). When a live trace crosses a threshold the bell badge increments and the alert appears on the panel's <strong>Active</strong> tab. The per-trace alerts can be tuned per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI, Antigravity); the daily cost and plan-limit thresholds are single global values. Defaults below are Claude Code / Copilot / Codex; OpenCode, Cursor CLI and Antigravity use Claude Code's (Antigravity's Context Window alert: 850K, 85% of its 1M window).</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Daily Estimated Cost Threshold <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
@@ -1039,7 +1039,7 @@ function SettingsSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Identical Tool Repeat <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
-            <dd class="glossary-def" style="display:block">Fires when the same tool with identical arguments repeats beyond the per-agent threshold without a file change between repeats — a strong deadlock signal. Defaults: 4 / 5 / 6 repeats.</dd>
+            <dd class="glossary-def" style="display:block">Fires when the same tool with identical arguments repeats beyond the per-agent threshold without a file change between repeats: a strong deadlock signal. Defaults: 4 / 5 / 6 repeats.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Weekly Plan Limit Filling Up <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
@@ -1054,11 +1054,11 @@ function SettingsSection() {
         <h4 id="help-automation" style={subHeadStyle}>Automation</h4>
         <p style="font-size:12px;color:var(--muted);margin:0 0 8px">Automations, set up on the Alerts panel's <strong>Automation</strong> tab (bell icon), watch live traces and produce a correction prompt when a trace crosses a threshold. TraceRoost never sends that prompt to the agent itself; it reaches you one of three ways:</p>
         <ul style="font-size:12px;color:var(--muted);margin:0 0 8px;padding-left:18px;line-height:1.7">
-          <li><strong style="color:var(--fg)">Notification</strong> (default): a VS Code notification, or an in-page one in standalone mode, with a <strong>Copy Prompt</strong> button — paste the prompt into the agent yourself.</li>
-          <li><strong style="color:var(--fg)">Prompts file</strong>: with an automation's <strong>Write prompts file</strong> toggle on, the prompt is appended to <code style={codeStyle}>traceroost-prompts-&#123;agent&#125;.md</code> instead — in the workspace root in the VS Code-family extension, or in TraceRoost's data directory (<code style={codeStyle}>~/.traceroost</code> unless you set <code style={codeStyle}>DATA_DIR</code> / <code style={codeStyle}>--data-dir</code>) for the standalone server. Nothing feeds that file to the agent — it helps only if you, or an instruction in CLAUDE.md/AGENTS.md, tell the agent to check it.</li>
+          <li><strong style="color:var(--fg)">Notification</strong> (default): a VS Code notification, or an in-page one in standalone mode, with a <strong>Copy Prompt</strong> button; paste the prompt into the agent yourself.</li>
+          <li><strong style="color:var(--fg)">Prompts file</strong>: with an automation's <strong>Write prompts file</strong> toggle on, the prompt is appended to <code style={codeStyle}>traceroost-prompts-&#123;agent&#125;.md</code> instead: in the workspace root in the VS Code-family extension, or in TraceRoost's data directory (<code style={codeStyle}>~/.traceroost</code> unless you set <code style={codeStyle}>DATA_DIR</code> / <code style={codeStyle}>--data-dir</code>) for the standalone server. Nothing feeds that file to the agent; it helps only if you, or an instruction in CLAUDE.md/AGENTS.md, tell the agent to check it.</li>
           <li><strong style="color:var(--fg)">MCP</strong>: an agent can poll <code style={codeStyle}>check_automation_triggers</code> itself (see <a href="#help-mcp">MCP</a>). That tool always uses the default thresholds, because the per-agent settings made here live only in the dashboard's browser storage.</li>
         </ul>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">For notifications and the prompts file, each automation can be turned on per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI, Antigravity) with its own thresholds. All four are off by default. Defaults below are Claude Code / Copilot / Codex — OpenCode, Cursor CLI and Antigravity use Claude Code's (Antigravity's Context Compaction: 700K, 70% of its 1M window).</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">For notifications and the prompts file, each automation can be turned on per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI, Antigravity) with its own thresholds. All four are off by default. Defaults below are Claude Code / Copilot / Codex; OpenCode, Cursor CLI and Antigravity use Claude Code's (Antigravity's Context Compaction: 700K, 70% of its 1M window).</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Context Compaction</dt>
@@ -1079,7 +1079,7 @@ function SettingsSection() {
         </div>
 
         <h4 id="help-clear-all" style={subHeadStyle}>Clear All Data</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">This button only deletes what TraceRoost itself has stored — its local database/cache of parsed traces. It does <strong>not</strong> touch the source files it read those traces from: OTel-captured traces are removed permanently, but log-sourced traces (Claude Code, Codex, Copilot and Cursor CLI JSONL logs, OpenCode's SQLite database) are re-read from those local log files and will reappear on the next scan. TraceRoost currently has no feature to delete the underlying log files themselves — if you want those gone too, remove or rotate them yourself outside TraceRoost (e.g. in <code style={codeStyle}>~/.claude/</code>, <code style={codeStyle}>~/.codex/</code>, <code style={codeStyle}>~/.copilot/</code>).</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">This button only deletes what TraceRoost itself has stored: its local database/cache of parsed traces. It does <strong>not</strong> touch the source files it read those traces from: OTel-captured traces are removed permanently, but log-sourced traces (Claude Code, Codex, Copilot and Cursor CLI JSONL logs, OpenCode's SQLite database) are re-read from those local log files and will reappear on the next scan. TraceRoost currently has no feature to delete the underlying log files themselves. If you want those gone too, remove or rotate them yourself outside TraceRoost (e.g. in <code style={codeStyle}>~/.claude/</code>, <code style={codeStyle}>~/.codex/</code>, <code style={codeStyle}>~/.copilot/</code>).</p>
       </div>
     </div>
   )
@@ -1097,26 +1097,26 @@ Before any task: call get_recent_sessions (recent work + cost) and get_workspace
     <div class="help-section" id="help-mcp">
       <h3 class="help-heading">{HELP_SECTIONS.mcp.heading}</h3>
       <div class="help-overview-body">
-        <p>TraceRoost runs an MCP server that gives Claude Code direct access to your trace history. Instead of checking the dashboard yourself, Claude can query its own past work — loading the files it usually needs before making its first tool call, estimating what a task will cost, and flagging patterns that have caused problems before.</p>
+        <p>TraceRoost runs an MCP server that gives Claude Code direct access to your trace history. Instead of checking the dashboard yourself, Claude can query its own past work, loading the files it usually needs before making its first tool call, estimating what a task will cost, and flagging patterns that have caused problems before.</p>
 
-        <h4 style={subHeadStyle}>Step 1 — Confirm the MCP server is running</h4>
+        <h4 style={subHeadStyle}>Step 1: Confirm the MCP server is running</h4>
         <p style={mutedP}>
           {standalone
-            ? <>The standalone server starts a dedicated MCP server on port 4316 automatically — no extra setup needed. Endpoint: <a href={mcpUrl} target="_blank" rel="noreferrer" style={codeStyle}>{mcpUrl}</a>.</>
+            ? <>The standalone server starts a dedicated MCP server on port 4316 automatically; no extra setup needed. Endpoint: <a href={mcpUrl} target="_blank" rel="noreferrer" style={codeStyle}>{mcpUrl}</a>.</>
             : <>The VS Code extension starts an MCP server on port 4316 by default when TraceRoost activates. To disable it, set <code style={codeStyle}>traceRoost.enableMcpServer</code> to <code style={codeStyle}>false</code> in VS Code settings. To change the port, set <code style={codeStyle}>traceRoost.mcpPort</code>. In VS Code, the extension also offers this server to VS Code's own chat agent automatically; the steps below are for Claude Code and other clients.</>
           }
         </p>
-        <p style={mutedP}>Verify it's up by opening <a href={mcpUrl} target="_blank" rel="noreferrer" style={codeStyle}>{mcpUrl}</a> in a browser — you should see <code style={codeStyle}>{`{"status":"ok","server":"traceroost-mcp",...}`}</code>. If the page doesn't load, the server isn't running.</p>
+        <p style={mutedP}>Verify it's up by opening <a href={mcpUrl} target="_blank" rel="noreferrer" style={codeStyle}>{mcpUrl}</a> in a browser; you should see <code style={codeStyle}>{`{"status":"ok","server":"traceroost-mcp",...}`}</code>. If the page doesn't load, the server isn't running.</p>
 
-        <h4 style={subHeadStyle}>Step 2 — Configure Claude Code</h4>
-        <p style={mutedP}>Register the server with Claude Code once — <code style={codeStyle}>--scope user</code> makes it available in every project:</p>
+        <h4 style={subHeadStyle}>Step 2: Configure Claude Code</h4>
+        <p style={mutedP}>Register the server with Claude Code once; <code style={codeStyle}>--scope user</code> makes it available in every project:</p>
         <pre style={preStyle}>{addCommand}</pre>
         <p style={mutedP}>Or, to share it with everyone working in one repository, commit a <code style={codeStyle}>.mcp.json</code> at the project root:</p>
         <pre style={preStyle}>{mcpJson}</pre>
         <p style={mutedP}>Run <code style={codeStyle}>claude mcp list</code> to confirm it's connected. If you changed the port, use that port in the URL. When TraceRoost is bound beyond localhost (<code style={codeStyle}>BIND_HOST=0.0.0.0</code>, or Docker), the MCP endpoint also needs the access token: add <code style={codeStyle}>--header "Authorization: Bearer &lt;token&gt;"</code> to the command above.</p>
 
-        <h4 style={subHeadStyle}>Step 3 — Add to CLAUDE.md (optional but recommended)</h4>
-        <p style={mutedP}>Add a block like this to your project's <code style={codeStyle}>CLAUDE.md</code> so Claude automatically uses TraceRoost at the start of each trace. The block is intentionally brief — every line in CLAUDE.md is loaded into the context window on every call, so keeping it short avoids unnecessary token spend.</p>
+        <h4 style={subHeadStyle}>Step 3: Add to CLAUDE.md (optional but recommended)</h4>
+        <p style={mutedP}>Add a block like this to your project's <code style={codeStyle}>CLAUDE.md</code> so Claude automatically uses TraceRoost at the start of each trace. The block is intentionally brief: every line in CLAUDE.md is loaded into the context window on every call, so keeping it short avoids unnecessary token spend.</p>
         <pre style={preStyle}>{claudeMd}</pre>
 
         <h4 style={subHeadStyle}>Available tools</h4>
@@ -1131,7 +1131,7 @@ Before any task: call get_recent_sessions (recent work + cost) and get_workspace
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>get_session_detail</code></dt>
-            <dd class="glossary-def" style="display:block">Returns the full timeline for one trace by <code style={codeStyle}>sessionId</code> — every LLM call and tool call with timing, errors, and file edits. Use <code style={codeStyle}>get_recent_sessions</code> first to get an id.</dd>
+            <dd class="glossary-def" style="display:block">Returns the full timeline for one trace by <code style={codeStyle}>sessionId</code>: every LLM call and tool call with timing, errors, and file edits. Use <code style={codeStyle}>get_recent_sessions</code> first to get an id.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>get_efficiency_report</code></dt>
@@ -1139,7 +1139,7 @@ Before any task: call get_recent_sessions (recent work + cost) and get_workspace
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>get_instruction_suggestions</code></dt>
-            <dd class="glossary-def" style="display:block">Returns pending Advisor suggestions for improving the agent instruction file (CLAUDE.md, AGENTS.md, etc.) for the specified workspace — the same ready-to-paste text shown in the Advisor tab's Instructions File section. Use at the start of a trace to check for improvements before beginning work. Requires <code style={codeStyle}>workspace</code> (absolute path) — cross-workspace suggestions aren't meaningful.</dd>
+            <dd class="glossary-def" style="display:block">Returns pending Advisor suggestions for improving the agent instruction file (CLAUDE.md, AGENTS.md, etc.) for the specified workspace, the same ready-to-paste text shown in the Advisor tab's Instructions File section. Use at the start of a trace to check for improvements before beginning work. Requires <code style={codeStyle}>workspace</code> (absolute path); cross-workspace suggestions aren't meaningful.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>get_plan_limits</code></dt>
@@ -1147,12 +1147,12 @@ Before any task: call get_recent_sessions (recent work + cost) and get_workspace
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>check_automation_triggers</code></dt>
-            <dd class="glossary-def" style="display:block">Checks the four built-in automations (Context Compaction, Loop Breaker, Error Cascade Stop, Turn Limit Wrap-up — see <a href="#help-automation">Automation</a> above) against the workspace's current in-progress, recently-active trace(s), and returns any that are currently triggered with ready-to-use correction prompt text. Uses TraceRoost's default thresholds only, not per-agent customization made in Settings. Read-only and safe to call repeatedly — a given trigger is only returned once until its underlying condition changes, so an agent can poll this periodically during a long task as a self-check. Requires <code style={codeStyle}>workspace</code> (absolute path).</dd>
+            <dd class="glossary-def" style="display:block">Checks the four built-in automations (Context Compaction, Loop Breaker, Error Cascade Stop, Turn Limit Wrap-up; see <a href="#help-automation">Automation</a> above) against the workspace's current in-progress, recently-active trace(s), and returns any that are currently triggered with ready-to-use correction prompt text. Uses TraceRoost's default thresholds only, not per-agent customization made in Settings. Read-only and safe to call repeatedly: a given trigger is only returned once until its underlying condition changes, so an agent can poll this periodically during a long task as a self-check. Requires <code style={codeStyle}>workspace</code> (absolute path).</dd>
           </div>
         </div>
 
         <h4 style={subHeadStyle}>Example prompts</h4>
-        <pre style={preStyle}>{`# Always useful — run these before any task:
+        <pre style={preStyle}>{`# Always useful. Run these before any task:
 Use traceroost get_recent_sessions to see what was worked on recently.
 Use traceroost get_workspace_patterns to see recurring problems and known traps.
 
@@ -1160,11 +1160,11 @@ Use traceroost get_workspace_patterns to see recurring problems and known traps.
 Use traceroost get_efficiency_report to see if traces are getting more or
 less expensive, and which loop signals keep recurring.
 
-# Before starting work — check for open Advisor suggestions:
+# Before starting work, check for open Advisor suggestions:
 Use traceroost get_instruction_suggestions with workspace="/absolute/path/to/project"
 to see pending instruction-file suggestions before beginning work.
 
-# Periodically during a long task — self-check for stuck-agent patterns:
+# Periodically during a long task, self-check for stuck-agent patterns:
 Use traceroost check_automation_triggers with workspace="/absolute/path/to/project"
 and follow any correction prompt it returns before continuing.`}</pre>
 
@@ -1181,12 +1181,12 @@ function CloudSection() {
         <p>TraceRoost Cloud links your machine to your org so its admins can see cost and activity figures across everyone's repositories, without seeing anyone's code, prompts or file contents. An admin sees each linked developer's individual figures; other members see only what the org's teammate-visibility settings allow. It's opt-in, off by default, and never required for the local dashboard to work. See <a href="#help-privacy">Privacy</a> below for exactly what that means and what gets sent.</p>
 
         <h4 style={subHeadStyle}>Linking and leaving</h4>
-        <p style={mutedP}>Linking opens your browser once, for account setup — nothing is sent until that completes. Leaving deletes the local credential and stops all forwarding immediately, even offline; revoking the token on the server is attempted afterwards, best-effort, so nothing waits on it.</p>
+        <p style={mutedP}>Linking opens your browser once, for account setup; nothing is sent until that completes. Leaving deletes the local credential and stops all forwarding immediately, even offline; revoking the token on the server is attempted afterwards, best-effort, so nothing waits on it.</p>
 
         <h4 style={subHeadStyle}>Going offline</h4>
-        <p style={mutedP}>Your local dashboard — everything in Traces, Analytics, and the Advisor — has no dependency on internet connectivity at all, linked or not. Trace capture is either OTel received on your own machine or read directly from each agent's own on-disk log file (every currently supported source keeps one); neither needs a network connection, only TraceRoost itself running.</p>
+        <p style={mutedP}>Your local dashboard (everything in Traces, Analytics, and the Advisor) has no dependency on internet connectivity at all, linked or not. Trace capture is either OTel received on your own machine or read directly from each agent's own on-disk log file (every currently supported source keeps one); neither needs a network connection, only TraceRoost itself running.</p>
         <p style={mutedP}>That log-file reading is also what makes the data complete rather than just live: because TraceRoost reads the agent's own persisted transcript rather than only capturing a live stream, a session recorded before you linked, before TraceRoost was running, or during any gap still shows up in full once TraceRoost next reads that file. Nothing about being offline erases what the agent itself already wrote to disk.</p>
-        <p style={mutedP}>The one thing connectivity affects is sending rollups to your org, if linked. Offline, or if the service is briefly unreachable, traces queue locally instead of being lost, and send automatically once you're back — no action needed. The queue is capped (oldest first) so an install that never reconnects doesn't grow it without bound; use <strong>Check for unsent traces</strong> in this panel any time you want to confirm nothing's stuck.</p>
+        <p style={mutedP}>The one thing connectivity affects is sending rollups to your org, if linked. Offline, or if the service is briefly unreachable, traces queue locally instead of being lost, and send automatically once you're back; no action needed. The queue is capped (oldest first) so an install that never reconnects doesn't grow it without bound; use <strong>Check for unsent traces</strong> in this panel any time you want to confirm nothing's stuck.</p>
       </div>
     </div>
   )
@@ -1199,7 +1199,7 @@ function CoreCloudSection() {
     <div class="help-section" id="help-cloud">
       <h3 class="help-heading">{HELP_SECTIONS.cloud.heading}</h3>
       <div class="help-overview-body">
-        <p>TraceRoost Cloud is the team version: every developer's agents in one place — cost, outcomes and the same signals you see here, across the whole team — built from per-trace rollups of counts, hashes and times, never prompts, code or file paths. This build of TraceRoost runs entirely on your machine and doesn't link to it. See <a href={CLOUD_INFO_URL} target="_blank" rel="noreferrer">TraceRoost Cloud</a> for plans, including a free one for small teams.</p>
+        <p>TraceRoost Cloud is the team version: every developer's agents in one place (cost, outcomes and the same signals you see here, across the whole team), built from per-trace rollups of counts, hashes and times, never prompts, code or file paths. This build of TraceRoost runs entirely on your machine and doesn't link to it. See <a href={CLOUD_INFO_URL} target="_blank" rel="noreferrer">TraceRoost Cloud</a> for plans, including a free one for small teams.</p>
       </div>
     </div>
   )
@@ -1210,18 +1210,18 @@ function PrivacySection() {
     <div class="help-section" id="help-privacy">
       <h3 class="help-heading">{HELP_SECTIONS.privacy.heading}</h3>
       <div class="help-overview-body">
-        <p>This is what <a href="#help-cloud">TraceRoost Cloud</a> sends once linked, and what it never does — in full, so you never have to take this page's word for it.</p>
+        <p>This is what <a href="#help-cloud">TraceRoost Cloud</a> sends once linked, and what it never does, in full, so you never have to take this page's word for it.</p>
 
         <h4 style={subHeadStyle}>What gets sent</h4>
-        <p style={mutedP}>Only counts, enums, hashes and timestamps — never prompts, diffs, file contents, file paths, repository or branch names, or commit messages. The exact list is shown in the Org panel and printed verbatim by <code style={codeStyle}>traceroost --explain-payload</code>.</p>
-        <p style={mutedP}>Besides each trace, a linked machine periodically sends a <em>trace manifest</em>: for each recent day, the list of trace ids it still holds (the same opaque ids its traces were sent under — no other data), so Cloud can drop a trace it was sent that no longer exists on this machine, such as one merged into another as more of its data arrived.</p>
+        <p style={mutedP}>Only counts, enums, hashes and timestamps, never prompts, diffs, file contents, file paths, repository or branch names, or commit messages. The exact list is shown in the Org panel and printed verbatim by <code style={codeStyle}>traceroost --explain-payload</code>.</p>
+        <p style={mutedP}>Besides each trace, a linked machine periodically sends a <em>trace manifest</em>: for each recent day, the list of trace ids it still holds (the same opaque ids its traces were sent under; no other data), so Cloud can drop a trace it was sent that no longer exists on this machine, such as one merged into another as more of its data arrived.</p>
 
         <h4 style={subHeadStyle}>How the hashing works</h4>
         <p style={mutedP}>Commit ids and file ids are never sent as-is. Each one is put through a one-way hash (HMAC-SHA256), keyed by a value derived from your repository's own root commit and your organization's id. Two things follow from that:</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Cloud can't reverse it</dt>
-            <dd class="glossary-def" style="display:block">A hash can't be turned back into a file path or a commit sha — it's a one-way function. TraceRoost Cloud only ever sees an opaque token. One honest caveat: the key is only as secret as your repository's root commit. For a public repository that commit is public, so anyone who also knows your organization's id can derive the key and test guesses (say, a list of likely file paths) against the hashes.</dd>
+            <dd class="glossary-def" style="display:block">A hash can't be turned back into a file path or a commit sha; it's a one-way function. TraceRoost Cloud only ever sees an opaque token. One honest caveat: the key is only as secret as your repository's root commit. For a public repository that commit is public, so anyone who also knows your organization's id can derive the key and test guesses (say, a list of likely file paths) against the hashes.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Consistent within your org, meaningless outside it</dt>
@@ -1243,16 +1243,16 @@ function NetworkSection() {
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Update check (standalone and desktop app)</dt>
-            <dd class="glossary-def" style="display:block">The standalone server — npx, a global install, the background service, the desktop app or Docker — asks the npm registry for the latest published TraceRoost version at startup and every 8 hours, so it can show an update button. The request sends no trace or workspace data. Set <code style={codeStyle}>TRACEROOST_NO_UPDATE_CHECK=1</code> to turn it off. The IDE extension never makes it; it updates through your editor's marketplace.</dd>
+            <dd class="glossary-def" style="display:block">The standalone server (npx, a global install, the background service, the desktop app or Docker) asks the npm registry for the latest published TraceRoost version at startup and every 8 hours, so it can show an update button. The request sends no trace or workspace data. Set <code style={codeStyle}>TRACEROOST_NO_UPDATE_CHECK=1</code> to turn it off. The IDE extension never makes it; it updates through your editor's marketplace.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Make a suggestion</dt>
-            <dd class="glossary-def" style="display:block">Opens TraceRoost's suggestion page in your browser — only when you click it. The link carries the TraceRoost version and the current tab's name, never your traces.</dd>
+            <dd class="glossary-def" style="display:block">Opens TraceRoost's suggestion page in your browser, only when you click it. The link carries the TraceRoost version and the current tab's name, never your traces.</dd>
           </div>
           {process.env.TRACEROOST_EDITION === 'core' && (
             <div class="glossary-item" style="flex-direction:column;gap:2px">
               <dt class="glossary-term">TraceRoost Cloud link</dt>
-              <dd class="glossary-def" style="display:block">Opens TraceRoost Cloud's pricing page in your browser — only when you click it. Nothing is sent with it.</dd>
+              <dd class="glossary-def" style="display:block">Opens TraceRoost Cloud's pricing page in your browser, only when you click it. Nothing is sent with it.</dd>
             </div>
           )}
         </div>
@@ -1266,7 +1266,7 @@ function ExportSection() {
     <div class="help-section" id="help-export">
       <h3 class="help-heading">{HELP_SECTIONS.export.heading}</h3>
       <div class="help-overview-body">
-        <p><strong>Export…</strong>, on the Traces filter row (or <em>TraceRoost: Export Traces…</em> in VS Code), opens a panel that saves traces as JSON, CSV, or Markdown, redacted (the default) or in full — in the VS Code-family extension as a file in your workspace root (in the extension's storage folder when no folder is open), opened in an editor tab; in the standalone dashboard as a browser download, built from the traces the server holds in memory. Exports follow the filter bar's time range, agent, language, prompt text, repo, source and From filters.</p>
+        <p><strong>Export…</strong>, on the Traces filter row (or <em>TraceRoost: Export Traces…</em> in VS Code), opens a panel that saves traces as JSON, CSV, or Markdown, redacted (the default) or in full: in the VS Code-family extension as a file in your workspace root (in the extension's storage folder when no folder is open), opened in an editor tab; in the standalone dashboard as a browser download, built from the traces the server holds in memory. Exports follow the filter bar's time range, agent, language, prompt text, repo, source and From filters.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Full export</dt>
@@ -1278,7 +1278,7 @@ function ExportSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Format: JSON</dt>
-            <dd class="glossary-def" style="display:block">Full-fidelity structured export. The only format Import reads back in — use this if you plan to bring the data into TraceRoost on another machine.</dd>
+            <dd class="glossary-def" style="display:block">Full-fidelity structured export. The only format Import reads back in; use this if you plan to bring the data into TraceRoost on another machine.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Format: CSV</dt>
@@ -1286,7 +1286,7 @@ function ExportSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Format: Markdown</dt>
-            <dd class="glossary-def" style="display:block">One readable section per trace — for sharing a report rather than raw data.</dd>
+            <dd class="glossary-def" style="display:block">One readable section per trace, for sharing a report rather than raw data.</dd>
           </div>
         </div>
         <p style="font-size:12px;color:var(--muted);margin-top:12px">These are per-trace summaries. In the VS Code extension, the <em>TraceRoost: Export Live OTel Spans (debug)</em> command writes the raw OTel spans still held in memory instead.</p>
@@ -1300,23 +1300,23 @@ function ImportSection() {
     <div class="help-section" id="help-import">
       <h3 class="help-heading">{HELP_SECTIONS.import.heading}</h3>
       <div class="help-overview-body">
-        <p>Import loads traces from a previous TraceRoost <strong>JSON</strong> export back into the current installation — useful for migrating to a new machine, sharing trace history with a teammate, or restoring a backup. Works the same way in both the VS Code extension and standalone server.</p>
+        <p>Import loads traces from a previous TraceRoost <strong>JSON</strong> export back into the current installation, useful for migrating to a new machine, sharing trace history with a teammate, or restoring a backup. Works the same way in both the VS Code extension and standalone server.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Loading a file</dt>
-            <dd class="glossary-def" style="display:block">Drop an <code style={codeStyle}>export_sessions_*.json</code> file anywhere on the dashboard, or open <strong>Import traces…</strong> in the gear-icon settings panel (or run <em>TraceRoost: Import Traces…</em> in VS Code) and drop it there or click to browse. Only JSON is accepted — CSV and Markdown exports are one-way and can't be read back in.</dd>
+            <dd class="glossary-def" style="display:block">Drop an <code style={codeStyle}>export_sessions_*.json</code> file anywhere on the dashboard, or open <strong>Import traces…</strong> in the gear-icon settings panel (or run <em>TraceRoost: Import Traces…</em> in VS Code) and drop it there or click to browse. Only JSON is accepted; CSV and Markdown exports are one-way and can't be read back in.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Validation</dt>
-            <dd class="glossary-def" style="display:block">The file must parse as a non-empty JSON array where every item has a string <code style={codeStyle}>sessionId</code> and a recognized <code style={codeStyle}>source</code> (Copilot, Claude Code, Codex, OpenCode, Cursor CLI, or Antigravity) — anything else is rejected before you see a preview, with a specific error message. Other fields are read permissively: a technically-valid file with missing or malformed data elsewhere still imports, just with those fields defaulted rather than erroring.</dd>
+            <dd class="glossary-def" style="display:block">The file must parse as a non-empty JSON array where every item has a string <code style={codeStyle}>sessionId</code> and a recognized <code style={codeStyle}>source</code> (Copilot, Claude Code, Codex, OpenCode, Cursor CLI, or Antigravity); anything else is rejected before you see a preview, with a specific error message. Other fields are read permissively: a technically-valid file with missing or malformed data elsewhere still imports, just with those fields defaulted rather than erroring.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Preview</dt>
-            <dd class="glossary-def" style="display:block">Before anything is written, shows the file name and size, total trace count, a breakdown by agent source, and the date range covered — so you can confirm it's the right file before committing.</dd>
+            <dd class="glossary-def" style="display:block">Before anything is written, shows the file name and size, total trace count, a breakdown by agent source, and the date range covered, so you can confirm it's the right file before committing.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Deduplication</dt>
-            <dd class="glossary-def" style="display:block">Sessions already present (matched by trace ID) are skipped automatically, not overwritten or duplicated — safe to re-import the same file, or a superset of a previous import.</dd>
+            <dd class="glossary-def" style="display:block">Sessions already present (matched by trace ID) are skipped automatically, not overwritten or duplicated, so it's safe to re-import the same file, or a superset of a previous import.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Batch progress</dt>
@@ -1341,13 +1341,13 @@ function BadgesSection() {
           <dt class="glossary-term" style="min-width:0">
             <span style={`${badgeStyle}color:var(--fg, #ffffff);border-color:var(--fg, #ffffff)`}>OTel</span>
           </dt>
-          <dd class="glossary-def">Full OpenTelemetry telemetry — timing, TTFT, span waterfall, loop signals. Requires the agent to be configured to export traces to TraceRoost.</dd>
+          <dd class="glossary-def">Full OpenTelemetry telemetry: timing, TTFT, span waterfall, loop signals. Requires the agent to be configured to export traces to TraceRoost.</dd>
         </div>
         <div class="glossary-item">
           <dt class="glossary-term" style="min-width:0">
             <span style={`${badgeStyle}color:var(--vscode-descriptionForeground, #90a4ae);border-color:#90a4ae`}>Log</span>
           </dt>
-          <dd class="glossary-def">Parsed from local log files and databases — <code>~/.claude/projects</code>, <code>~/.codex/sessions</code>, <code>~/.copilot/session-state</code>, Copilot Chat's <code>chatSessions</code> in each VS Code-family IDE, OpenCode's SQLite database at <code>~/.local/share/opencode/</code>, Cursor CLI's transcripts under <code>~/.cursor/projects</code>, and Antigravity CLI's transcripts and databases under <code>~/.gemini/antigravity-cli</code>. Tokens, tool calls, file paths, and user prompts are available where the agent records them. Timing and TTFT are not available from log sources. No agent configuration needed.</dd>
+          <dd class="glossary-def">Parsed from local log files and databases: <code>~/.claude/projects</code>, <code>~/.codex/sessions</code>, <code>~/.copilot/session-state</code>, Copilot Chat's <code>chatSessions</code> in each VS Code-family IDE, OpenCode's SQLite database at <code>~/.local/share/opencode/</code>, Cursor CLI's transcripts under <code>~/.cursor/projects</code>, and Antigravity CLI's transcripts and databases under <code>~/.gemini/antigravity-cli</code>. Tokens, tool calls, file paths, and user prompts are available where the agent records them. Timing and TTFT are not available from log sources. No agent configuration needed.</dd>
         </div>
       </div>
 
@@ -1357,22 +1357,22 @@ function BadgesSection() {
           <dt class="glossary-term" style="min-width:0">
             <span style={`${badgeStyle}color:var(--vscode-charts-blue, #4a90d9);border-color:#4a90d9`}>User</span>
           </dt>
-          <dd class="glossary-def">A human typed this prompt directly in the chat. The baseline case — most of your interactive traces will carry this badge.</dd>
+          <dd class="glossary-def">A human typed this prompt directly in the chat. The baseline case: most of your interactive traces will carry this badge.</dd>
         </div>
         <div class="glossary-item">
           <dt class="glossary-term" style="min-width:0">
             <span style={`${badgeStyle}color:var(--vscode-descriptionForeground, #b0bec5);border-color:#b0bec5`}>Agent</span>
           </dt>
-          <dd class="glossary-def">Started by the agent itself, not typed by a human: a Copilot sub-agent run nested inside another, or a Claude Code turn opened by a background task finishing. Claude subagent work (the Agent/Task tool) is not a trace of its own — it is counted in the prompt that delegated it.</dd>
+          <dd class="glossary-def">Started by the agent itself, not typed by a human: a Copilot sub-agent run nested inside another, or a Claude Code turn opened by a background task finishing. Claude subagent work (the Agent/Task tool) is not a trace of its own; it is counted in the prompt that delegated it.</dd>
         </div>
         <div class="glossary-item">
           <dt class="glossary-term" style="min-width:0">
             <span style={`${badgeStyle}color:var(--vscode-descriptionForeground, #90a4ae);border-color:#90a4ae`}>API</span>
           </dt>
-          <dd class="glossary-def">Started non-interactively via <code>claude -p</code> (pipeline mode). Comes from a script, CI job, or shell automation — human-authored but not a live conversation. Identified by the <code>&lt;local-command-caveat&gt;</code> prefix Claude Code prepends to the prompt.</dd>
+          <dd class="glossary-def">Started non-interactively via <code>claude -p</code> (pipeline mode). Comes from a script, CI job, or shell automation, human-authored but not a live conversation. Identified by the <code>&lt;local-command-caveat&gt;</code> prefix Claude Code prepends to the prompt.</dd>
         </div>
       </div>
-      <p style="font-size:11px;color:var(--muted);margin:0">Use the <strong>From</strong> filter pills in the Traces tab to show only User or Agent traces — the Agent pill includes API traces.</p>
+      <p style="font-size:11px;color:var(--muted);margin:0">Use the <strong>From</strong> filter pills in the Traces tab to show only User or Agent traces; the Agent pill includes API traces.</p>
     </div>
   )
 }

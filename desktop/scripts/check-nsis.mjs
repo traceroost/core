@@ -122,7 +122,7 @@ if (held) {
   check(upgrade.status === 0, `reinstall /S over the running app exited 0 (got ${upgrade.status}, ${upgrade.seconds}s)`)
   const quit = await Promise.race([appExited.then(() => true), delay(30_000).then(() => false)])
   check(quit, 'the running app was closed by the installer')
-  if (quit) check(appExit === 0, `…and exited 0 — it quit, it was not killed (code ${appExit})`)
+  if (quit) check(appExit === 0, `…and exited 0: it quit, it was not killed (code ${appExit})`)
   const log = readText(logPath) ?? ''
   check(/a second launch asked this instance to quit/.test(log), 'the installer asked it to quit with --quit (build/installer.nsh)')
   check(/asking the collector \(pid \d+\) to shut down \(owner channel\)/.test(log), 'the app stopped its collector over the owner channel')

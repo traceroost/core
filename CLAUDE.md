@@ -18,6 +18,12 @@ sensible default exists. In those cases, state your assumption in one line and p
 If scope changes mid-task (new files, a different approach, an unexpected
 blocker), pause and confirm before expanding the work.
 
+## Writing style
+
+No em dashes (—) in anything a person reads: UI copy, CLI and log output, error messages, the
+CHANGELOG and Markdown docs. Use a comma, colon, semicolon, parentheses or a new sentence. A lone
+`—` as an empty-value placeholder in a table or chart is fine, and so are code comments.
+
 ## Recurring maintenance tasks
 
 Check `runbooks/README.md` for periodic maintenance tasks (e.g. refreshing model pricing) that may be relevant or due.

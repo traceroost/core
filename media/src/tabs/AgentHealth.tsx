@@ -41,7 +41,7 @@ function unknownSummary(v: VersionHealth): string {
 
 /** Settings → Agents, one version: what it costs, which records, when last seen. */
 function versionLine(v: VersionHealth): string {
-  const lead = v.impact === 'loss' ? `${lossSummary([v])} — ` : v.impact === 'skipped' ? 'sessions read, skipped ' : ''
+  const lead = v.impact === 'loss' ? `${lossSummary([v])}; ` : v.impact === 'skipped' ? 'sessions read, skipped ' : ''
   const when = v.lastImpactMs !== null ? ` (last ${ago(v.lastImpactMs)})` : ''
   return `${lead}${unknownSummary(v)}${when}`
 }
@@ -56,7 +56,7 @@ export function ReportPreview({ report, onClose }: { report: AgentReport; onClos
   return (
     <div style="margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--hover)">
       <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
-        This is everything the issue will contain — key names, value types and counts, no values from your logs. GitHub opens with it filled in; you can edit it or not file it.
+        This is everything the issue will contain: key names, value types and counts, no values from your logs. GitHub opens with it filled in; you can edit it or not file it.
       </div>
       <pre style="max-height:220px;overflow:auto;font-size:10px;white-space:pre-wrap;margin:0 0 8px 0" aria-label="Issue body">{report.body}</pre>
       <a href={report.url} target="_blank" rel="noopener noreferrer" style="font-size:11px;margin-right:12px">Open the issue on GitHub</a>
@@ -121,7 +121,7 @@ export function AgentHealthBanner() {
         return (
           <div key={row.key} role="status" style="margin:0 0 8px 0;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorWarning-foreground,#cca700);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
             <span style="color:var(--vscode-editorWarning-foreground,#cca700);font-weight:600">{row.label}: {lossSummary(versions)}</span>
-            {' — '}TraceRoost doesn&apos;t recognize the format {which} writes.{' '}
+            {'. '}TraceRoost doesn&apos;t recognize the format {which} writes.{' '}
             <button type="button" class="link-btn" onClick={() => { configOpen.value = true; setTimeout(() => document.getElementById('settings-agents')?.scrollIntoView({ block: 'start' }), 80) }}>Details</button>
             {report && <>{' · '}<button type="button" class="link-btn" aria-expanded={open === row.key} onClick={() => setOpen(open === row.key ? null : row.key)}>Report this</button></>}
             {' · '}<button type="button" class="link-btn" onClick={() => dismissAgentBanner(row.key, names)}>Dismiss</button>

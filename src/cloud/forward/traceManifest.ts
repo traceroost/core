@@ -319,7 +319,7 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
   const finish = (stopped?: ManifestSyncResult['stopped']): ManifestSyncResult => {
     writeState(state, hostId, now(), deps.baseHome)
     if (result.chunks > 0) {
-      logDebug(deps.log, `[TraceRoost] Trace manifest${deps.fullSweep ? ' (full sweep)' : ''}: sent ${result.chunks} chunk(s), retired ${result.retired} trace(s), ${result.gated} gated, ${result.settling} settling${stopped ? ` — stopped (${stopped})` : ''}`)
+      logDebug(deps.log, `[TraceRoost] Trace manifest${deps.fullSweep ? ' (full sweep)' : ''}: sent ${result.chunks} chunk(s), retired ${result.retired} trace(s), ${result.gated} gated, ${result.settling} settling${stopped ? `, stopped (${stopped})` : ''}`)
     }
     return stopped ? { ...result, stopped } : result
   }

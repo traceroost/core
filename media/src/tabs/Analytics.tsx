@@ -83,7 +83,7 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
         <div><span style="color:var(--muted)">Output tokens</span> <strong>{hasTokens ? formatCompact(s.totalOutput) : '—'}</strong></div>
         <div><span style="color:var(--muted)">Cache hit</span> <strong>{hasTokens ? `${(s.cacheHitRate * 100).toFixed(0)}%` : '—'}</strong></div>
         <div><span style="color:var(--muted)">Avg dur</span> <strong>{formatMs(s.avgDuration)}</strong></div>
-        {linesKnown && <div data-tip="Lines the agent's own edit/write tool calls added and removed — not git stats"><span style="color:var(--muted)">Lines +/−</span> <strong>+{formatCompact(linesAdded)} / −{formatCompact(linesRemoved)}</strong></div>}
+        {linesKnown && <div data-tip="Lines the agent's own edit/write tool calls added and removed, not git stats"><span style="color:var(--muted)">Lines +/−</span> <strong>+{formatCompact(linesAdded)} / −{formatCompact(linesRemoved)}</strong></div>}
         {s.avgTtft > 0 && <div><span style="color:var(--muted)">Avg TTFT</span> <strong>{formatMs(s.avgTtft)}</strong></div>}
         {s.oneShotRate !== null && (
           <div data-tip="Files edited exactly once vs. files that needed a retry, across all traces in this view. Edit-pass count, not a signal the code actually worked.">
@@ -114,7 +114,7 @@ function LanguageCodeChangesSummary({ totals }: { totals: CodeChangeTotals }) {
   if (totals.sessionsReported === 0) {
     return (
       <p data-testid="language-code-changes" style="font-size:12px;color:var(--muted);margin:0 0 10px">
-        No trace in view recorded files or lines changed — traces stored before change tracking, and agents that don't record edit contents, have none.
+        No trace in view recorded files or lines changed. Traces stored before change tracking, and agents that don't record edit contents, have none.
       </p>
     )
   }
@@ -221,7 +221,7 @@ export function Analytics() {
 
   const disclaimer = (
     <div style="font-size:11px;background:var(--hover);border:1px solid var(--border);border-radius:4px;padding:6px 10px;margin-bottom:8px;color:var(--muted)">
-      Estimates only — not your actual bill. Rates last updated: {PRICING_LAST_UPDATED}
+      Estimates only, not your actual bill. Rates last updated: {PRICING_LAST_UPDATED}
     </div>
   )
 
@@ -310,7 +310,7 @@ export function Analytics() {
       {hasLanguageBreakdown && (
         <>
           <SectionHead id="analytics-language-breakdown" title="BY LANGUAGE" first={!hasAgentBreakdown} helpAnchor="help-language"
-            tip="Traces grouped by primary language — the most common code language among the files the agent read or changed. A trace with no code is grouped by the kind of file it touched (Docs, Config, Data, Assets); 'No files' means it touched none." />
+            tip="Traces grouped by primary language: the most common code language among the files the agent read or changed. A trace with no code is grouped by the kind of file it touched (Docs, Config, Data, Assets); 'No files' means it touched none." />
           <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
             Each trace's main programming language and the lines its agent added and removed.
           </p>
@@ -334,10 +334,10 @@ export function Analytics() {
       {trend.bins.length > 0 && (
         <>
           <SectionHead id="analytics-outcome-tokens" title="OUTCOME &amp; TOKEN SPEND OVER TIME" first={!hasPlan && !hasAgentBreakdown && !hasLanguageBreakdown}
-            tip="Tokens and traces per day (or week), stacked by what happened to the work locally per git — merged, committed, or still uncommitted. Traces with no changed files, or outside a git repo, aren't counted." />
+            tip="Tokens and traces per day (or week), stacked by what happened to the work locally per git: merged, committed, or still uncommitted. Traces with no changed files, or outside a git repo, aren't counted." />
           <p style="font-size:12px;margin:0 0 4px">
             <strong>{formatCompact(trendSummary.total.tokens)}</strong> tokens across{' '}
-            <strong>{trendSummary.total.sessions.toLocaleString()}</strong> trace{trendSummary.total.sessions === 1 ? '' : 's'} —{' '}
+            <strong>{trendSummary.total.sessions.toLocaleString()}</strong> trace{trendSummary.total.sessions === 1 ? '' : 's'};{' '}
             <strong>{pct(trendSummary.landedShare)}</strong> went to work that's merged or committed,{' '}
             <strong>{pct(trendSummary.uncommittedShare)}</strong> to work still uncommitted.
           </p>

@@ -41,7 +41,7 @@ module.exports = async function afterSign(context) {
   if (!options) throw new Error('afterSign: no notarization credentials in the environment (electron-builder.cjs installs this hook only when there are)')
 
   const started = Date.now()
-  console.log(`  • afterSign: notarizing ${path.basename(appPath)} (${Arch[context.arch]}) — usually a few minutes`)
+  console.log(`  • afterSign: notarizing ${path.basename(appPath)} (${Arch[context.arch]}), usually a few minutes`)
   await checkSignatures({ appPath })
   await notarizeAndWaitForNotaryTool(options)
   console.log(`  • afterSign: notarization accepted after ${Math.round((Date.now() - started) / 1000)}s`)
@@ -59,7 +59,7 @@ async function staple(appPath) {
       if (attempt >= STAPLE_TRIES) {
         throw new Error(`afterSign: stapling failed ${STAPLE_TRIES} times (exit ${error.code}): ${output}`)
       }
-      console.log(`  • afterSign: stapling failed (attempt ${attempt} of ${STAPLE_TRIES}, exit ${error.code}) — retrying in ${STAPLE_DELAY_MS / 1000}s: ${output}`)
+      console.log(`  • afterSign: stapling failed (attempt ${attempt} of ${STAPLE_TRIES}, exit ${error.code}), retrying in ${STAPLE_DELAY_MS / 1000}s: ${output}`)
       await new Promise(resolve => setTimeout(resolve, STAPLE_DELAY_MS))
     }
   }

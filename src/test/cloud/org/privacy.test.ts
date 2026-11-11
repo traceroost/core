@@ -11,9 +11,9 @@ import { SENT, NEVER_SENT, whoSeesWhat } from '../../../cloud/org/privacy'
 suite('org/privacy', () => {
   test('SENT is the agreed list, verbatim', () => {
     assert.deepStrictEqual([...SENT], [
-      'Counts only — # of traces, turns, tool calls per tool, tokens, errors, files changed, one-shot edits, lines added/removed',
+      'Counts only: # of traces, turns, tool calls per tool, tokens, errors, files changed, one-shot edits, lines added/removed',
       'Model, agent and language names, the outcome, whether a trace came from OTEL or logs, and whether you or an agent started it, with timestamps',
-      'Hashed repository, branch, file and git-author ids — keyed by your repository’s first commit, so a public repository’s names can be guessed and matched',
+      'Hashed repository, branch, file and git-author ids, keyed by your repository’s first commit, so a public repository’s names can be guessed and matched',
       'A hashed conversation id, so the traces of one conversation group together',
       'Which instruction files (CLAUDE.md, AGENTS.md and the like) each repository has, with line counts, last-modified times and a hash that only shows whether they changed',
       'Loop and error categories (never a message)',
@@ -33,7 +33,7 @@ suite('org/privacy', () => {
   test('whoSeesWhat is the consent screen\'s wording (cloud src/lib/privacy.ts), verbatim', () => {
     assert.strictEqual(
       whoSeesWhat(true, 'Acme'),
-      "Acme has per-developer numbers turned on — an admin sees your individual figures. Other members, including a developer individually granted org visibility, see only what Acme's teammate-visibility settings allow. You will see a marker saying so.",
+      "Acme has per-developer numbers turned on: an admin sees your individual figures. Other members, including a developer individually granted org visibility, see only what Acme's teammate-visibility settings allow. You will see a marker saying so.",
     )
     assert.strictEqual(
       whoSeesWhat(false, 'Acme'),

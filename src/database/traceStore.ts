@@ -53,4 +53,4 @@ export function dropStaleTraceStore(db: Db): boolean {
 
 /** The one line a host logs (after its own prefix) when dropStaleTraceStore rebuilt its store. */
 export const TRACE_STORE_REBUILT_MESSAGE =
-  'The local trace store predated this build\'s trace keys (one agent turn, one key) — rebuilt it; agent logs are read again from scratch.'
+  'The local trace store predated this build\'s trace keys (one agent turn, one key), so it was rebuilt; agent logs are read again from scratch.'

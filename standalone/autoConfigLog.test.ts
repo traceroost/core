@@ -20,7 +20,7 @@ suite('autoConfigLogLines', () => {
   test('reports errors and changes per agent, and nothing when there is nothing to say', () => {
     const lines = autoConfigLogLines({ changed: true }, { changed: false, error: 'EACCES' }, [{ changed: false, error: 'bad json' }])
     assert.deepStrictEqual(lines.map(l => `${l.level}: ${l.text}`), [
-      'log: [TraceRoost] Claude Code configured — restart Claude Code in your terminal to activate tracing',
+      'log: [TraceRoost] Claude Code configured; restart Claude Code in your terminal to activate tracing',
       'warn: [TraceRoost] Could not auto-configure Codex: EACCES',
       'warn: [TraceRoost] Could not auto-configure Copilot: bad json',
     ])

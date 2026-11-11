@@ -4,581 +4,581 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
-## [1.0.3] — 2026-11-10
+## [1.0.3] (2026-11-10)
 
 ### TraceRoost Cloud (full edition only)
 
-- **The desktop app can link and upload on a network that inspects HTTPS** — on a managed laptop behind Zscaler or a similar proxy, every site's certificate is re-signed by a company root that IT installs in the operating system's certificate store. Browsers trust it, but the app's collector trusted only Node's built-in list, so signing in worked in the browser and then **Link this machine** ended on "Link failed: fetch failed", and uploads would have failed the same way. The desktop app's collector now trusts the operating system's store as well (set `NODE_USE_SYSTEM_CA=0` in the app's environment to turn that off). `npx traceroost`, Homebrew and the background service run on your own Node and are unchanged: start them with `NODE_USE_SYSTEM_CA=1` on such a network (#423)
-- **A link that can't reach TraceRoost Cloud says why** — instead of "link failed: fetch failed", the message names the host and the underlying reason (DNS, a refused connection, a timeout, a certificate that isn't trusted), and says so when the certificate looks like an HTTPS-inspecting proxy's (#423)
+- **The desktop app can link and upload on a network that inspects HTTPS**: on a managed laptop behind Zscaler or a similar proxy, every site's certificate is re-signed by a company root that IT installs in the operating system's certificate store. Browsers trust it, but the app's collector trusted only Node's built-in list, so signing in worked in the browser and then **Link this machine** ended on "Link failed: fetch failed", and uploads would have failed the same way. The desktop app's collector now trusts the operating system's store as well (set `NODE_USE_SYSTEM_CA=0` in the app's environment to turn that off). `npx traceroost`, Homebrew and the background service run on your own Node and are unchanged: start them with `NODE_USE_SYSTEM_CA=1` on such a network (#423)
+- **A link that can't reach TraceRoost Cloud says why**: instead of "link failed: fetch failed", the message names the host and the underlying reason (DNS, a refused connection, a timeout, a certificate that isn't trusted), and says so when the certificate looks like an HTTPS-inspecting proxy's (#423)
 
 ---
 
-## [1.0.2] — 2026-11-10
+## [1.0.2] (2026-11-10)
 
 ### Fixed
 
-- **The macOS app icon no longer turns into a black tile with a grey bird in macOS 26's Dark icon style** — the app shipped only an `.icns`, so with System Settings → Appearance → Icon & widget style set to Dark, macOS drew its own version. It now ships an Icon Composer icon with a dark look of our own (a teal bird on a dark tile); Clear and Tinted are derived by macOS from the same bird, and older macOS keeps the teal tile (#421)
-- **The desktop app no longer triggers macOS's “wants to access files managed by OneDrive” prompt** — TraceRoost follows each agent session into its project folder to run `git` and read a few files, and on macOS a project under `~/Library/CloudStorage` (OneDrive, Dropbox, Google Drive, Box — including `~/Desktop` and `~/Documents` when OneDrive backs them up) made macOS ask for access. The desktop app, `npx traceroost` and the background service now leave those folders alone: their traces still show, with the git outcome, AI attribution and turnover, the repo name and instruction-file checks reading as not available (never as abandoned). Turn on **Settings → Projects in cloud storage**, or set `"readCloudStorageProjects": true` in `~/.traceroost/config.json`, to include them. The server log names each provider it skipped, once. The VS Code extension is unchanged (#421)
+- **The macOS app icon no longer turns into a black tile with a grey bird in macOS 26's Dark icon style**: the app shipped only an `.icns`, so with System Settings → Appearance → Icon & widget style set to Dark, macOS drew its own version. It now ships an Icon Composer icon with a dark look of our own (a teal bird on a dark tile); Clear and Tinted are derived by macOS from the same bird, and older macOS keeps the teal tile (#421)
+- **The desktop app no longer triggers macOS's “wants to access files managed by OneDrive” prompt**: TraceRoost follows each agent session into its project folder to run `git` and read a few files, and on macOS a project under `~/Library/CloudStorage` (OneDrive, Dropbox, Google Drive, Box, including `~/Desktop` and `~/Documents` when OneDrive backs them up) made macOS ask for access. The desktop app, `npx traceroost` and the background service now leave those folders alone: their traces still show, with the git outcome, AI attribution and turnover, the repo name and instruction-file checks reading as not available (never as abandoned). Turn on **Settings → Projects in cloud storage**, or set `"readCloudStorageProjects": true` in `~/.traceroost/config.json`, to include them. The server log names each provider it skipped, once. The VS Code extension is unchanged (#421)
 
 ---
 
-## [1.0.1] — 2026-11-08
+## [1.0.1] (2026-11-08)
 
 ### Added
 
-- **Antigravity CLI (`agy`) traces, best effort** — TraceRoost now reads Google's Antigravity CLI from `~/.gemini/antigravity-cli/` (override: `ANTIGRAVITY_CLI_DIR`): one trace per prompt from each conversation's step transcript, with the prompt (agy's injected envelope removed), per-step times, workspace, and tool calls with the files they read and edited; token counts and the model come from the conversation's SQLite database when it exists, priced at the model's Gemini rate whatever effort was picked. Without that database a trace has no token counts and its cost shows as unknown, not $0. Tool results, errors, per-call timing, separate thinking tokens and cache writes aren't stored by agy, and there's no OTel path yet. Antigravity has its own filter, colour, Analytics card and thresholds, its traces go to TraceRoost Cloud as `antigravity`, and the Advisor's suggestions name it as an `AGENTS.md` reader. Built from third-party evidence and synthetic fixtures — no real capture has been checked yet (README → Antigravity CLI lists what one has to confirm) (#416)
+- **Antigravity CLI (`agy`) traces, best effort**: TraceRoost now reads Google's Antigravity CLI from `~/.gemini/antigravity-cli/` (override: `ANTIGRAVITY_CLI_DIR`): one trace per prompt from each conversation's step transcript, with the prompt (agy's injected envelope removed), per-step times, workspace, and tool calls with the files they read and edited; token counts and the model come from the conversation's SQLite database when it exists, priced at the model's Gemini rate whatever effort was picked. Without that database a trace has no token counts and its cost shows as unknown, not $0. Tool results, errors, per-call timing, separate thinking tokens and cache writes aren't stored by agy, and there's no OTel path yet. Antigravity has its own filter, colour, Analytics card and thresholds, its traces go to TraceRoost Cloud as `antigravity`, and the Advisor's suggestions name it as an `AGENTS.md` reader. Built from third-party evidence and synthetic fixtures; no real capture has been checked yet (README → Antigravity CLI lists what one has to confirm) (#416)
 
 ### Fixed
 
-- **The desktop app linked to TraceRoost Cloud but never sent a trace** — the 1.0.0 macOS, Linux and Windows apps shipped their collector without `schema/rollup.v1.json`, the file the connector checks every payload against before queuing it. Linking worked and the app sent its trace manifest, so the cloud showed the machine as linked and "preparing its trace history" indefinitely, while the Org panel read *Synced* and the app's log filled with `could not locate schema/rollup.v1.json — the package is built incorrectly`. The schema now ships beside the collector, the staging step proves the collector can read it, and the packaging check refuses a full-edition app without it. `npx traceroost`, Homebrew, the VSIX and the Docker image were not affected (#417)
+- **The desktop app linked to TraceRoost Cloud but never sent a trace**: the 1.0.0 macOS, Linux and Windows apps shipped their collector without `schema/rollup.v1.json`, the file the connector checks every payload against before queuing it. Linking worked and the app sent its trace manifest, so the cloud showed the machine as linked and "preparing its trace history" indefinitely, while the Org panel read *Synced* and the app's log filled with `could not locate schema/rollup.v1.json — the package is built incorrectly`. The schema now ships beside the collector, the staging step proves the collector can read it, and the packaging check refuses a full-edition app without it. `npx traceroost`, Homebrew, the VSIX and the Docker image were not affected (#417)
 
 ### Changed
 
-- **Dependency updates** — minor and patch bumps from the security review; no user-facing product change (#415)
+- **Dependency updates**: minor and patch bumps from the security review; no user-facing product change (#415)
 
 ---
 
-## [1.0.0] — 2026-11-08
+## [1.0.0] (2026-11-08)
 
-TraceRoost 1.0 is the first release built as the **full edition**: the VS Code extension, `npx traceroost`, Homebrew, the Docker image and the desktop app now include the TraceRoost Cloud connector — the Org panel, **Link this machine** and `traceroost org` — because [TraceRoost Cloud](https://traceroost.com), the team view across developers, is open. Linking is a choice you make: until you link a machine to an org, nothing is sent anywhere, and TraceRoost is the same local-only tool it has been — the dashboard, the signals, the Advisor and the MCP server all work with no account. Every release before this one shipped the core edition, which contains no Cloud code at all; it is still built from the same source (`node esbuild.js --edition=core`, README → Editions). The published packages declare `(MIT AND BUSL-1.1)`: MIT for everything but the Cloud connector, which is under the Business Source License, whose text ships with each package (`LICENSE-BSL-1.1`, `NOTICE.md`).
+TraceRoost 1.0 is the first release built as the **full edition**: the VS Code extension, `npx traceroost`, Homebrew, the Docker image and the desktop app now include the TraceRoost Cloud connector (the Org panel, **Link this machine** and `traceroost org`), because [TraceRoost Cloud](https://traceroost.com), the team view across developers, is open. Linking is a choice you make: until you link a machine to an org, nothing is sent anywhere, and TraceRoost is the same local-only tool it has been: the dashboard, the signals, the Advisor and the MCP server all work with no account. Every release before this one shipped the core edition, which contains no Cloud code at all; it is still built from the same source (`node esbuild.js --edition=core`, README → Editions). The published packages declare `(MIT AND BUSL-1.1)`: MIT for everything but the Cloud connector, which is under the Business Source License, whose text ships with each package (`LICENSE-BSL-1.1`, `NOTICE.md`).
 
 ### Added
 
-- **TraceRoost now tells you when it doesn't recognize what an agent writes** — when an agent release changes the format of its log files or OpenTelemetry events, TraceRoost used to skip what it couldn't read, so the numbers were quietly incomplete. It now counts, per agent and version, the records it read, the ones it skips on purpose and the ones it doesn't recognize. ⚙ Settings → **Agents** lists every agent with the newest version seen, when it last sent data and a status: *OK*, *Missing data* (some sessions couldn't be read, or came through without their token counts), *Unrecognized data* (records it skips, while its sessions still read), *No data*, or *Not verified on this version*. Only missing data in the last 7 days raises a banner on the Traces tab, one per agent, saying how many sessions couldn't be fully read; record types it merely skips, and anything older, stay in Settings. Dismissing it covers the versions it named, so a newer version that loses data raises it again. **Report this** shows the full text of a prefilled GitHub issue (record names, counts and key/value-type structure, never a value from your logs) before opening it in your browser; TraceRoost itself sends nothing. In a terminal, `traceroost doctor` prints the same table, along with whether each agent is set up to send OTel, lists every unrecognized record, and exits 1 when data is missing; `traceroost doctor --report <agent>` prints the issue (#387, #404)
-- **Install the macOS app with a double-click** — the DMG window now says *Double-click TraceRoost to install*. Opened from the disk image, the app offers to move itself to Applications, then opens from there and ejects the disk image, so there is no hunting for it in Finder afterwards. If an older TraceRoost is running it is quit first. **Not Now** runs it from the disk image and asks again next time; *Don't ask again* stops asking. Dragging to Applications still works (#383)
-- **TraceRoost's MCP server shows up in VS Code's chat with no setup** — the extension now registers it with VS Code's own agent at the port it actually started on. Claude Code and other clients still register it as before (Help → MCP) (#397)
-- **Where to find the team view** — the end of Analytics and the Export and Import panels now say what TraceRoost Cloud adds and point to where you link (the Org panel; Help → Cloud explains it). Nothing is sent until you link (#397)
+- **TraceRoost now tells you when it doesn't recognize what an agent writes**: when an agent release changes the format of its log files or OpenTelemetry events, TraceRoost used to skip what it couldn't read, so the numbers were quietly incomplete. It now counts, per agent and version, the records it read, the ones it skips on purpose and the ones it doesn't recognize. ⚙ Settings → **Agents** lists every agent with the newest version seen, when it last sent data and a status: *OK*, *Missing data* (some sessions couldn't be read, or came through without their token counts), *Unrecognized data* (records it skips, while its sessions still read), *No data*, or *Not verified on this version*. Only missing data in the last 7 days raises a banner on the Traces tab, one per agent, saying how many sessions couldn't be fully read; record types it merely skips, and anything older, stay in Settings. Dismissing it covers the versions it named, so a newer version that loses data raises it again. **Report this** shows the full text of a prefilled GitHub issue (record names, counts and key/value-type structure, never a value from your logs) before opening it in your browser; TraceRoost itself sends nothing. In a terminal, `traceroost doctor` prints the same table, along with whether each agent is set up to send OTel, lists every unrecognized record, and exits 1 when data is missing; `traceroost doctor --report <agent>` prints the issue (#387, #404)
+- **Install the macOS app with a double-click**: the DMG window now says *Double-click TraceRoost to install*. Opened from the disk image, the app offers to move itself to Applications, then opens from there and ejects the disk image, so there is no hunting for it in Finder afterwards. If an older TraceRoost is running it is quit first. **Not Now** runs it from the disk image and asks again next time; *Don't ask again* stops asking. Dragging to Applications still works (#383)
+- **TraceRoost's MCP server shows up in VS Code's chat with no setup**: the extension now registers it with VS Code's own agent at the port it actually started on. Claude Code and other clients still register it as before (Help → MCP) (#397)
+- **Where to find the team view**: the end of Analytics and the Export and Import panels now say what TraceRoost Cloud adds and point to where you link (the Org panel; Help → Cloud explains it). Nothing is sent until you link (#397)
 
 ### Fixed
 
-- **Codex 0.167 sessions didn't appear at all** — Codex 0.167 (and the Codex VS Code extension's recent alpha builds) stopped writing the `user_message` record TraceRoost started each turn from; the prompt now comes as a completed `UserMessage` item. TraceRoost found no turns in those rollouts, so every such Codex session was missing from Traces. It now reads the prompt from either form, and Codex rollouts within retention are read again once so the missing sessions appear. Codex 0.167 is recorded as a verified version, so Settings → Agents no longer says *Not verified on this version* for it (#407, #409)
-- **Gemini 2.5 Pro traces with a long prompt showed half their real cost, and Gemini sessions reporting Google's own model id showed no cost at all** — Gemini 2.5 Pro costs twice as much per token for a request whose prompt is over 200,000 tokens, which TraceRoost didn't apply, so those requests were priced at the standard rate. Separately, Google's API names two of its models `gemini-3.1-pro-preview` and `gemini-3-flash-preview`, while TraceRoost only knew them without the `-preview`, so a trace on either came out as `~$?` rather than a cost. Both are fixed, and Gemini rates now come from Google's own pricing page rather than only from Copilot's resold list (#411)
-- **Copilot CLI traces counted cached tokens twice, and lost output tokens and the model from 1.0.107** — Copilot CLI's input count already includes the prompt cache, which TraceRoost then added again, so every Copilot CLI trace showed roughly double its input tokens and priced the cached part at the full input rate. Copilot CLI 1.0.107 also stopped writing output tokens on each reply and the model on session start; TraceRoost now reads both from the per-call usage records it writes instead, which also gives each prompt its own input tokens rather than piling the session's on its last prompt. Copilot CLI sessions within retention are read again once to correct them (#404)
-- **The macOS installer window shows a sharp app icon** — the DMG window drew its icons at 80 pt, so on a non-Retina display Finder shrank the icon's 128 px image and the bird's legs and beak came out soft. It now draws them at 128 pt, which is pixel for pixel on a standard display and exactly 2× on Retina (#379)
-- **The desktop app's window follows the dashboard to a new port** — moving the dashboard in Settings → Dashboard port left the desktop window blank: the window only allowed the address it opened on, so it refused the move, and the old address closed a few seconds later. The window now follows a move once the collector itself confirms the new port, and the tray's Open Dashboard opens the new address. The same goes for a collector that restarts on a different port because something else took its old one: an open window reloads there instead of staying on a dead address (#390)
-- **The OTLP port warning no longer says your agents followed TraceRoost when they didn't** — when another application held the OTLP port (4318) and TraceRoost moved to the next one, the log and the dashboard banner said "Agents are already pointed at" the new port. That is only true once you've said yes to agent setup; otherwise agents keep sending to 4318, to the other application. The warning now says so and points to **Set up agents** (or `traceroost agents setup --otlp-port <port>`), and the banner updates once you've done it (#390)
+- **Codex 0.167 sessions didn't appear at all**: Codex 0.167 (and the Codex VS Code extension's recent alpha builds) stopped writing the `user_message` record TraceRoost started each turn from; the prompt now comes as a completed `UserMessage` item. TraceRoost found no turns in those rollouts, so every such Codex session was missing from Traces. It now reads the prompt from either form, and Codex rollouts within retention are read again once so the missing sessions appear. Codex 0.167 is recorded as a verified version, so Settings → Agents no longer says *Not verified on this version* for it (#407, #409)
+- **Gemini 2.5 Pro traces with a long prompt showed half their real cost, and Gemini sessions reporting Google's own model id showed no cost at all**: Gemini 2.5 Pro costs twice as much per token for a request whose prompt is over 200,000 tokens, which TraceRoost didn't apply, so those requests were priced at the standard rate. Separately, Google's API names two of its models `gemini-3.1-pro-preview` and `gemini-3-flash-preview`, while TraceRoost only knew them without the `-preview`, so a trace on either came out as `~$?` rather than a cost. Both are fixed, and Gemini rates now come from Google's own pricing page rather than only from Copilot's resold list (#411)
+- **Copilot CLI traces counted cached tokens twice, and lost output tokens and the model from 1.0.107**: Copilot CLI's input count already includes the prompt cache, which TraceRoost then added again, so every Copilot CLI trace showed roughly double its input tokens and priced the cached part at the full input rate. Copilot CLI 1.0.107 also stopped writing output tokens on each reply and the model on session start; TraceRoost now reads both from the per-call usage records it writes instead, which also gives each prompt its own input tokens rather than piling the session's on its last prompt. Copilot CLI sessions within retention are read again once to correct them (#404)
+- **The macOS installer window shows a sharp app icon**: the DMG window drew its icons at 80 pt, so on a non-Retina display Finder shrank the icon's 128 px image and the bird's legs and beak came out soft. It now draws them at 128 pt, which is pixel for pixel on a standard display and exactly 2× on Retina (#379)
+- **The desktop app's window follows the dashboard to a new port**: moving the dashboard in Settings → Dashboard port left the desktop window blank: the window only allowed the address it opened on, so it refused the move, and the old address closed a few seconds later. The window now follows a move once the collector itself confirms the new port, and the tray's Open Dashboard opens the new address. The same goes for a collector that restarts on a different port because something else took its old one: an open window reloads there instead of staying on a dead address (#390)
+- **The OTLP port warning no longer says your agents followed TraceRoost when they didn't**: when another application held the OTLP port (4318) and TraceRoost moved to the next one, the log and the dashboard banner said "Agents are already pointed at" the new port. That is only true once you've said yes to agent setup; otherwise agents keep sending to 4318, to the other application. The warning now says so and points to **Set up agents** (or `traceroost agents setup --otlp-port <port>`), and the banner updates once you've done it (#390)
 
 ### Changed
 
 - **The Traces table's Changes column colors lines added and removed green and red; when an agent's logs don't record edit contents it reads +? −? instead of ?** (#385)
-- **The dashboard now defaults to port 4315, not 3000** — 3000 is what Next.js, Rails, Express and most other dev servers use, and the background service and desktop app start at login, so TraceRoost held 3000 before your own dev server asked for it. New installs of the desktop app (macOS, Windows, Linux), `npx traceroost` and the background service now serve the dashboard on <http://localhost:4315>, beside the MCP (4316) and OTLP (4318) ports. Existing installs keep the port saved in `~/.traceroost/config.json`, so your bookmarks still work; to move one, use **Reset to 4315** in Settings → Dashboard port. Agents are unaffected. Inside the Docker image the dashboard stays on 3000, so existing `-p …:3000` mappings keep working; the README's examples now publish it on host port 4315 (#390)
-- **How to change the dashboard port is shown wherever you start TraceRoost from a terminal** — a run in a terminal prints `--ui-port <port>` and Settings → Dashboard port under the dashboard address; `traceroost service install` and `service status` print `service install --ui-port <port>` and Settings; `traceroost --help` says the flag applies to that run only; Homebrew's post-install notes and the README's npx, Homebrew and background-service sections each show it (#390)
-- **Export and Import are no longer tabs** — the tab bar is now Traces, Analytics and Advisor. **Export…** on the Traces filter row opens a panel that exports the traces your filters select, with one choice between Redacted (now the default, since it's the one safe to share) and Full, and a format (JSON, CSV or Markdown). To import a JSON export, drop the file anywhere on the dashboard, or use **Import traces…** in the ⚙ Settings panel. VS Code adds `TraceRoost: Export Traces…` and `TraceRoost: Import Traces…` (#389)
-- **macOS desktop builds are attached to a release only when notarized** — there is no longer an ad-hoc-signed fallback with right-click → Open instructions; macOS 15 and later don't honor that bypass anyway (#381)
+- **The dashboard now defaults to port 4315, not 3000**: 3000 is what Next.js, Rails, Express and most other dev servers use, and the background service and desktop app start at login, so TraceRoost held 3000 before your own dev server asked for it. New installs of the desktop app (macOS, Windows, Linux), `npx traceroost` and the background service now serve the dashboard on <http://localhost:4315>, beside the MCP (4316) and OTLP (4318) ports. Existing installs keep the port saved in `~/.traceroost/config.json`, so your bookmarks still work; to move one, use **Reset to 4315** in Settings → Dashboard port. Agents are unaffected. Inside the Docker image the dashboard stays on 3000, so existing `-p …:3000` mappings keep working; the README's examples now publish it on host port 4315 (#390)
+- **How to change the dashboard port is shown wherever you start TraceRoost from a terminal**: a run in a terminal prints `--ui-port <port>` and Settings → Dashboard port under the dashboard address; `traceroost service install` and `service status` print `service install --ui-port <port>` and Settings; `traceroost --help` says the flag applies to that run only; Homebrew's post-install notes and the README's npx, Homebrew and background-service sections each show it (#390)
+- **Export and Import are no longer tabs**: the tab bar is now Traces, Analytics and Advisor. **Export…** on the Traces filter row opens a panel that exports the traces your filters select, with one choice between Redacted (now the default, since it's the one safe to share) and Full, and a format (JSON, CSV or Markdown). To import a JSON export, drop the file anywhere on the dashboard, or use **Import traces…** in the ⚙ Settings panel. VS Code adds `TraceRoost: Export Traces…` and `TraceRoost: Import Traces…` (#389)
+- **macOS desktop builds are attached to a release only when notarized**: there is no longer an ad-hoc-signed fallback with right-click → Open instructions; macOS 15 and later don't honor that bypass anyway (#381)
 
 ### TraceRoost Cloud (full edition only)
 
 From 1.0.0 every release ships the full edition, so these are in the build you install.
 
-- **Link the desktop app to your org** — the desktop app (macOS, Windows, Linux) now ships the same edition as the rest of the release, so its dashboard has the Org panel: **Link this machine** opens the sign-in page in your browser and links the app's collector to your TraceRoost Cloud org, exactly as `npx traceroost` does. Nothing is sent until you link. The app carries the Business Source License for the Cloud code (`LICENSE-BSL-1.1`, with `NOTICE.md`) beside its MIT `LICENSE` (#397)
-- **Linking from the standalone, desktop and Docker dashboards works as described** — in the Org panel, **Use a device code** never showed the code (it arrived only once the code had been approved, denied or had expired), and after a successful browser link the sign-in page opened a second time. Both had one cause: the standalone host delivered those messages with the reply to a request that doesn't finish until you've finished in your browser. They now arrive as they happen. The VS Code extension was unaffected (#412)
-- **The Org panel's "What it would send" list leads with *Counts only — # of traces, turns, tool calls per tool, …*** — it read "Usage counts — traces, turns, …", which could be taken to mean the traces themselves are sent (#375)
+- **Link the desktop app to your org**: the desktop app (macOS, Windows, Linux) now ships the same edition as the rest of the release, so its dashboard has the Org panel: **Link this machine** opens the sign-in page in your browser and links the app's collector to your TraceRoost Cloud org, exactly as `npx traceroost` does. Nothing is sent until you link. The app carries the Business Source License for the Cloud code (`LICENSE-BSL-1.1`, with `NOTICE.md`) beside its MIT `LICENSE` (#397)
+- **Linking from the standalone, desktop and Docker dashboards works as described**: in the Org panel, **Use a device code** never showed the code (it arrived only once the code had been approved, denied or had expired), and after a successful browser link the sign-in page opened a second time. Both had one cause: the standalone host delivered those messages with the reply to a request that doesn't finish until you've finished in your browser. They now arrive as they happen. The VS Code extension was unaffected (#412)
+- **The Org panel's "What it would send" list leads with *Counts only: # of traces, turns, tool calls per tool, …***: it read "Usage counts: traces, turns, …", which could be taken to mean the traces themselves are sent (#375)
 
 ---
 
-## [0.21.0] — 2026-10-26
+## [0.21.0] (2026-10-26)
 
 ### Added
 
-- **Remove agent setup** — a **Remove agent setup** button next to **Set up agents** in the dashboard's ⚙ Settings panel, `TraceRoost: Remove Agent Setup…` in VS Code, and `traceroost agents remove` in a terminal take out only what TraceRoost's agent setup added: Claude Code's telemetry `env` keys, Codex's `[otel]` exporter lines and `log_user_prompt`, and the Copilot OTel settings in every VS Code-family editor — each only while it still holds TraceRoost's value, in a file whose endpoint is TraceRoost's own. Anything else in those files, and any file that sends to a different collector, is left exactly as it is; it is not a restore of `<file>.traceroost.bak`, so your changes since setup stay. VS Code and the dashboard list the files first and ask; every surface says which files it changed. Your answer is then recorded as no, so nothing sets the agents up again until you choose **Set up agents** (or `traceroost agents setup`) (#360)
-- **Every insight in an expanded trace now shows why it fired, step by step** — each Insights card has a **Why it fired** section giving the measured value against the threshold it crossed ("bash npm test → read_file test-output.log ran 5 times back to back … warning at 5+ passes"), then the specific turns and tool calls behind it, each with its own reason ("pass 3 of 5", "undoes the earlier edit to session.ts — its last edit this session", "re-wrote 18,402 tokens to cache (42% of a 43,800-token prompt)"). Click a step, or **Highlight in waterfall**, to open the trace's waterfall with that signal's steps lit and the rest dimmed, and step through them with ‹ ›. The waterfall also gets a **Signal evidence** strip with one chip per signal, and a dot on every row that is evidence for one. Each step also shows the thing itself where there is one — the edit's old → new text for Edit Reverted, the error line for Repeated Error and Chronic Tool Unreliability, the import line for Fabricated Dependency, the failing output line for Unverified Submission — and the section says what the stretch between the first and last step amounted to ("steps #8–#21 · 52.6s · 2 LLM calls in between (49.5K tokens) · ~$0.08"). The token and cache signals (Context Runaway, the three cache signals, context growth, large first prompt, low cache rate) add a per-call chart of input tokens, cached against fresh, with the named calls marked. In the waterfall, a track under the time ruler shows when each evidence step happened, opening a row lists the signals it is part of, and the Sig column's hover now says what fired in this trace, not only what the signal means. This covers all sixteen signals and the efficiency insights (context growth, repeated reads and searches, high call counts, large first prompt, low cache rate). In the VS Code extension, the first activation after updating reads your agent log files from the last 90 days (your retention setting) again once, so traces from them get their evidence too; traces received only over OpenTelemetry and already stored can't be re-analyzed and say so instead (#354)
-- **TraceRoost desktop on winget** — `winget install TraceRoost.TraceRoost` installs the Windows desktop app from the GitHub release, and `winget upgrade` keeps it current (including a copy installed from a downloaded .exe) (#352)
+- **Remove agent setup**: a **Remove agent setup** button next to **Set up agents** in the dashboard's ⚙ Settings panel, `TraceRoost: Remove Agent Setup…` in VS Code, and `traceroost agents remove` in a terminal take out only what TraceRoost's agent setup added: Claude Code's telemetry `env` keys, Codex's `[otel]` exporter lines and `log_user_prompt`, and the Copilot OTel settings in every VS Code-family editor, each only while it still holds TraceRoost's value, in a file whose endpoint is TraceRoost's own. Anything else in those files, and any file that sends to a different collector, is left exactly as it is; it is not a restore of `<file>.traceroost.bak`, so your changes since setup stay. VS Code and the dashboard list the files first and ask; every surface says which files it changed. Your answer is then recorded as no, so nothing sets the agents up again until you choose **Set up agents** (or `traceroost agents setup`) (#360)
+- **Every insight in an expanded trace now shows why it fired, step by step**: each Insights card has a **Why it fired** section giving the measured value against the threshold it crossed ("bash npm test → read_file test-output.log ran 5 times back to back … warning at 5+ passes"), then the specific turns and tool calls behind it, each with its own reason ("pass 3 of 5", "undoes the earlier edit to session.ts: its last edit this session", "re-wrote 18,402 tokens to cache (42% of a 43,800-token prompt)"). Click a step, or **Highlight in waterfall**, to open the trace's waterfall with that signal's steps lit and the rest dimmed, and step through them with ‹ ›. The waterfall also gets a **Signal evidence** strip with one chip per signal, and a dot on every row that is evidence for one. Each step also shows the thing itself where there is one: the edit's old → new text for Edit Reverted, the error line for Repeated Error and Chronic Tool Unreliability, the import line for Fabricated Dependency, the failing output line for Unverified Submission, and the section says what the stretch between the first and last step amounted to ("steps #8–#21 · 52.6s · 2 LLM calls in between (49.5K tokens) · ~$0.08"). The token and cache signals (Context Runaway, the three cache signals, context growth, large first prompt, low cache rate) add a per-call chart of input tokens, cached against fresh, with the named calls marked. In the waterfall, a track under the time ruler shows when each evidence step happened, opening a row lists the signals it is part of, and the Sig column's hover now says what fired in this trace, not only what the signal means. This covers all sixteen signals and the efficiency insights (context growth, repeated reads and searches, high call counts, large first prompt, low cache rate). In the VS Code extension, the first activation after updating reads your agent log files from the last 90 days (your retention setting) again once, so traces from them get their evidence too; traces received only over OpenTelemetry and already stored can't be re-analyzed and say so instead (#354)
+- **TraceRoost desktop on winget**: `winget install TraceRoost.TraceRoost` installs the Windows desktop app from the GitHub release, and `winget upgrade` keeps it current (including a copy installed from a downloaded .exe) (#352)
 
 ### Fixed
 
-- **A nearly full disk can no longer replace your trace history with a truncated file** — saving the trace database (and `spans.json` and the other stores) wrote the file once and renamed it into place even when the disk took only part of it, so a save on a nearly full disk could leave a cut-off database that the next start could not read. A save that can't write every byte now fails and leaves the previous file as it was (#368)
-- **A non-numeric token count in an agent's log no longer breaks a trace's totals** — a usage field that wasn't a number (a string, for instance) was added as-is, so a Claude Code, Codex or Copilot CLI trace could show token totals like "1000x00" and no cost. Such a field now counts as 0 (#368)
-- **Fabricated Dependency and Unverified Submission now appear in the dashboard** — both were computed and sent with each trace's git outcome, then dropped, so neither ever showed in the Sig column or a trace's Insights. They now do, with their evidence (the import line; the failing test output). They're computed from a trace's full timeline, which the npx/desktop app and live VS Code traces have; a trace the VS Code extension has already stored keeps only part of its timeline, so these two can't be checked for it (#354)
-- **A passing test run no longer reads as Unverified Submission** — the check looked for the word "failed" in the last test or build output, so a green cargo run ("14 passed; 0 failed; 0 ignored"), a Go or Jest "0 failures" summary, or a suite named "should not be failing" at the end of a session was flagged as a failure the agent ignored. A zero count is now stripped before the output is read (#348)
-- **Fabricated Dependency no longer flags a monorepo package's own dependencies** — only the workspace root's package.json and node_modules were checked, so in a pnpm workspace (where each package declares its deps in its own package.json and gets them linked under its own node_modules) every import of a package-local dependency was reported as fabricated. Every package.json and node_modules from the edited file up to the root now counts (#348)
-- **Poor Cache Utilization no longer fires on a one-call session** — a single LLM call has nothing to read from cache yet; its only cache activity is the cold-start write every session pays, which read as a 0% hit ratio and a critical signal (#348)
-- **Far fewer git commands while idle, so the activity log shows what actually happened** — the once-a-minute check for uncommitted edits re-ran `git rev-parse --show-toplevel`, `git symbolic-ref` and two `git rev-parse HEAD <trunk>` for every repo you'd worked in, though nothing had changed; with five or six repos that filled the 200-entry activity log in about seven minutes. Each repo's root, trunk branch and commit tips are now reused until its `.git` changes (re-checked from scratch every 10 minutes regardless). Every forwarded trace also derived its repo's privacy key twice, at three git commands each; the repo's root commit is now looked up once per 10 minutes. A `git fetch` in a linked worktree is now noticed immediately, instead of at the next minute's check (#355)
-- **Tool Call Deadlock no longer fires on different commands** — it keyed a call on its label, which on Claude Code's OTel spans is just the tool name, so 74 different Bash commands read as "one call repeated 74 times". A call is now the same only when its tool and its arguments (or its recorded result) match; a call whose arguments weren't recorded never counts as a repeat. The same rule fixes Multi-Step Oscillation, the error-recurrence fallback (three different failing commands are three errors) and the live Loop Breaker alert. With Claude Code's default telemetry, which records no tool arguments, this signal now stays quiet by design; turn on `OTEL_LOG_TOOL_DETAILS` for it (#371)
-- **Tool Call Deadlock's description said "in a row"** — calls to other tools in between never reset its count; the explanation, README and walkthrough now say so. Multi-Step Oscillation's example described a pattern that couldn't fire (#366)
-- **`traceroost advise --apply` writes to the instruction file your agents read** — it picked `CLAUDE.md` for almost every suggestion, creating one even in a Codex-only repo that already had `AGENTS.md`. It now picks an existing file read by an agent with traces in the repo, else creates one for such an agent. `advise --list` and the MCP `get_instruction_suggestions` tool name only the target agents that have traces in the repo (#374)
-- **History survives more edge cases** — a card queued while "Clear all" ran is no longer stranded unsaved; commits touching non-ASCII file paths now match their sessions (git was quoting the paths); a Codex/Copilot `apply_patch` rename (`*** Move to:`) is counted on the new file, not a file literally named "Move to: …"; a session with no start time no longer scrambles the trace order; a repository with a very long history no longer crashes the turnover calculation (#339)
-- **The desktop app keeps its own collector after sleep** — on wake it mistook its own running collector for another app's, which changed the tray menu and Quit label, and it reopened a dashboard window you had closed (#339)
+- **A nearly full disk can no longer replace your trace history with a truncated file**: saving the trace database (and `spans.json` and the other stores) wrote the file once and renamed it into place even when the disk took only part of it, so a save on a nearly full disk could leave a cut-off database that the next start could not read. A save that can't write every byte now fails and leaves the previous file as it was (#368)
+- **A non-numeric token count in an agent's log no longer breaks a trace's totals**: a usage field that wasn't a number (a string, for instance) was added as-is, so a Claude Code, Codex or Copilot CLI trace could show token totals like "1000x00" and no cost. Such a field now counts as 0 (#368)
+- **Fabricated Dependency and Unverified Submission now appear in the dashboard**: both were computed and sent with each trace's git outcome, then dropped, so neither ever showed in the Sig column or a trace's Insights. They now do, with their evidence (the import line; the failing test output). They're computed from a trace's full timeline, which the npx/desktop app and live VS Code traces have; a trace the VS Code extension has already stored keeps only part of its timeline, so these two can't be checked for it (#354)
+- **A passing test run no longer reads as Unverified Submission**: the check looked for the word "failed" in the last test or build output, so a green cargo run ("14 passed; 0 failed; 0 ignored"), a Go or Jest "0 failures" summary, or a suite named "should not be failing" at the end of a session was flagged as a failure the agent ignored. A zero count is now stripped before the output is read (#348)
+- **Fabricated Dependency no longer flags a monorepo package's own dependencies**: only the workspace root's package.json and node_modules were checked, so in a pnpm workspace (where each package declares its deps in its own package.json and gets them linked under its own node_modules) every import of a package-local dependency was reported as fabricated. Every package.json and node_modules from the edited file up to the root now counts (#348)
+- **Poor Cache Utilization no longer fires on a one-call session**: a single LLM call has nothing to read from cache yet; its only cache activity is the cold-start write every session pays, which read as a 0% hit ratio and a critical signal (#348)
+- **Far fewer git commands while idle, so the activity log shows what actually happened**: the once-a-minute check for uncommitted edits re-ran `git rev-parse --show-toplevel`, `git symbolic-ref` and two `git rev-parse HEAD <trunk>` for every repo you'd worked in, though nothing had changed; with five or six repos that filled the 200-entry activity log in about seven minutes. Each repo's root, trunk branch and commit tips are now reused until its `.git` changes (re-checked from scratch every 10 minutes regardless). Every forwarded trace also derived its repo's privacy key twice, at three git commands each; the repo's root commit is now looked up once per 10 minutes. A `git fetch` in a linked worktree is now noticed immediately, instead of at the next minute's check (#355)
+- **Tool Call Deadlock no longer fires on different commands**: it keyed a call on its label, which on Claude Code's OTel spans is just the tool name, so 74 different Bash commands read as "one call repeated 74 times". A call is now the same only when its tool and its arguments (or its recorded result) match; a call whose arguments weren't recorded never counts as a repeat. The same rule fixes Multi-Step Oscillation, the error-recurrence fallback (three different failing commands are three errors) and the live Loop Breaker alert. With Claude Code's default telemetry, which records no tool arguments, this signal now stays quiet by design; turn on `OTEL_LOG_TOOL_DETAILS` for it (#371)
+- **Tool Call Deadlock's description said "in a row"**: calls to other tools in between never reset its count; the explanation, README and walkthrough now say so. Multi-Step Oscillation's example described a pattern that couldn't fire (#366)
+- **`traceroost advise --apply` writes to the instruction file your agents read**: it picked `CLAUDE.md` for almost every suggestion, creating one even in a Codex-only repo that already had `AGENTS.md`. It now picks an existing file read by an agent with traces in the repo, else creates one for such an agent. `advise --list` and the MCP `get_instruction_suggestions` tool name only the target agents that have traces in the repo (#374)
+- **History survives more edge cases**: a card queued while "Clear all" ran is no longer stranded unsaved; commits touching non-ASCII file paths now match their sessions (git was quoting the paths); a Codex/Copilot `apply_patch` rename (`*** Move to:`) is counted on the new file, not a file literally named "Move to: …"; a session with no start time no longer scrambles the trace order; a repository with a very long history no longer crashes the turnover calculation (#339)
+- **The desktop app keeps its own collector after sleep**: on wake it mistook its own running collector for another app's, which changed the tray menu and Quit label, and it reopened a dashboard window you had closed (#339)
 
 ### Changed
 
 - **Node.js 22 or newer** is now the requirement for `npx traceroost` (was 24; it runs on 22, the current LTS, and CI now tests it). An older Node gets a clear message at startup instead of only npm's engine warning. (#368)
-- **The background service always wins agent setup** — with the background service (or `traceroost`, or the desktop app) running, the VS Code extension used to set agents up for its own port on every activation, so the two could keep repointing the agents at each other — and after the service fell back to another port, at a port nothing was listening on. The extension now leaves agent settings alone whenever a standalone TraceRoost holds the data directory or the OTLP port, and its **Set Up Agents…** / **Remove Agent Setup…** commands (and the Settings buttons in its dashboard) ask the service to do it, or point you at the service's dashboard (#360)
-- **"Not now" means not now** — the agent-setup question offers **Set up agents**, **Not now** and **Don't set up** in VS Code, the terminal and the dashboard banner. **Not now** records nothing, so the question comes back the next time TraceRoost starts; only **Don't set up** records the no, without the second "Skip setup?" step it used to take (what skipping costs is said once you choose it). In the terminal, Enter is now **Not now** (it used to start a no), `y` is yes, and typing `never` is **Don't set up**. Stored answers keep their meaning (#360)
-- **After you say yes to agent setup, starts no longer re-add settings you removed** — every start of the extension, `traceroost` or the background service used to write TraceRoost's whole set of agent settings again, so deleting `OTEL_LOG_USER_PROMPTS` (or Codex's `log_user_prompt`, or Copilot's `otel.enabled`) lasted only until the next start. A start now only moves TraceRoost's own endpoint (`http://localhost:<port>`) to the current port when it is still there; it adds nothing that's missing and creates no file. The first yes, **Set up agents** in Settings and `TraceRoost: Set Up Agents…` still write the full set (#360)
-- **Agent colours follow your theme** — each agent now has one colour from your VS Code theme's chart palette, the same on its filter pill, row dot, Analytics card, cost bars and legend, Flow graph, Efficiency Map and sidebar: Claude orange, Copilot blue, Codex purple, OpenCode the foreground colour and Cursor yellow. OpenCode's white and Codex's neon yellow disappeared on a light theme, and some charts used different colours for an agent than its pill did. The standalone and desktop dashboards use VS Code's own light and dark chart colours (#361)
-- **No dashboard text below 11px** — about 200 labels, badges, table cells and chart axis labels were 8–10px, including the Traces table body; they're all at least 11px now, and the Traces table's Model, Out, Turns, Duration and Tokens columns are a little wider so their headers fit (#361)
-- **A shorter filter bar** — Time and Agent stay in the bar; Prompt, Language, Repo, Outcome, Source and From moved behind a **Filters (n)** button, where n counts the ones that are on. Each active one shows as a chip beside the button, with × to turn it off. The second filter row is gone, so the table starts higher (#361)
-- **Alerts have their own panel** — the header bell now opens a slide-in Alerts panel with three tabs: **Active** (what's firing now, with **View trace →** and **Adjust threshold →**), **Configure** (each alert's switch and thresholds) and **Automation**. They used to be collapsible sections at the bottom of the Settings drawer, behind a small bell popover; Settings now holds only settings. **View Alert** on a notification opens the Configure tab at that alert (#361)
-- **Desktop downloads are no longer named `*-preview`** — macOS and Windows builds that aren't signed are attached to a release under their plain names (`TraceRoost-<version>-mac-<arch>.dmg`, `TraceRoost-<version>-win-<arch>.exe`), with no "(preview)" label. The release notes still say how to get past Gatekeeper and SmartScreen when a build isn't signed (#356)
-- **Three signals have plainer names** — "State Corruption Spiral" is now **Edit Reverted**, "Hallucination Amplification Loop" is **Repeated Error**, and "Infinite Loop — Context Accumulation" is **Context Runaway**. Each old name promised more than its detector measures (one exact revert, the same error three times, a ratio drop across four calls); the new ones say what was seen. Nothing else about them changed (#348)
-- **Model Tier Mismatch now means Opus-class** — it fired on any model at $3/M input or more, which included Sonnet, Claude Code's default, so every read-only question-and-answer session carried a warning whose only fix was Haiku. The bar is now strictly above $3/M: Opus-class models and the equivalent OpenAI tiers, where a read-only stretch is a several-fold overspend worth acting on (#348)
-- **Every signal now tells you what to do, and what to tell the agent** — each of the sixteen signals carries a one-line instruction written for the agent ("You have read the same file several times without editing it. Summarize what you already know about it and do not read it again unless you have changed it."), shown on the Insights card under **Tell the agent** and in Help's Signals section. **Copy** now puts that instruction on the clipboard with the trace's evidence under it, instead of a note addressed to you asking the agent to "explain what's happening". The Help steps for the cache and model-tier signals name the Claude Code actions that cause them (switching `/model`, effort or permission mode, adding MCP servers, the 5-minute API-key cache; `model: haiku` subagents for research), and the README's signal table now says for every signal exactly when it fires and what to do (#348)
-- **Nine signals' Insights cards lacked their ⓘ explanation and link into Help** — Fabricated Dependency, Unverified Submission, Multi-Step Oscillation, Redundant Context Reload, the three cache signals, Budget Overrun and Model Tier Mismatch. All sixteen now have both (#348)
-- **Alert notifications open the alert that fired** — the popup button now reads **View Alert** (it said "View Alerts") and opens the Alerts panel's **Configure** tab scrolled to that alert, with a brief highlight. Previously it only opened the Alerts list. In VS Code, alerts tied to a single trace still offer **View Trace** (#351, #369)
-- **Every signal and insight explained in plain language** — the "Why it fired" text, tooltips, Help glossary and card actions say what happened, why it matters, then the rule, without LLM or caching jargon ("4 later model calls saved 23,616 tokens of context to the model's cache again…"). Detection, thresholds and names are unchanged (#366)
-- **One signal icon style everywhere** — every signal icon sits on the same rounded tile, with severity shown by fill (solid for critical, tinted for warning) rather than colour alone, so it reads for colour-blind users too; Help has a one-line key (#367)
-- **Keyboard and screen-reader access across the dashboard** — tooltips open on focus and close on Escape, click-only rows are buttons, drawers and popovers are proper dialogs that return focus, and trace-detail sub-tabs are real tabs. Advisor's empty state leads with **Set up agents**, unpriced traces show "—" with the reason, and narrow panels keep their Settings, Help and Alerts icons in view (#359)
-- **Faster, smaller local database** — the database is saved at most once every 3 seconds (was 2), and other VS Code windows check for changes on the same 3 seconds. Saving a live trace no longer scans every stored session; old send-history rows fold into one; cached git results for deleted sessions are removed; and after a large cleanup the file is compacted, so later saves are smaller (#363)
-- **The Advisor's instruction suggestions are grouped by repo more clearly, and you choose the order** — with several repos (the npx/desktop dashboard, or VS Code with no folder open), each repo is its own panel you can collapse or expand, with **Expand all** / **Collapse all**; collapsed repos stay collapsed after a reload. A **Sort by** menu orders repos by most traces, most pending suggestions, most recent activity or name, and each repo's header shows all three values with the one it's sorted by in bold. Traces with no recorded repo always come last. When a header filter (time, agent, repo or any other) is on, a note says which ones and that the suggestions, counts and order use only the matching traces, with a **Clear filters** link (#374)
-- **Per-agent settings list only the agents you use** — the Instructions file area shows each repo's instruction files as `CLAUDE.md · present` / `AGENTS.md · not found`, and lists (and offers to apply to) only the files read by agents that have traces in that repo, so a Claude Code-only repo no longer shows a missing Copilot, Codex or Cursor file. Suggestion cards show the agents seen in the traces behind them. The per-agent thresholds in Alerts and Automation show only agents with traces (all five until there are any) (#374)
+- **The background service always wins agent setup**: with the background service (or `traceroost`, or the desktop app) running, the VS Code extension used to set agents up for its own port on every activation, so the two could keep repointing the agents at each other, and after the service fell back to another port, at a port nothing was listening on. The extension now leaves agent settings alone whenever a standalone TraceRoost holds the data directory or the OTLP port, and its **Set Up Agents…** / **Remove Agent Setup…** commands (and the Settings buttons in its dashboard) ask the service to do it, or point you at the service's dashboard (#360)
+- **"Not now" means not now**: the agent-setup question offers **Set up agents**, **Not now** and **Don't set up** in VS Code, the terminal and the dashboard banner. **Not now** records nothing, so the question comes back the next time TraceRoost starts; only **Don't set up** records the no, without the second "Skip setup?" step it used to take (what skipping costs is said once you choose it). In the terminal, Enter is now **Not now** (it used to start a no), `y` is yes, and typing `never` is **Don't set up**. Stored answers keep their meaning (#360)
+- **After you say yes to agent setup, starts no longer re-add settings you removed**: every start of the extension, `traceroost` or the background service used to write TraceRoost's whole set of agent settings again, so deleting `OTEL_LOG_USER_PROMPTS` (or Codex's `log_user_prompt`, or Copilot's `otel.enabled`) lasted only until the next start. A start now only moves TraceRoost's own endpoint (`http://localhost:<port>`) to the current port when it is still there; it adds nothing that's missing and creates no file. The first yes, **Set up agents** in Settings and `TraceRoost: Set Up Agents…` still write the full set (#360)
+- **Agent colours follow your theme**: each agent now has one colour from your VS Code theme's chart palette, the same on its filter pill, row dot, Analytics card, cost bars and legend, Flow graph, Efficiency Map and sidebar: Claude orange, Copilot blue, Codex purple, OpenCode the foreground colour and Cursor yellow. OpenCode's white and Codex's neon yellow disappeared on a light theme, and some charts used different colours for an agent than its pill did. The standalone and desktop dashboards use VS Code's own light and dark chart colours (#361)
+- **No dashboard text below 11px**: about 200 labels, badges, table cells and chart axis labels were 8–10px, including the Traces table body; they're all at least 11px now, and the Traces table's Model, Out, Turns, Duration and Tokens columns are a little wider so their headers fit (#361)
+- **A shorter filter bar**: Time and Agent stay in the bar; Prompt, Language, Repo, Outcome, Source and From moved behind a **Filters (n)** button, where n counts the ones that are on. Each active one shows as a chip beside the button, with × to turn it off. The second filter row is gone, so the table starts higher (#361)
+- **Alerts have their own panel**: the header bell now opens a slide-in Alerts panel with three tabs: **Active** (what's firing now, with **View trace →** and **Adjust threshold →**), **Configure** (each alert's switch and thresholds) and **Automation**. They used to be collapsible sections at the bottom of the Settings drawer, behind a small bell popover; Settings now holds only settings. **View Alert** on a notification opens the Configure tab at that alert (#361)
+- **Desktop downloads are no longer named `*-preview`**: macOS and Windows builds that aren't signed are attached to a release under their plain names (`TraceRoost-<version>-mac-<arch>.dmg`, `TraceRoost-<version>-win-<arch>.exe`), with no "(preview)" label. The release notes still say how to get past Gatekeeper and SmartScreen when a build isn't signed (#356)
+- **Three signals have plainer names**: "State Corruption Spiral" is now **Edit Reverted**, "Hallucination Amplification Loop" is **Repeated Error**, and "Infinite Loop: Context Accumulation" is **Context Runaway**. Each old name promised more than its detector measures (one exact revert, the same error three times, a ratio drop across four calls); the new ones say what was seen. Nothing else about them changed (#348)
+- **Model Tier Mismatch now means Opus-class**: it fired on any model at $3/M input or more, which included Sonnet, Claude Code's default, so every read-only question-and-answer session carried a warning whose only fix was Haiku. The bar is now strictly above $3/M: Opus-class models and the equivalent OpenAI tiers, where a read-only stretch is a several-fold overspend worth acting on (#348)
+- **Every signal now tells you what to do, and what to tell the agent**: each of the sixteen signals carries a one-line instruction written for the agent ("You have read the same file several times without editing it. Summarize what you already know about it and do not read it again unless you have changed it."), shown on the Insights card under **Tell the agent** and in Help's Signals section. **Copy** now puts that instruction on the clipboard with the trace's evidence under it, instead of a note addressed to you asking the agent to "explain what's happening". The Help steps for the cache and model-tier signals name the Claude Code actions that cause them (switching `/model`, effort or permission mode, adding MCP servers, the 5-minute API-key cache; `model: haiku` subagents for research), and the README's signal table now says for every signal exactly when it fires and what to do (#348)
+- **Nine signals' Insights cards lacked their ⓘ explanation and link into Help**: Fabricated Dependency, Unverified Submission, Multi-Step Oscillation, Redundant Context Reload, the three cache signals, Budget Overrun and Model Tier Mismatch. All sixteen now have both (#348)
+- **Alert notifications open the alert that fired**: the popup button now reads **View Alert** (it said "View Alerts") and opens the Alerts panel's **Configure** tab scrolled to that alert, with a brief highlight. Previously it only opened the Alerts list. In VS Code, alerts tied to a single trace still offer **View Trace** (#351, #369)
+- **Every signal and insight explained in plain language**: the "Why it fired" text, tooltips, Help glossary and card actions say what happened, why it matters, then the rule, without LLM or caching jargon ("4 later model calls saved 23,616 tokens of context to the model's cache again…"). Detection, thresholds and names are unchanged (#366)
+- **One signal icon style everywhere**: every signal icon sits on the same rounded tile, with severity shown by fill (solid for critical, tinted for warning) rather than colour alone, so it reads for colour-blind users too; Help has a one-line key (#367)
+- **Keyboard and screen-reader access across the dashboard**: tooltips open on focus and close on Escape, click-only rows are buttons, drawers and popovers are proper dialogs that return focus, and trace-detail sub-tabs are real tabs. Advisor's empty state leads with **Set up agents**, unpriced traces show "—" with the reason, and narrow panels keep their Settings, Help and Alerts icons in view (#359)
+- **Faster, smaller local database**: the database is saved at most once every 3 seconds (was 2), and other VS Code windows check for changes on the same 3 seconds. Saving a live trace no longer scans every stored session; old send-history rows fold into one; cached git results for deleted sessions are removed; and after a large cleanup the file is compacted, so later saves are smaller (#363)
+- **The Advisor's instruction suggestions are grouped by repo more clearly, and you choose the order**: with several repos (the npx/desktop dashboard, or VS Code with no folder open), each repo is its own panel you can collapse or expand, with **Expand all** / **Collapse all**; collapsed repos stay collapsed after a reload. A **Sort by** menu orders repos by most traces, most pending suggestions, most recent activity or name, and each repo's header shows all three values with the one it's sorted by in bold. Traces with no recorded repo always come last. When a header filter (time, agent, repo or any other) is on, a note says which ones and that the suggestions, counts and order use only the matching traces, with a **Clear filters** link (#374)
+- **Per-agent settings list only the agents you use**: the Instructions file area shows each repo's instruction files as `CLAUDE.md · present` / `AGENTS.md · not found`, and lists (and offers to apply to) only the files read by agents that have traces in that repo, so a Claude Code-only repo no longer shows a missing Copilot, Codex or Cursor file. Suggestion cards show the agents seen in the traces behind them. The per-agent thresholds in Alerts and Automation show only agents with traces (all five until there are any) (#374)
 - **The Traces table's Plan limit column is now Limit**, and the Outcome & Token Spend and Code Changes charts use smaller axis labels (#374)
-- **The macOS desktop app has a visible icon** — the Dock, Finder and DMG icon was a black glyph on a transparent background, nearly invisible in a dark Dock; it is now the same teal tile the Windows and Linux apps use, and its small sizes in Finder lists and the Dock no longer show as coloured noise (#373)
-- **Internal and release tooling** — CI runs Node 22 and 24 and skips the slowest desktop checks on PRs that don't touch it, a weekly OpenTelemetry upstream watch, pinned publish tooling, a release-age gate and Dependabot cooldown, macOS notarization and Windows signing ready to switch on, and docs brought up to date. No user-facing product change (#342, #347, #353, #357, #358, #362, #364, #365, #370, #372)
+- **The macOS desktop app has a visible icon**: the Dock, Finder and DMG icon was a black glyph on a transparent background, nearly invisible in a dark Dock; it is now the same teal tile the Windows and Linux apps use, and its small sizes in Finder lists and the Dock no longer show as coloured noise (#373)
+- **Internal and release tooling**: CI runs Node 22 and 24 and skips the slowest desktop checks on PRs that don't touch it, a weekly OpenTelemetry upstream watch, pinned publish tooling, a release-age gate and Dependabot cooldown, macOS notarization and Windows signing ready to switch on, and docs brought up to date. No user-facing product change (#342, #347, #353, #357, #358, #362, #364, #365, #370, #372)
 
 ### TraceRoost Cloud (full edition only)
 
-- **`traceroost org link` works over SSH and on machines without a display** — it always used the browser flow, which waits for a sign-in callback on this machine, so over SSH (or on a Linux server with no display) it could only time out unless you knew to pass `--device`. It now shows a URL and a code to approve from any device whenever no browser can be opened here; `--device` and `--browser` force either flow. The README has a new "Headless forwarder" section: run the background service, link, and check forwarding, all from a terminal (#341)
-- **TraceRoost Cloud's daily trace limit is shown, and waited out until midnight UTC** — when your org reaches the cloud's daily limit on accepted traces (an abuse guard, well above a team's normal day), sending pauses, a notice says so once a day, and nothing is lost: unsent traces stay queued and go out at the first send after midnight UTC, not on a timer that started mid-afternoon. The pause also holds after a send that got part of the queue through before the limit; it used to be cleared, so the next send was refused again five minutes later (#343)
-- **MCP server names stay on your machine** — tool counts sent to TraceRoost Cloud used the full MCP tool name, which includes the server name you chose (often a repository or customer name); every MCP tool is now counted as plain `mcp` (#368)
-- **Traces go only to the server that issued your token** — sending used whichever environment the CLI currently pointed at, so switching environments after linking sent your token and data to a different server; a roster refresh could also restore a token pair another window had just rotated, which could unlink the machine (#339)
-- **A re-linked machine takes over its own earlier traces** — a session first sent under another member or org is re-sent under this machine's current owner (#340)
+- **`traceroost org link` works over SSH and on machines without a display**: it always used the browser flow, which waits for a sign-in callback on this machine, so over SSH (or on a Linux server with no display) it could only time out unless you knew to pass `--device`. It now shows a URL and a code to approve from any device whenever no browser can be opened here; `--device` and `--browser` force either flow. The README has a new "Headless forwarder" section: run the background service, link, and check forwarding, all from a terminal (#341)
+- **TraceRoost Cloud's daily trace limit is shown, and waited out until midnight UTC**: when your org reaches the cloud's daily limit on accepted traces (an abuse guard, well above a team's normal day), sending pauses, a notice says so once a day, and nothing is lost: unsent traces stay queued and go out at the first send after midnight UTC, not on a timer that started mid-afternoon. The pause also holds after a send that got part of the queue through before the limit; it used to be cleared, so the next send was refused again five minutes later (#343)
+- **MCP server names stay on your machine**: tool counts sent to TraceRoost Cloud used the full MCP tool name, which includes the server name you chose (often a repository or customer name); every MCP tool is now counted as plain `mcp` (#368)
+- **Traces go only to the server that issued your token**: sending used whichever environment the CLI currently pointed at, so switching environments after linking sent your token and data to a different server; a roster refresh could also restore a token pair another window had just rotated, which could unlink the machine (#339)
+- **A re-linked machine takes over its own earlier traces**: a session first sent under another member or org is re-sent under this machine's current owner (#340)
 
 ---
 
-## [0.20.0] — 2026-10-18
+## [0.20.0] (2026-10-18)
 
 ### Added
 
-- **The TraceRoost desktop app for macOS and Linux** — the same local collector and dashboard as a normal app with a menu bar / tray icon: no terminal and no Node.js to install. It uses the same `~/.traceroost` data and settings as `npx traceroost` and the background service, and uses a running background service instead of starting a second collector. One install file per platform, attached to each GitHub release: a DMG on macOS (Apple Silicon and Intel), a .deb or AppImage on Linux (x64 and arm64), with a `TraceRoost-desktop-<version>-SHA256SUMS` file and build-provenance attestations. Until the macOS and Windows builds are signed they are attached as previews, named `*-preview` and labelled "(preview)": they are the builds CI tested, but Gatekeeper and SmartScreen warn before the first open, and the release notes say how to get past that (#328, #334, #337, #338)
-- **The desktop app for Windows (x64 and arm64)** — an NSIS installer that installs for your user only (no administrator rights; Start Menu shortcut and uninstaller) — one click, no pages to step through — with a notification-area icon. It runs and supervises its own collector as on macOS and Linux: quitting it — or an installer upgrading or removing it — stops the collector with a cooperative shutdown request over a private pipe, so unsaved spans are flushed first (Windows has no SIGTERM, so this was why the app refused to own a collector there). Builds are unsigned until a code-signing certificate is configured; SmartScreen warns on first run (**More info → Run anyway**) (#331)
-- **Settings → Dashboard port** — move the standalone dashboard off port 3000 (the default for Next.js, Rails, Express and many other dev servers) from the gear panel. It moves without a restart, the page follows it with your theme and other preferences, and **Reset to 3000** moves it back. Agents aren't affected: the OTLP and MCP ports don't change. Help and the README have a "My dev server needs port 3000" section, and `service install` / `service status` say how to move while the dashboard is on 3000 (#325)
-- **Third-party notices ship with every build** — `THIRD_PARTY_NOTICES.md` carries the copyright and license text of each open source package bundled into TraceRoost (the MCP SDK, ajv, zod, preact, sql.js and the rest), in the npm package, the VS Code extension and the Docker image. It is generated from the bundler's own record of what it included, and CI fails if it falls out of date (#332)
+- **The TraceRoost desktop app for macOS and Linux**: the same local collector and dashboard as a normal app with a menu bar / tray icon: no terminal and no Node.js to install. It uses the same `~/.traceroost` data and settings as `npx traceroost` and the background service, and uses a running background service instead of starting a second collector. One install file per platform, attached to each GitHub release: a DMG on macOS (Apple Silicon and Intel), a .deb or AppImage on Linux (x64 and arm64), with a `TraceRoost-desktop-<version>-SHA256SUMS` file and build-provenance attestations. Until the macOS and Windows builds are signed they are attached as previews, named `*-preview` and labelled "(preview)": they are the builds CI tested, but Gatekeeper and SmartScreen warn before the first open, and the release notes say how to get past that (#328, #334, #337, #338)
+- **The desktop app for Windows (x64 and arm64)**: an NSIS installer that installs for your user only (no administrator rights; Start Menu shortcut and uninstaller), one click and no pages to step through, with a notification-area icon. It runs and supervises its own collector as on macOS and Linux: quitting it (or an installer upgrading or removing it) stops the collector with a cooperative shutdown request over a private pipe, so unsaved spans are flushed first (Windows has no SIGTERM, so this was why the app refused to own a collector there). Builds are unsigned until a code-signing certificate is configured; SmartScreen warns on first run (**More info → Run anyway**) (#331)
+- **Settings → Dashboard port**: move the standalone dashboard off port 3000 (the default for Next.js, Rails, Express and many other dev servers) from the gear panel. It moves without a restart, the page follows it with your theme and other preferences, and **Reset to 3000** moves it back. Agents aren't affected: the OTLP and MCP ports don't change. Help and the README have a "My dev server needs port 3000" section, and `service install` / `service status` say how to move while the dashboard is on 3000 (#325)
+- **Third-party notices ship with every build**: `THIRD_PARTY_NOTICES.md` carries the copyright and license text of each open source package bundled into TraceRoost (the MCP SDK, ajv, zod, preact, sql.js and the rest), in the npm package, the VS Code extension and the Docker image. It is generated from the bundler's own record of what it included, and CI fails if it falls out of date (#332)
 
 ### Fixed
 
-- **Re-running `traceroost service install` (or upgrading with it) keeps your settings** — it rebuilt `~/.traceroost/config.json` from the defaults, so a custom dashboard, OTLP or MCP port, bind host, data directory or retention reset on every re-run. A flag now changes only its own setting, and the command prints what it kept. The background service reads its ports from `config.json` only, so a service definition written by an older version can't override a port changed later (#325)
-- **A busy port can no longer push one TraceRoost server onto another's port** — the fallback scan steps over the OTLP, MCP and OTLP/gRPC (4317) ports (#325)
-- **Auto-configure no longer turns on prompt logging for your own collector** — when `~/.claude/settings.json`, `~/.codex/config.toml` or an editor's Copilot settings already export OpenTelemetry to a collector that isn't TraceRoost (a company or hosted one), TraceRoost left that endpoint alone but still switched on prompt and tool-content capture (`OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_CONTENT`, Codex `log_user_prompt`) or Copilot's telemetry itself, so that content started reaching your collector. Such a file is now left untouched entirely, with a warning saying why (#332)
-- **Claude Code's `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is kept when it points at your own collector** — it was always removed as a leftover from older TraceRoost versions (#332)
+- **Re-running `traceroost service install` (or upgrading with it) keeps your settings**: it rebuilt `~/.traceroost/config.json` from the defaults, so a custom dashboard, OTLP or MCP port, bind host, data directory or retention reset on every re-run. A flag now changes only its own setting, and the command prints what it kept. The background service reads its ports from `config.json` only, so a service definition written by an older version can't override a port changed later (#325)
+- **A busy port can no longer push one TraceRoost server onto another's port**: the fallback scan steps over the OTLP, MCP and OTLP/gRPC (4317) ports (#325)
+- **Auto-configure no longer turns on prompt logging for your own collector**: when `~/.claude/settings.json`, `~/.codex/config.toml` or an editor's Copilot settings already export OpenTelemetry to a collector that isn't TraceRoost (a company or hosted one), TraceRoost left that endpoint alone but still switched on prompt and tool-content capture (`OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_CONTENT`, Codex `log_user_prompt`) or Copilot's telemetry itself, so that content started reaching your collector. Such a file is now left untouched entirely, with a warning saying why (#332)
+- **Claude Code's `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is kept when it points at your own collector**: it was always removed as a leftover from older TraceRoost versions (#332)
 
 ### Changed
 
-- **Every header icon shows a tooltip** — Alerts, Settings, Pricing, Help and the Cloud button showed nothing on hover. Each now names what it is; the bell's also gives the triggered count, and the Cloud button's says what its dot means (synced, sending, queued, paused or not linked) (#327)
-- **Help and README say why OpenCode and Cursor CLI traces have no live timing** — TraceRoost reads their local history, not their telemetry: OpenCode's OpenTelemetry export is still experimental, and Cursor's is offered to enterprise accounts or through third-party hooks. It said they had no telemetry at all (#336)
-- **TraceRoost asks before setting up your agents** — it used to edit Claude Code's, Codex's and Copilot's settings on first start. Now it asks once, in plain words, what it will change (their settings files) and what that turns on (sending each run, including prompts and tool output, to TraceRoost on this computer): a notification in VS Code, a yes/no question when `traceroost` or `traceroost service install` runs in a terminal, or a banner in the dashboard for the background service. Saying no asks once more, with what skipping costs (no live traces, only what the agents' log files record). The answer is shared by every TraceRoost on the machine (`agentSetup` in `~/.traceroost/config.json`); **Configure OTEL** in Settings counts as a yes. Docker no longer touches agent settings at all — there it could only reach the container's own files (#332)
-- **The full edition ships the Business Source License text** — the npm package, the VS Code extension and the Docker image now carry `src/cloud/LICENSE` (in the image, `licenses/LICENSE-BSL-1.1`), which the BSL asks every copy to include; before, only a pointer to it shipped. The core edition, which contains no BSL code, now declares its license as `MIT` instead of `(MIT AND BUSL-1.1)` (#332)
+- **Every header icon shows a tooltip**: Alerts, Settings, Pricing, Help and the Cloud button showed nothing on hover. Each now names what it is; the bell's also gives the triggered count, and the Cloud button's says what its dot means (synced, sending, queued, paused or not linked) (#327)
+- **Help and README say why OpenCode and Cursor CLI traces have no live timing**: TraceRoost reads their local history, not their telemetry: OpenCode's OpenTelemetry export is still experimental, and Cursor's is offered to enterprise accounts or through third-party hooks. It said they had no telemetry at all (#336)
+- **TraceRoost asks before setting up your agents**: it used to edit Claude Code's, Codex's and Copilot's settings on first start. Now it asks once, in plain words, what it will change (their settings files) and what that turns on (sending each run, including prompts and tool output, to TraceRoost on this computer): a notification in VS Code, a yes/no question when `traceroost` or `traceroost service install` runs in a terminal, or a banner in the dashboard for the background service. Saying no asks once more, with what skipping costs (no live traces, only what the agents' log files record). The answer is shared by every TraceRoost on the machine (`agentSetup` in `~/.traceroost/config.json`); **Configure OTEL** in Settings counts as a yes. Docker no longer touches agent settings at all; there it could only reach the container's own files (#332)
+- **The full edition ships the Business Source License text**: the npm package, the VS Code extension and the Docker image now carry `src/cloud/LICENSE` (in the image, `licenses/LICENSE-BSL-1.1`), which the BSL asks every copy to include; before, only a pointer to it shipped. The core edition, which contains no BSL code, now declares its license as `MIT` instead of `(MIT AND BUSL-1.1)` (#332)
 
 ### TraceRoost Cloud (full edition only)
 
 These ship only in the full edition; released core builds contain no TraceRoost Cloud code. `scripts/prepare-edition.mjs core` removes this section from the packaged changelog.
 
-- **The Org panel is shorter and leads with TraceRoost Cloud** — its header reads "TraceRoost Cloud · <org>" (or "· Not linked"), and the first row links into Cloud: **Open Team View** when linked, **Open TraceRoost Cloud** when not. The who-sees-what paragraph and the full wording of each "What it would send" line moved into tooltips (#324)
-- **An offline machine no longer unlinks itself and drops its queue** — a token refresh that failed because there was no network (DNS failure, connection refused, no route, connect timeout, a proxy refusing the tunnel) counted as an unanswered presentation of the refresh token, so after a few offline drains with an expired access token the machine treated its credential as dead, unlinked and cleared every queued trace. Only a refresh that may have reached TraceRoost Cloud (a timeout or reset after connecting, a gateway error) is counted now, and running out of those replays — a local inference, not the cloud rejecting the token — asks you to re-link but keeps the queued traces, sending them after a re-link to the same org (#329)
-- **`--explain-payload` prints what is actually sent** — it built its own copy of the payload and still hashed the repo's *current* branch as `branch_hash`, which forwarding stopped doing in 0.19.0 (a session sends the branch its agent recorded, or none). So it showed a `branch_hash` for sessions sent without one, left out `conversation_hash`, and hashed a session with no workspace against whatever repo the command ran in. It now prints the forwarder's own payload, and a session without a repository is shown as sent — without repo grouping, with a note saying so (#333)
+- **The Org panel is shorter and leads with TraceRoost Cloud**: its header reads "TraceRoost Cloud · <org>" (or "· Not linked"), and the first row links into Cloud: **Open Team View** when linked, **Open TraceRoost Cloud** when not. The who-sees-what paragraph and the full wording of each "What it would send" line moved into tooltips (#324)
+- **An offline machine no longer unlinks itself and drops its queue**: a token refresh that failed because there was no network (DNS failure, connection refused, no route, connect timeout, a proxy refusing the tunnel) counted as an unanswered presentation of the refresh token, so after a few offline drains with an expired access token the machine treated its credential as dead, unlinked and cleared every queued trace. Only a refresh that may have reached TraceRoost Cloud (a timeout or reset after connecting, a gateway error) is counted now, and running out of those replays (a local inference, not the cloud rejecting the token) asks you to re-link but keeps the queued traces, sending them after a re-link to the same org (#329)
+- **`--explain-payload` prints what is actually sent**: it built its own copy of the payload and still hashed the repo's *current* branch as `branch_hash`, which forwarding stopped doing in 0.19.0 (a session sends the branch its agent recorded, or none). So it showed a `branch_hash` for sessions sent without one, left out `conversation_hash`, and hashed a session with no workspace against whatever repo the command ran in. It now prints the forwarder's own payload, and a session without a repository is shown as sent, without repo grouping, with a note saying so (#333)
 
 ---
 
-## [0.19.2] — 2026-10-15
+## [0.19.2] (2026-10-15)
 
 ### Fixed
 
-- **`npm install traceroost` no longer breaks OpenCode reads and the outcomes cache** — the server loaded sql.js's `.wasm` from your own `node_modules`, where npm now resolves sql.js 1.15.0, whose wasm doesn't link against the 1.14.2 code bundled into TraceRoost (`LinkError` at startup, then OpenCode database reads and the git-outcome cache silently off). The wasm now comes from TraceRoost's own `dist/`, built from the same sql.js as the bundle, and a failure to load it is logged instead of swallowed (#319)
-- **Linking from Windows opens the full sign-in URL** — browser launches on Windows went through `cmd /c start`, which cut the URL at the first `&`, so the authorize page opened without `redirect_uri` and `state` and only the paste-the-URL fallback worked. URLs now open through the Windows URL handler as a single argument (#318)
+- **`npm install traceroost` no longer breaks OpenCode reads and the outcomes cache**: the server loaded sql.js's `.wasm` from your own `node_modules`, where npm now resolves sql.js 1.15.0, whose wasm doesn't link against the 1.14.2 code bundled into TraceRoost (`LinkError` at startup, then OpenCode database reads and the git-outcome cache silently off). The wasm now comes from TraceRoost's own `dist/`, built from the same sql.js as the bundle, and a failure to load it is logged instead of swallowed (#319)
+- **Linking from Windows opens the full sign-in URL**: browser launches on Windows went through `cmd /c start`, which cut the URL at the first `&`, so the authorize page opened without `redirect_uri` and `state` and only the paste-the-URL fallback worked. URLs now open through the Windows URL handler as a single argument (#318)
 
 ### Changed
 
-- **The npm package installs no dependencies** — everything it runs was already bundled, but `npm install traceroost` still pulled in the MCP SDK's express tree, so your own `npm audit` flagged `proxy-addr` (CVE-2026-90711) and `@modelcontextprotocol/sdk` (CVE-2026-104850). That tree is gone, and the bundled MCP SDK is updated to 1.32.1. The Docker image no longer carries a `node_modules` (#319)
+- **The npm package installs no dependencies**: everything it runs was already bundled, but `npm install traceroost` still pulled in the MCP SDK's express tree, so your own `npm audit` flagged `proxy-addr` (CVE-2026-90711) and `@modelcontextprotocol/sdk` (CVE-2026-104850). That tree is gone, and the bundled MCP SDK is updated to 1.32.1. The Docker image no longer carries a `node_modules` (#319)
 - **Release pipeline: the Docker job only receives the Docker Hub credentials** instead of every repository secret; no user-facing product change (#316)
 
 ### TraceRoost Cloud (full edition only)
 
 These ship only in the full edition; released core builds contain no TraceRoost Cloud code. `scripts/prepare-edition.mjs core` removes this section from the packaged changelog.
 
-- **Updating past a "please update" refusal resumes forwarding at once** — after TraceRoost Cloud answered 426, forwarding stayed paused for up to 6 hours (reported as rate-limited) even once you'd updated. A pause raised for an older version is now lifted on the next send (#317)
+- **Updating past a "please update" refusal resumes forwarding at once**: after TraceRoost Cloud answered 426, forwarding stayed paused for up to 6 hours (reported as rate-limited) even once you'd updated. A pause raised for an older version is now lifted on the next send (#317)
 - **Each repo's instruction-file state is forwarded with its sessions**, from every host and source, and only when it has changed since the last delivery (#320)
 
 ---
-## [0.19.1] — 2026-10-13
+## [0.19.1] (2026-10-13)
 
 ### Added
 
-- **Install with Homebrew** — `brew install traceroost/tap/traceroost`, then `traceroost service install` (macOS or Linux; Homebrew brings its own Node.js). For a Homebrew install, `service install` and `service update` upgrade with `brew upgrade traceroost` instead of npm, and the service runs from Homebrew's version-independent paths, so upgrading TraceRoost or Node with brew doesn't break it. Switching is automatic either way: the Homebrew copy takes over the `traceroost` command from an earlier npm install, and `npx traceroost@latest service install` uses an installed Homebrew copy instead of adding a second one (#313, #314)
+- **Install with Homebrew**: `brew install traceroost/tap/traceroost`, then `traceroost service install` (macOS or Linux; Homebrew brings its own Node.js). For a Homebrew install, `service install` and `service update` upgrade with `brew upgrade traceroost` instead of npm, and the service runs from Homebrew's version-independent paths, so upgrading TraceRoost or Node with brew doesn't break it. Switching is automatic either way: the Homebrew copy takes over the `traceroost` command from an earlier npm install, and `npx traceroost@latest service install` uses an installed Homebrew copy instead of adding a second one (#313, #314)
 - **`traceroost service install` opens the dashboard** in your browser once the service answers. Skip it with `--no-open` or `TRACEROOST_NO_OPEN=1`; it never opens over SSH or without a display (#314)
 
 ### Fixed
 
-- **The dashboard URL no longer carries `?token=` on 127.0.0.1** — `service install` and `service status` printed the access token even though the default loopback bind doesn't need it; it's still included when the server is reachable from your network (#314)
+- **The dashboard URL no longer carries `?token=` on 127.0.0.1**: `service install` and `service status` printed the access token even though the default loopback bind doesn't need it; it's still included when the server is reachable from your network (#314)
 - **The background service no longer tries to open a browser every time it starts**, including at each login (#314)
 
 ---
 
-## [0.19.0] — 2026-10-11
+## [0.19.0] (2026-10-11)
 
-> **Your local trace history is rebuilt once on the first start after upgrading.** Traces now get one stable key per agent turn, so the VS Code extension and the npx/service server drop their stored traces and read every agent log file again from scratch (instruction suggestions, plan-limit readings and settings are kept). A large history takes a few minutes to fill back in. Traces that only ever reached TraceRoost over OTEL, or whose log file the agent has since deleted, may not come back — export them first if you need them (#288, #296)
+> **Your local trace history is rebuilt once on the first start after upgrading.** Traces now get one stable key per agent turn, so the VS Code extension and the npx/service server drop their stored traces and read every agent log file again from scratch (instruction suggestions, plan-limit readings and settings are kept). A large history takes a few minutes to fill back in. Traces that only ever reached TraceRoost over OTEL, or whose log file the agent has since deleted, may not come back, so export them first if you need them (#288, #296)
 
 ### Added
 
-- **Language and change size for every trace** — each trace gets a primary (and secondary) language from the files its tool calls touched, plus files changed and lines added/removed by the agent's own edits. They show as Lang and Changes columns, detail tiles, a Language filter, a By language table in Analytics and fields in exports. Dart, Shell, SQL, HTML and CSS are recognised; `.vue`/`.svelte` count as TypeScript or JavaScript (#274, #280, #284, #286, #288)
-- **Non-code traces are named by what they touched** — instead of "No code", a trace reads Docs, Config, Data or Assets by the most common kind of file, or No files when no path was touched at all (#295)
-- **Code changes over time in Analytics** — lines added and removed per day or week from the agent's own edits, with files changed as a line; traces without change data are left out and counted in a note (#286)
-- **Make a suggestion** — a header link to TraceRoost's public suggestion page, sending only the version and the current tab (#286, #289)
-- **One trace per agent turn on every log source** — interrupts, compaction and subagent files stay in their turn, a Claude Code OTEL trace joins its transcript turn, and richer data (OTEL with usage) is never replaced by a poorer copy (#288)
+- **Language and change size for every trace**: each trace gets a primary (and secondary) language from the files its tool calls touched, plus files changed and lines added/removed by the agent's own edits. They show as Lang and Changes columns, detail tiles, a Language filter, a By language table in Analytics and fields in exports. Dart, Shell, SQL, HTML and CSS are recognised; `.vue`/`.svelte` count as TypeScript or JavaScript (#274, #280, #284, #286, #288)
+- **Non-code traces are named by what they touched**: instead of "No code", a trace reads Docs, Config, Data or Assets by the most common kind of file, or No files when no path was touched at all (#295)
+- **Code changes over time in Analytics**: lines added and removed per day or week from the agent's own edits, with files changed as a line; traces without change data are left out and counted in a note (#286)
+- **Make a suggestion**: a header link to TraceRoost's public suggestion page, sending only the version and the current tab (#286, #289)
+- **One trace per agent turn on every log source**: interrupts, compaction and subagent files stay in their turn, a Claude Code OTEL trace joins its transcript turn, and richer data (OTEL with usage) is never replaced by a poorer copy (#288)
 - **Instruction suggestions for every repo in the npx/service dashboard**, each with its own file picker and Apply/Dismiss; suggestions can also target OpenCode and Cursor CLI (`AGENTS.md`, `.cursor/rules/traceroost.mdc`) (#274)
-- **`traceroost --version`** prints the version. An unknown option (`traceroost --prot 3001`) now prints the usage and exits with an error instead of starting the server — and auto-configuring your agents
-- **Plan limit detail** — the Traces column shows the 5-hour window (weekly when there's none) and an expanded trace lists every window and any limit hits (#282)
+- **`traceroost --version`** prints the version. An unknown option (`traceroost --prot 3001`) now prints the usage and exits with an error instead of starting the server and auto-configuring your agents
+- **Plan limit detail**: the Traces column shows the 5-hour window (weekly when there's none) and an expanded trace lists every window and any limit hits (#282)
 - **`TRACEROOST_NO_UPDATE_CHECK=1`** turns off the npx/service/Docker server's check of registry.npmjs.org for a newer version; Help gains a Network section in both editions saying exactly what each build talks to (#297)
-- **One VS Code window does the work** — with several windows open, only the window that owns the shared trace database reads agent logs and re-checks git outcomes; the others just show its results, and take over automatically when it closes. Before, every window ran all of it against a copy that was never saved, so revision numbers could drift between windows
-- **Older builds warn about a newer trace store** — opening a database written by a newer TraceRoost logs a warning naming both store versions instead of running silently; new columns on kept tables are now added in place on open rather than by rebuilding the store
+- **One VS Code window does the work**: with several windows open, only the window that owns the shared trace database reads agent logs and re-checks git outcomes; the others just show its results, and take over automatically when it closes. Before, every window ran all of it against a copy that was never saved, so revision numbers could drift between windows
+- **Older builds warn about a newer trace store**: opening a database written by a newer TraceRoost logs a warning naming both store versions instead of running silently; new columns on kept tables are now added in place on open rather than by rebuilding the store
 
 ### Security
 
-- **The npx/service dashboard only takes changes from its own page** — a page served on another local port (any dev server on `localhost`) could send a no-preflight `text/plain` POST that appended text to a file in a recorded repo (e.g. `.husky/pre-commit`), cleared all data or left the org. State-changing requests now have to be same-origin and `Content-Type: application/json`, and Apply writes only to the instruction files detected for that repo (`CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`, `.cursor/rules/traceroost.mdc`) — in the extension too
-- **OTLP refuses a browser POST with no Content-Type** — a local page could post spans without a preflight by sending a binary body
-- **The dashboard's static files can't be read from outside `media/`** — a path into a sibling folder whose name starts with `media` passed the old prefix check
+- **The npx/service dashboard only takes changes from its own page**: a page served on another local port (any dev server on `localhost`) could send a no-preflight `text/plain` POST that appended text to a file in a recorded repo (e.g. `.husky/pre-commit`), cleared all data or left the org. State-changing requests now have to be same-origin and `Content-Type: application/json`, and Apply writes only to the instruction files detected for that repo (`CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`, `.cursor/rules/traceroost.mdc`), in the extension too
+- **OTLP refuses a browser POST with no Content-Type**: a local page could post spans without a preflight by sending a binary body
+- **The dashboard's static files can't be read from outside `media/`**: a path into a sibling folder whose name starts with `media` passed the old prefix check
 
 ### Fixed
 
-- **Long-context pricing follows the vendors' rule** — a call whose prompt (input plus cache reads and writes) is over the model's threshold (272K for GPT-5.4 and later, 200K for Gemini 3.1 Pro, Grok 4.5/4.6, GPT-5.6 Luna and Claude Sonnet 4) is now billed at the long-context rate for all of its tokens, output included. Before, only each token category's excess over the threshold got the higher rate, so most long-context calls were priced as short ones. Adds Claude Haiku 5.5 (whole call at the higher rate above 100K) and corrects Claude Sonnet 5.5's cache-read rate to $0.10/MTok
-- **The npx/service server could be taken down by any web page** — a malformed `/api/timeline/<id>` address threw an uncaught error and exited the process, losing in-flight OTEL data. The address is now rejected with a 400, and the server logs and keeps serving on any unexpected error instead of exiting
-- **Torn files no longer wipe your history** — `spans.json`, the outcomes database, the log-file state, `config.json` and `ports.json` are written atomically (temp file + rename); a file that fails to load is kept aside as `*.corrupt-<timestamp>` instead of being overwritten with an empty one
+- **Long-context pricing follows the vendors' rule**: a call whose prompt (input plus cache reads and writes) is over the model's threshold (272K for GPT-5.4 and later, 200K for Gemini 3.1 Pro, Grok 4.5/4.6, GPT-5.6 Luna and Claude Sonnet 4) is now billed at the long-context rate for all of its tokens, output included. Before, only each token category's excess over the threshold got the higher rate, so most long-context calls were priced as short ones. Adds Claude Haiku 5.5 (whole call at the higher rate above 100K) and corrects Claude Sonnet 5.5's cache-read rate to $0.10/MTok
+- **The npx/service server could be taken down by any web page**: a malformed `/api/timeline/<id>` address threw an uncaught error and exited the process, losing in-flight OTEL data. The address is now rejected with a 400, and the server logs and keeps serving on any unexpected error instead of exiting
+- **Torn files no longer wipe your history**: `spans.json`, the outcomes database, the log-file state, `config.json` and `ports.json` are written atomically (temp file + rename); a file that fails to load is kept aside as `*.corrupt-<timestamp>` instead of being overwritten with an empty one
 - **The npx/service server now keeps 90 days of log-sourced traces** like the extension does (`sessionRetentionDays` in `~/.traceroost/config.json`, `service install --retention-days N`, `0` keeps everything); before, it held every trace it had ever read in memory
-- **"Clear all data" no longer blocks the npx/service server** — it re-reads history in slices
-- **The npx/service server now parses OTLP exactly like the extension** — the same Codex run produced different trace ids on the two hosts; both now share one parser, and the server answers a malformed payload with 400 as the extension does (#293)
+- **"Clear all data" no longer blocks the npx/service server**: it re-reads history in slices
+- **The npx/service server now parses OTLP exactly like the extension**: the same Codex run produced different trace ids on the two hosts; both now share one parser, and the server answers a malformed payload with 400 as the extension does (#293)
 - **Changing the sort returns to page 1** of the Traces table (#284)
 - **Traces that touched no files show a blank Lang abbreviation** instead of "Nil"; hovering still shows "No files" (#307)
 - **The README demo GIF didn't show on GitHub** (over its 5 MB image limit) (#273)
 
 ### Changed
 
-- **Removed the Unverified Ship signal** — calibrated on 1,790 sessions, it fired on 28% of them and didn't tell good outcomes from bad ones. Existing traces no longer show it, and an Ignore or a filter you set for it no longer has anything to match (#301)
-- **Hardened the npx/service server** — released builds ignore a `.env` in the current directory (development builds still load one); the `/api/git-outcome`, `/api/repo-hash` and `/api/instruction-suggestions` routes cap their request bodies and only accept a workspace a recorded trace ran in; the dashboard is served with an enforced Content-Security-Policy; prompt-bearing files under `~/.traceroost` are owner-only; the LAN-mode token is no longer written to `service.log` and is dropped from the address bar after sign-in; "Write prompts file" writes into `~/.traceroost/` instead of the server's working directory; a single log file over 512 MB is skipped with a warning instead of retried every scan
-- **Traces table** — abbreviated language names, agent pills only for agents with data, the Language dropdown lists only languages your traces have, a narrower Plan limit column, at most three signal icons, and the expanded row stays pinned under the header with a Repo (ID) chip (#280, #281, #284, #285)
-- **Export** — one clear "N traces match your current filters" box above both export cards (#289)
-- **Instructions** — the empty state says when the active filters, not a lack of history, leave too few traces (#289)
-- **Quieter VS Code startup** — the "TraceRoost active" notification shows only on first install and after an update, and the Output panel no longer opens on every start
+- **Removed the Unverified Ship signal**: calibrated on 1,790 sessions, it fired on 28% of them and didn't tell good outcomes from bad ones. Existing traces no longer show it, and an Ignore or a filter you set for it no longer has anything to match (#301)
+- **Hardened the npx/service server**: released builds ignore a `.env` in the current directory (development builds still load one); the `/api/git-outcome`, `/api/repo-hash` and `/api/instruction-suggestions` routes cap their request bodies and only accept a workspace a recorded trace ran in; the dashboard is served with an enforced Content-Security-Policy; prompt-bearing files under `~/.traceroost` are owner-only; the LAN-mode token is no longer written to `service.log` and is dropped from the address bar after sign-in; "Write prompts file" writes into `~/.traceroost/` instead of the server's working directory; a single log file over 512 MB is skipped with a warning instead of retried every scan
+- **Traces table**: abbreviated language names, agent pills only for agents with data, the Language dropdown lists only languages your traces have, a narrower Plan limit column, at most three signal icons, and the expanded row stays pinned under the header with a Repo (ID) chip (#280, #281, #284, #285)
+- **Export**: one clear "N traces match your current filters" box above both export cards (#289)
+- **Instructions**: the empty state says when the active filters, not a lack of history, leave too few traces (#289)
+- **Quieter VS Code startup**: the "TraceRoost active" notification shows only on first install and after an update, and the Output panel no longer opens on every start
 - **Uninstall commands name the real extension id** (`agentlens.agentlens-dashboard`), and Help's signal notes are in plain language
-- **Clear All Traces is a declared command** (hidden from the palette — use the dashboard's Clear button, which confirms first), and in a window that doesn't own the trace database it points you at the window that does
-- **Docs, Help and CI** — Help and docs cover the new features, CI reports coverage on Windows too, a weekly traffic snapshot, and GitHub Actions updates. No user-facing product change (#274, #275–#279, #284, #287)
+- **Clear All Traces is a declared command** (hidden from the palette; use the dashboard's Clear button, which confirms first), and in a window that doesn't own the trace database it points you at the window that does
+- **Docs, Help and CI**: Help and docs cover the new features, CI reports coverage on Windows too, a weekly traffic snapshot, and GitHub Actions updates. No user-facing product change (#274, #275–#279, #284, #287)
 
 ### TraceRoost Cloud (full edition only)
 
 These ship only in the full edition; released core builds contain no TraceRoost Cloud code. `scripts/prepare-edition.mjs core` removes this section from the packaged changelog.
 
-- **One VS Code window forwards** — with several windows open, only the window that owns the shared trace database forwards to TraceRoost Cloud
+- **One VS Code window forwards**: with several windows open, only the window that owns the shared trace database forwards to TraceRoost Cloud
 - **OTEL traces that keep growing after their first idle minutes are re-sent** from the npx/service server too (the extension already did); an idle OTEL trace is now forwarded after 2 minutes instead of 3 (#308)
 - **Forward queue: a newer revision of a trace could be lost** when an older one was confirmed or rejected while it was queued; only the revision that was sent is removed now. The extension also forwards traces changed by its periodic log scan, not just live OTLP updates (#293)
-- **Linking from the CLI or another window went unnoticed until a restart** — a link made outside the current process now starts sending and queues history straight away, and the post-link catch-up starts sending the newest traces while older ones are still being prepared (#291, #294)
-- **Trace keys stay in step with the cloud** — placeholder keys are never sent, keys a re-read log no longer produces are removed, and one rejected payload no longer holds up a whole day (#296)
+- **Linking from the CLI or another window went unnoticed until a restart**: a link made outside the current process now starts sending and queues history straight away, and the post-link catch-up starts sending the newest traces while older ones are still being prepared (#291, #294)
+- **Trace keys stay in step with the cloud**: placeholder keys are never sent, keys a re-read log no longer produces are removed, and one rejected payload no longer holds up a whole day (#296)
 - **`find` matches the trace id the cloud shows**, so non-UUID local keys (Copilot OTEL) are found (#288)
-- **An expired cloud sign-in is recognised as expired** — a token refresh the server rejected as `invalid_grant`/`invalid_client` with extra detail appended was retried forever instead of asking you to re-link (#297)
-- **Cloud rate overrides keep the local model entry** — context-window size and long-context tiers were dropped when the cloud sent a rate for a model TraceRoost already knew (#297)
-- **Instruction telemetry** — counts are clamped to the schema maximum like trace rollups, and the suggestion id is hashed under the repo key before sending (the raw id could embed a file path) (#297)
-- **Delivered traces are no longer retired by mistake** — the trace manifest only describes days every source still has history for (Claude Code deletes transcripts after 30 days; evicted OTEL spans, a reset `spans.json` and "Clear all data" count too), waits for the history load to actually succeed, and one stuck upload no longer holds every day back
-- **A failed sign-in refresh recovers instead of unlinking** — it is retried within about 30 seconds, an `invalid_grant` is re-checked against a token another process just rotated, and a machine that does unlink says so: a "Re-link" button in VS Code, and a banner in the npx/service dashboard. Traces not yet sent are sent again after re-linking
-- **A proxy or firewall error no longer unlinks the machine or drops traces** — only TraceRoost Cloud's own "install revoked" or "invalid record" answers do; an outdated version is told to update and keeps its queue
+- **An expired cloud sign-in is recognised as expired**: a token refresh the server rejected as `invalid_grant`/`invalid_client` with extra detail appended was retried forever instead of asking you to re-link (#297)
+- **Cloud rate overrides keep the local model entry**: context-window size and long-context tiers were dropped when the cloud sent a rate for a model TraceRoost already knew (#297)
+- **Instruction telemetry**: counts are clamped to the schema maximum like trace rollups, and the suggestion id is hashed under the repo key before sending (the raw id could embed a file path) (#297)
+- **Delivered traces are no longer retired by mistake**: the trace manifest only describes days every source still has history for (Claude Code deletes transcripts after 30 days; evicted OTEL spans, a reset `spans.json` and "Clear all data" count too), waits for the history load to actually succeed, and one stuck upload no longer holds every day back
+- **A failed sign-in refresh recovers instead of unlinking**: it is retried within about 30 seconds, an `invalid_grant` is re-checked against a token another process just rotated, and a machine that does unlink says so: a "Re-link" button in VS Code, and a banner in the npx/service dashboard. Traces not yet sent are sent again after re-linking
+- **A proxy or firewall error no longer unlinks the machine or drops traces**: only TraceRoost Cloud's own "install revoked" or "invalid record" answers do; an outdated version is told to update and keeps its queue
 - **Updates after a database reset or a move to the background service are no longer ignored**, two quick updates of one trace can't arrive out of order, and a trace's branch is the one it ran on, not the branch checked out when it was sent
-- **Instruction telemetry sends only instruction-file state** — per-file read counts and Advisor suggestion events are no longer sent, and the file content hash is keyed per repository
+- **Instruction telemetry sends only instruction-file state**: per-file read counts and Advisor suggestion events are no longer sent, and the file content hash is keyed per repository
 - **Linking shows why the free tier refused it** and, with a device code, keeps waiting on the same code until a machine slot is free
-- **Quieter logs** — routine forwarding and trace-manifest counts move to debug; `TRACEROOST_LOG_LEVEL=debug` turns them back on (#290)
-- **Org link wording matches TraceRoost Cloud** — the link consent and Org panel list exactly what is sent, mirror Cloud's teammate-visibility wording, no longer claim admins see team totals only, and note that hashes of public repos can be recognised (#283, #297)
-- **The "what is sent" list names everything a linked machine sends** — it now also lists the hashed conversation id, whether a trace came from OTEL or logs and who started it, the random per-host id, and the version on every request; the instruction-file line describes exactly what is sent, and the Export tab's Cloud note no longer says Cloud gets no per-trace data (it gets one rollup per trace, never prompts, code or file paths)
-- **Large uploads are gzipped** — ingest bodies over 1 KiB are compressed, and batch size follows the limits the cloud advertises (#307)
+- **Quieter logs**: routine forwarding and trace-manifest counts move to debug; `TRACEROOST_LOG_LEVEL=debug` turns them back on (#290)
+- **Org link wording matches TraceRoost Cloud**: the link consent and Org panel list exactly what is sent, mirror Cloud's teammate-visibility wording, no longer claim admins see team totals only, and note that hashes of public repos can be recognised (#283, #297)
+- **The "what is sent" list names everything a linked machine sends**: it now also lists the hashed conversation id, whether a trace came from OTEL or logs and who started it, the random per-host id, and the version on every request; the instruction-file line describes exactly what is sent, and the Export tab's Cloud note no longer says Cloud gets no per-trace data (it gets one rollup per trace, never prompts, code or file paths)
+- **Large uploads are gzipped**: ingest bodies over 1 KiB are compressed, and batch size follows the limits the cloud advertises (#307)
 
 ---
 
-## [0.18.1] — 2026-10-01
+## [0.18.1] (2026-10-01)
 
 ### Added
 
-- **Codex plans with no 5-hour or weekly window now show in Plan limits** — a ChatGPT Business account reports no windows (it's billed in credits), so Plan limits used to stay hidden and looked broken. It now shows a Codex card with the plan and its credit state, and turns red with "Spend limit reached" when Codex reports one (#268)
+- **Codex plans with no 5-hour or weekly window now show in Plan limits**: a ChatGPT Business account reports no windows (it's billed in credits), so Plan limits used to stay hidden and looked broken. It now shows a Codex card with the plan and its credit state, and turns red with "Spend limit reached" when Codex reports one (#268)
 
 ### Fixed
 
-- **Plan limits could stay hidden in the npx/service dashboard** — the page received its first server messages, including the plan-limit snapshot, before the dashboard had finished loading, and dropped them. Sessions still appeared, but Plan limits didn't until the readings next changed, so it showed on some loads and not others. Those first messages are now held until the dashboard is ready (#268)
+- **Plan limits could stay hidden in the npx/service dashboard**: the page received its first server messages, including the plan-limit snapshot, before the dashboard had finished loading, and dropped them. Sessions still appeared, but Plan limits didn't until the readings next changed, so it showed on some loads and not others. Those first messages are now held until the dashboard is ready (#268)
 - **The browser tab kept the old AgentLens icon** at `localhost:3000` after upgrading, because browsers cache a favicon by URL and AgentLens used the same one. The icon URL now changes with each version (#267)
-- **Traces table spacing** — the narrow number columns were spread apart with wide gaps on a wide panel, and the Agent / Start column could cut off its time. The Prompt column now takes the spare width (#270)
+- **Traces table spacing**: the narrow number columns were spread apart with wide gaps on a wide panel, and the Agent / Start column could cut off its time. The Prompt column now takes the spare width (#270)
 
 ### Changed
 
 - **"Limit used" is now "Plan limit used"** in the Traces table, and the Sig column is blank when a trace has no signals, like Outcome (#270)
-- **Quieter, consistent logs** — `[TraceRoost]` log messages are consistently capitalized, and the per-request "N log events ingested" line is gone (#270)
-- **Help and disclaimer** — Help's plan-limits section covers credit-billed plans and why Plan limits might not show; the disclaimer says TraceRoost also reads the agents' local log files and databases, and that vendors can change those formats without notice (#271, #272)
-- **Test fixes** — the unit suite now also passes inside a real VS Code, two outdated demo fixtures are corrected, and CI runs the fixture check. No user-facing product change (#269)
+- **Quieter, consistent logs**: `[TraceRoost]` log messages are consistently capitalized, and the per-request "N log events ingested" line is gone (#270)
+- **Help and disclaimer**: Help's plan-limits section covers credit-billed plans and why Plan limits might not show; the disclaimer says TraceRoost also reads the agents' local log files and databases, and that vendors can change those formats without notice (#271, #272)
+- **Test fixes**: the unit suite now also passes inside a real VS Code, two outdated demo fixtures are corrected, and CI runs the fixture check. No user-facing product change (#269)
 
 ---
 
-## [0.18.0] — 2026-10-01
+## [0.18.0] (2026-10-01)
 
 ### Added
 
-- **Subscription plan limits for Claude Pro/Max and ChatGPT plans** — how full your 5-hour and weekly windows are, how much of them each trace used, and when a limit blocked you, shown in Analytics (Plan limits, under Agent Breakdown), the sidebar, Alerts, a Traces column and the MCP server. Codex readings come from every turn's rollout events; Claude's come from the reading Claude Code caches in `~/.claude.json`, which it refreshes rarely — the card says how old it is and that running `/usage` in Claude Code refreshes it. Read only from files the CLIs already write: no credentials, no network calls (#264)
-- **Outcome & token spend over time in Analytics** — merged, committed and uncommitted work against token spend, above Estimated cost. Multi-repo sessions are classified instead of silently dropped, and stored git outcomes show immediately (#264)
-- **Apply instruction suggestions from the dashboard** — suggestion cards get a target-file picker and an Apply button (Apply was unreachable before), and Apply, Dismiss and Remove now work in the npx/service dashboard too, with records kept in `DATA_DIR`. Started inside a git repo, the standalone server scopes suggestions to that repo (#266)
+- **Subscription plan limits for Claude Pro/Max and ChatGPT plans**: how full your 5-hour and weekly windows are, how much of them each trace used, and when a limit blocked you, shown in Analytics (Plan limits, under Agent Breakdown), the sidebar, Alerts, a Traces column and the MCP server. Codex readings come from every turn's rollout events; Claude's come from the reading Claude Code caches in `~/.claude.json`, which it refreshes rarely, so the card says how old it is and that running `/usage` in Claude Code refreshes it. Read only from files the CLIs already write: no credentials, no network calls (#264)
+- **Outcome & token spend over time in Analytics**: merged, committed and uncommitted work against token spend, above Estimated cost. Multi-repo sessions are classified instead of silently dropped, and stored git outcomes show immediately (#264)
+- **Apply instruction suggestions from the dashboard**: suggestion cards get a target-file picker and an Apply button (Apply was unreachable before), and Apply, Dismiss and Remove now work in the npx/service dashboard too, with records kept in `DATA_DIR`. Started inside a git repo, the standalone server scopes suggestions to that repo (#266)
 - **OpenCode and Cursor CLI in Agent Breakdown**, alongside Copilot, Claude Code and Codex, and each gets its own prompts file (#266)
 - **A section nav rail in Analytics and Advisor**; the repo filter defaults to All, and the Advisor suggests a repo filter (#264)
 
 ### Fixed
 
-- **Codex reasoning tokens were billed twice** — they were counted on top of output tokens. Stored Codex sessions are re-derived from their rollout files once on the first start after upgrading, so Codex costs drop; sessions that came in over OTEL, or whose rollout file is gone, keep their stored values (#266)
-- **Windows: `traceroost service` didn't work** — it ran `npm` directly instead of `npm.cmd`, and `service stop`/`uninstall` left the server running. A reserved port (EACCES) now falls back to the next port instead of aborting startup, and file locks retry Windows-only transient errors (#250, #266)
+- **Codex reasoning tokens were billed twice**: they were counted on top of output tokens. Stored Codex sessions are re-derived from their rollout files once on the first start after upgrading, so Codex costs drop; sessions that came in over OTEL, or whose rollout file is gone, keep their stored values (#266)
+- **Windows: `traceroost service` didn't work**: it ran `npm` directly instead of `npm.cmd`, and `service stop`/`uninstall` left the server running. A reserved port (EACCES) now falls back to the next port instead of aborting startup, and file locks retry Windows-only transient errors (#250, #266)
 - **Windows PowerShell 5.1 configure scripts didn't parse**, and wrote a BOM into `settings.json` that Node can't read (#250)
 - **The npx/service dashboard counted a Claude session twice** when it arrived over OTEL and from its transcript (#250)
 - **Service:** a systemd re-install never restarted the service, so a new port didn't take effect; `service install` now detects its own global install for upgrade-on-reinstall on macOS and Linux; `service update` exits cleanly with no service installed; macOS `restart` waits for launchd (#250, #266)
-- **Auto-config no longer overwrites your own OTLP collector** for Codex and Copilot — it keeps a non-local collector and warns, as Claude Code already did (#266)
+- **Auto-config no longer overwrites your own OTLP collector** for Codex and Copilot: it keeps a non-local collector and warns, as Claude Code already did (#266)
 - **Security:** a malformed cookie could crash the server (reachable in LAN mode); `/api/instructions/apply` refuses targets outside the workspace; every standalone POST route caps its body size; the git-outcome tooltip escapes branch names (#266)
 - **MCP:** the `workspace` filter matches the session's recorded workspace, including subfolders, and hot-file counts no longer exceed 100% (#266)
 - **Smaller fixes:** OpenCode's WAL merge applies only committed frames; Windows tool paths show a file name; an unparseable start time no longer breaks the cost map, trend chart or git outcomes; import's duplicate check covers the full history and standalone accepts Cursor sessions; `find --reporter` and `advise` parse arguments correctly; "clear all" in the npx dashboard clears everything; header icon buttons have accessible names; no spurious warning when Copilot Chat isn't installed (#250, #266)
 
 ### Changed
 
-- **Windows end-to-end CI, more test coverage and dependency updates** — a Windows/macOS/Linux end-to-end workflow (extension host, packed npm and VSIX artifacts, service lifecycle, PowerShell scripts), unit coverage up to 85% of lines, GitHub Actions updates, and internal naming and docs cleanup. No user-facing product change (#250, #252–#257, #259, #265, #266)
+- **Windows end-to-end CI, more test coverage and dependency updates**: a Windows/macOS/Linux end-to-end workflow (extension host, packed npm and VSIX artifacts, service lifecycle, PowerShell scripts), unit coverage up to 85% of lines, GitHub Actions updates, and internal naming and docs cleanup. No user-facing product change (#250, #252–#257, #259, #265, #266)
 
 ---
 
-## [0.17.1] — 2026-09-28
+## [0.17.1] (2026-09-28)
 
 ### Added
 
-- **The dashboard opens immediately while your local log history loads** — the npx/background service used to parse every log file before serving the page, which meant a long spinner on a large (~900-trace) history. The initial pass now runs in small slices, so the page appears at once and sessions fill in as they're read, with a progress banner above the dashboard. In VS Code the open dashboard also refreshes as each batch of log sessions is saved, instead of only on its 10-second timer. (#263)
-- **Triggered alerts link straight to the trace that tripped them** — the toast, bell dropdown and Alerts tab now jump to that specific trace in the Sessions tab. Aggregate alerts like daily cost still open the Alerts tab. (#261)
-- **Pricing for new models** — GPT-6 Sol and Luna, Claude Opus 5.5 (with its own fast-mode rate) and Sonnet 5.5, and four new OpenCode Zen free-evaluation models. (#262)
+- **The dashboard opens immediately while your local log history loads**: the npx/background service used to parse every log file before serving the page, which meant a long spinner on a large (~900-trace) history. The initial pass now runs in small slices, so the page appears at once and sessions fill in as they're read, with a progress banner above the dashboard. In VS Code the open dashboard also refreshes as each batch of log sessions is saved, instead of only on its 10-second timer. (#263)
+- **Triggered alerts link straight to the trace that tripped them**: the toast, bell dropdown and Alerts tab now jump to that specific trace in the Sessions tab. Aggregate alerts like daily cost still open the Alerts tab. (#261)
+- **Pricing for new models**: GPT-6 Sol and Luna, Claude Opus 5.5 (with its own fast-mode rate) and Sonnet 5.5, and four new OpenCode Zen free-evaluation models. (#262)
 
 ### Fixed
 
-- **"No such column: Infinity" when loading every stored session** — the "no cap" path passed `LIMIT Infinity` straight into SQL, which SQLite rejects; it now returns every row as intended. (#261)
+- **"No such column: Infinity" when loading every stored session**: the "no cap" path passed `LIMIT Infinity` straight into SQL, which SQLite rejects; it now returns every row as intended. (#261)
 
 ### Changed
 
-- **The OTel port-conflict banner explains what to do** — it recommends the background service (which survives VS Code closing) with its install command, gives next steps depending on which host you want to keep, can be dismissed per conflict, and now also appears when running the npx/background service, not only in VS Code. (#261)
+- **The OTel port-conflict banner explains what to do**: it recommends the background service (which survives VS Code closing) with its install command, gives next steps depending on which host you want to keep, can be dismissed per conflict, and now also appears when running the npx/background service, not only in VS Code. (#261)
 - **The Sessions table's Model column is wider**, so more model names show without truncation. (#261)
-- **Docs now spell out what the Docker image can't do** — it receives OTel traces only: no log-file ingestion, no agent auto-configuration and no git outcomes. The README and in-app Help point to the background service or IDE extension instead. (#261)
+- **Docs now spell out what the Docker image can't do**: it receives OTel traces only: no log-file ingestion, no agent auto-configuration and no git outcomes. The README and in-app Help point to the background service or IDE extension instead. (#261)
 
 ---
 
-## [0.17.0] — 2026-09-27
+## [0.17.0] (2026-09-27)
 
 ### Added
 
-- **A core edition, built without any TraceRoost Cloud code** — `node esbuild.js --edition=core` builds the VSIX, npm package and Docker image with no org linking or uploading compiled in at all (not a runtime switch): no Org panel or Org commands, and `traceroost org`, `--explain-payload` and `cluster` print "not available in the TraceRoost core edition". Every free, local feature is unchanged. The build refuses to bundle anything from a `cloud/` directory, and `scripts/check-edition.mjs` (run in CI and on every release) checks the shipped bundles and manifest. Releases ship the core edition until TraceRoost Cloud launches — see `runbooks/RELEASING.md` → Editions.
-- **The Cost tab now points to Advisor's "How to spend less" card** — closing the gap where the 30-day cost chart and per-trace cost table had no action attached to any number on the screen.
-- **Cursor CLI (`cursor-agent`) sessions are now fully wired through the UI** — agent filter pills, per-agent Settings thresholds, Alerts/Automation configs, the Agents tab comparison, and a Sessions-tab banner explaining Cursor's real data gaps (no token/cost/model data exists in its local transcript format, confirmed by hands-on testing, not guessed) now all recognize `source: 'cursor'` instead of silently falling back to Copilot's styling. Also fixed a real turn-counting bug found via a live multi-turn `cursor-agent --resume` session: resuming removes the previous turn's `turn_ended` marker, so counting `turn_ended` lines undercounted real turns — now counted from `user`-role lines instead, which persist across a resume.
+- **A core edition, built without any TraceRoost Cloud code**: `node esbuild.js --edition=core` builds the VSIX, npm package and Docker image with no org linking or uploading compiled in at all (not a runtime switch): no Org panel or Org commands, and `traceroost org`, `--explain-payload` and `cluster` print "not available in the TraceRoost core edition". Every free, local feature is unchanged. The build refuses to bundle anything from a `cloud/` directory, and `scripts/check-edition.mjs` (run in CI and on every release) checks the shipped bundles and manifest. Releases ship the core edition until TraceRoost Cloud launches; see `runbooks/RELEASING.md` → Editions.
+- **The Cost tab now points to Advisor's "How to spend less" card**: closing the gap where the 30-day cost chart and per-trace cost table had no action attached to any number on the screen.
+- **Cursor CLI (`cursor-agent`) sessions are now fully wired through the UI**: agent filter pills, per-agent Settings thresholds, Alerts/Automation configs, the Agents tab comparison, and a Sessions-tab banner explaining Cursor's real data gaps (no token/cost/model data exists in its local transcript format, confirmed by hands-on testing, not guessed) now all recognize `source: 'cursor'` instead of silently falling back to Copilot's styling. Also fixed a real turn-counting bug found via a live multi-turn `cursor-agent --resume` session: resuming removes the previous turn's `turn_ended` marker, so counting `turn_ended` lines undercounted real turns. They are now counted from `user`-role lines instead, which persist across a resume.
 
 ### Fixed
 
-- **The PowerShell configure scripts now work in Windows PowerShell 5.1** — the default `powershell.exe` failed to parse `configure-agents.ps1` and `configure-copilot.ps1` (and every string with a dash in the others), and `configure-claude.ps1` wrote `settings.json` with a byte-order mark that Claude Code and TraceRoost's auto-config couldn't read. Re-running `configure-claude.ps1` also no longer reorders your `settings.json`.
-- **`traceroost service stop` / `uninstall` actually stop the server on Windows** — ending the Scheduled Task left the server process running (and holding its ports); re-installing to change ports left the old instance up. `service update` also no longer claims "npm was not found" on Windows.
-- **Re-running `traceroost service install` on Linux applies new ports** — the systemd unit is now restarted instead of left running on the old ones.
-- **The standalone server counts a Claude Code session once** — it listed the same conversation twice (live OTEL and its transcript); it now dedupes them the same way the VS Code extension does.
-- **No "Could not auto-configure Copilot" warning when Copilot Chat isn't installed** — the extension now skips Copilot's settings until it is.
+- **The PowerShell configure scripts now work in Windows PowerShell 5.1**: the default `powershell.exe` failed to parse `configure-agents.ps1` and `configure-copilot.ps1` (and every string with a dash in the others), and `configure-claude.ps1` wrote `settings.json` with a byte-order mark that Claude Code and TraceRoost's auto-config couldn't read. Re-running `configure-claude.ps1` also no longer reorders your `settings.json`.
+- **`traceroost service stop` / `uninstall` actually stop the server on Windows**: ending the Scheduled Task left the server process running (and holding its ports); re-installing to change ports left the old instance up. `service update` also no longer claims "npm was not found" on Windows.
+- **Re-running `traceroost service install` on Linux applies new ports**: the systemd unit is now restarted instead of left running on the old ones.
+- **The standalone server counts a Claude Code session once**: it listed the same conversation twice (live OTEL and its transcript); it now dedupes them the same way the VS Code extension does.
+- **No "Could not auto-configure Copilot" warning when Copilot Chat isn't installed**: the extension now skips Copilot's settings until it is.
 
-- **Auto-config no longer installs a Claude Code Stop hook, and removes the one earlier versions added** — the hook printed `~/.traceroost/pending-prompt.txt` into every Claude session on stop; nothing writes that file any more and any local process could, so it was an open prompt-injection channel. Your own hooks in `~/.claude/settings.json` are left untouched.
-- **"Check for unsent traces" could take minutes on a real backlog and stall well short of closing the gap** — reconciliation now runs sessions through a bounded worker pool instead of one at a time, and memoizes the per-workspace git work (repo key, branch, outcome) that a developer's sessions in the same repo were each recomputing from scratch. The forwarding drain also keeps going immediately while a backlog remains, instead of waiting up to 5 minutes between 200-item batches, and reconcile now sees every local session regardless of history size instead of being silently capped at the most recent 20,000. A forwarding queue that hits its capacity now logs the eviction instead of silently dropping unsent work.
-- **`traceroost trace` / `traceroost patterns` and mistyped commands started the server** — `trace --id <id>` and `patterns --repo <hash|name>` now run directly (as `find` already did), and any other unrecognized word prints usage and exits non-zero. Bare `traceroost` (or flags only) still starts the server.
-- **Background service definitions broke on unusual paths** — the systemd unit now quotes `ExecStart`/`Environment` values and escapes `%`, `$`, `\` and `"`; the launchd plist XML-escapes `& < > " '`; the Windows `run.cmd` wrapper doubles `%`. A value with a line break is refused instead of written.
+- **Auto-config no longer installs a Claude Code Stop hook, and removes the one earlier versions added**: the hook printed `~/.traceroost/pending-prompt.txt` into every Claude session on stop; nothing writes that file any more and any local process could, so it was an open prompt-injection channel. Your own hooks in `~/.claude/settings.json` are left untouched.
+- **"Check for unsent traces" could take minutes on a real backlog and stall well short of closing the gap**: reconciliation now runs sessions through a bounded worker pool instead of one at a time, and memoizes the per-workspace git work (repo key, branch, outcome) that a developer's sessions in the same repo were each recomputing from scratch. The forwarding drain also keeps going immediately while a backlog remains, instead of waiting up to 5 minutes between 200-item batches, and reconcile now sees every local session regardless of history size instead of being silently capped at the most recent 20,000. A forwarding queue that hits its capacity now logs the eviction instead of silently dropping unsent work.
+- **`traceroost trace` / `traceroost patterns` and mistyped commands started the server**: `trace --id <id>` and `patterns --repo <hash|name>` now run directly (as `find` already did), and any other unrecognized word prints usage and exits non-zero. Bare `traceroost` (or flags only) still starts the server.
+- **Background service definitions broke on unusual paths**: the systemd unit now quotes `ExecStart`/`Environment` values and escapes `%`, `$`, `\` and `"`; the launchd plist XML-escapes `& < > " '`; the Windows `run.cmd` wrapper doubles `%`. A value with a line break is refused instead of written.
 - **`traceroost service uninstall` on Windows** no longer fails when the scheduled task is already gone, and removes the generated `run.cmd`. A failed `service install` now restores the previous `~/.traceroost/config.json` instead of leaving the new ports/data dir behind.
-- **`traceroost service status` with an IPv6 or wildcard `--bind-host`** — `::`/`0.0.0.0` are probed on loopback and IPv6 addresses are bracketed, instead of always reporting "not reachable".
-- **The npm package shipped the whole repo** (CLAUDE.md, Dockerfile, docs, runbooks, scripts, `packages/`) — `package.json` now has a `files` allowlist; the VSIX's `.vscodeignore` drops the same dev-only files.
+- **`traceroost service status` with an IPv6 or wildcard `--bind-host`**: `::`/`0.0.0.0` are probed on loopback and IPv6 addresses are bracketed, instead of always reporting "not reachable".
+- **The npm package shipped the whole repo** (CLAUDE.md, Dockerfile, docs, runbooks, scripts, `packages/`): `package.json` now has a `files` allowlist; the VSIX's `.vscodeignore` drops the same dev-only files.
 
 ### Changed
 
-- **The Traces table's Out (git outcome) column now shows with a single repo** — it used to appear only once traces came from two or more workspaces, alongside the Repo column, so anyone working in one project never saw it. It now shows whenever any trace has a workspace; the Repo column and Repo filter still need two or more repos to have anything to tell apart.
-- **The free, local engines and CLI commands moved out of the `cloud/` directories, and are now MIT-licensed** — `src/cloud/attribution/` → `src/attribution/`, `src/cloud/turnover/` → `src/turnover/`, and `standalone/cloud/{sessionLoader,traceCli,patternsCli,findCli,cohortCli,adviseCli}.ts` → `standalone/local/` (with their tests). They were under the BSL zone only because of where they sat; they are covered by the root MIT `LICENSE` from this version on. The `cloud/` directories (BSL) now hold only TraceRoost Cloud's org linking and uploading. No behavior change.
+- **The Traces table's Out (git outcome) column now shows with a single repo**: it used to appear only once traces came from two or more workspaces, alongside the Repo column, so anyone working in one project never saw it. It now shows whenever any trace has a workspace; the Repo column and Repo filter still need two or more repos to have anything to tell apart.
+- **The free, local engines and CLI commands moved out of the `cloud/` directories, and are now MIT-licensed**: `src/cloud/attribution/` → `src/attribution/`, `src/cloud/turnover/` → `src/turnover/`, and `standalone/cloud/{sessionLoader,traceCli,patternsCli,findCli,cohortCli,adviseCli}.ts` → `standalone/local/` (with their tests). They were under the BSL zone only because of where they sat; they are covered by the root MIT `LICENSE` from this version on. The `cloud/` directories (BSL) now hold only TraceRoost Cloud's org linking and uploading. No behavior change.
 
 ### Removed
 
-- **Copilot's "Annual plan (request)" pricing-mode toggle** — the Cost and Analytics tabs' Copilot billing model selector is gone; Copilot cost is now always estimated with token-based AI Credits, matching Claude Code, Codex, and every other agent. The Pricing page's `Request ×` and `Annual ×` multiplier columns are removed along with the underlying `multiplier`/`multiplierAnnualPostJun1` rate fields.
+- **Copilot's "Annual plan (request)" pricing-mode toggle**: the Cost and Analytics tabs' Copilot billing model selector is gone; Copilot cost is now always estimated with token-based AI Credits, matching Claude Code, Codex, and every other agent. The Pricing page's `Request ×` and `Annual ×` multiplier columns are removed along with the underlying `multiplier`/`multiplierAnnualPostJun1` rate fields.
 
 ---
 
-## [0.16.3] — 2026-09-15
+## [0.16.3] (2026-09-15)
 
 ### Fixed
 
-- **The standalone server's "Unauthorized" page was a bare `text/plain` dump** — easy to mistake for a broken server rather than a wrong or missing token. It's now a styled page explaining what's missing, showing the exact URL shape to use, and pointing at `traceroost service status` as a way to get that URL again if TraceRoost is running as a background service.
-- **The Traces table's agent/badge column had no header**, just a sort arrow, and the "Time" column header (shared with the Advisor tab's evidence table) was ambiguous next to Duration. Both are now labeled — "Source/From" and "Start Time" respectively — and the Source/From filter bar is reordered to match the column order.
+- **The standalone server's "Unauthorized" page was a bare `text/plain` dump**: easy to mistake for a broken server rather than a wrong or missing token. It's now a styled page explaining what's missing, showing the exact URL shape to use, and pointing at `traceroost service status` as a way to get that URL again if TraceRoost is running as a background service.
+- **The Traces table's agent/badge column had no header**, just a sort arrow, and the "Time" column header (shared with the Advisor tab's evidence table) was ambiguous next to Duration. Both are now labeled, "Source/From" and "Start Time" respectively, and the Source/From filter bar is reordered to match the column order.
 - **The per-row workspace label was cramped into the timestamp cell**, shown only when a session spanned multiple workspaces. It's now a proper "Project" column with its own header, sortable like every other column.
 
 ### Changed
 
-- **The dashboard no longer requires the access token while running on loopback** (127.0.0.1, the default) — matches how the OTLP and MCP endpoints already behaved. Loopback binding already rules out every other machine reaching the port; the token there was only ever defending against a malicious webpage in the same browser, not the "some other machine" threat it's meant to stop. A token is still required the moment the server is bound beyond loopback. The printed/auto-opened dashboard URL no longer carries `?token=` when it isn't needed.
-- **Model pricing refreshed** — added GPT-6 Astra (new OpenAI flagship) and Gemini 3.8 Flash; resolved a stale known gap where Copilot's own extra 50%-off promotion on GPT-5.6 Sol (which ended on schedule) was still being flagged as unaccounted-for. All existing rates re-verified against each vendor's current pricing page.
+- **The dashboard no longer requires the access token while running on loopback** (127.0.0.1, the default), which matches how the OTLP and MCP endpoints already behaved. Loopback binding already rules out every other machine reaching the port; the token there was only ever defending against a malicious webpage in the same browser, not the "some other machine" threat it's meant to stop. A token is still required the moment the server is bound beyond loopback. The printed/auto-opened dashboard URL no longer carries `?token=` when it isn't needed.
+- **Model pricing refreshed**: added GPT-6 Astra (new OpenAI flagship) and Gemini 3.8 Flash; resolved a stale known gap where Copilot's own extra 50%-off promotion on GPT-5.6 Sol (which ended on schedule) was still being flagged as unaccounted-for. All existing rates re-verified against each vendor's current pricing page.
 
 ---
 
-## [0.16.2] — 2026-09-14
+## [0.16.2] (2026-09-14)
 
 ### Changed
 
-- **VS Code Marketplace icon is now in color** — white background, the mark's actual two colors (dark ink bird, teal roost bar), replacing the mono dark-background treatment. The activity-bar icon is unchanged (VS Code requires mono there and theme-colors it itself) (#246)
-- **README wordmark is a single mid-grey variant** (`#76797F`) instead of a light/dark `<picture>`/`<source>` pair, since GitHub's the only renderer that actually evaluates that hint — the Marketplace and npm just show the fallback. The new color is legible against both a white and the brand's near-black background (#246)
+- **VS Code Marketplace icon is now in color**: white background, the mark's actual two colors (dark ink bird, teal roost bar), replacing the mono dark-background treatment. The activity-bar icon is unchanged (VS Code requires mono there and theme-colors it itself) (#246)
+- **README wordmark is a single mid-grey variant** (`#76797F`) instead of a light/dark `<picture>`/`<source>` pair, since GitHub's the only renderer that actually evaluates that hint; the Marketplace and npm just show the fallback. The new color is legible against both a white and the brand's near-black background (#246)
 
 ---
 
-## [0.16.1] — 2026-09-14
+## [0.16.1] (2026-09-14)
 
 ### Fixed
 
-- **README wordmark was unreadable on the VS Code Marketplace** — dark ink text against the Marketplace's dark theme, since its README renderer doesn't evaluate the `<picture>`/`<source>` dark-mode hint that works correctly on GitHub. Swapped which variant is the fallback so the Marketplace (and anywhere else that only reads the plain `<img>`) shows the light-ink version instead (#245)
+- **README wordmark was unreadable on the VS Code Marketplace**: dark ink text against the Marketplace's dark theme, since its README renderer doesn't evaluate the `<picture>`/`<source>` dark-mode hint that works correctly on GitHub. Swapped which variant is the fallback so the Marketplace (and anywhere else that only reads the plain `<img>`) shows the light-ink version instead (#245)
 
 ---
 
-## [0.16.0] — 2026-09-14
+## [0.16.0] (2026-09-14)
 
 ### Added
 
-- **Page size selector in the paging controls** — choose 25/50/100/250/500 traces per page directly from the Traces list's paging bar, without opening Settings (#241)
+- **Page size selector in the paging controls**: choose 25/50/100/250/500 traces per page directly from the Traces list's paging bar, without opening Settings (#241)
 
 ### Changed
 
-- **The dashboard's "Session" concept is now "Trace"** — the Sessions tab is **Traces**, the per-row "Trace" sub-tab is **Waterfall**, and the glossary is rewritten around it. One prompt-to-response cycle is a trace; this matches how OpenTelemetry names the same thing. Internal identifiers, the database, the HTTP API, and the MCP tool names are unchanged (#241)
+- **The dashboard's "Session" concept is now "Trace"**: the Sessions tab is **Traces**, the per-row "Trace" sub-tab is **Waterfall**, and the glossary is rewritten around it. One prompt-to-response cycle is a trace; this matches how OpenTelemetry names the same thing. Internal identifiers, the database, the HTTP API, and the MCP tool names are unchanged (#241)
 - **Traces list now defaults to 25 per page** (was 50); still adjustable via the new page size selector above or in Settings (#241)
 - **AgentLens is now TraceRoost.** Several unrelated projects already use the AgentLens name. This release completes the rename across the whole project (#241):
   - npm package `traceroost` (was `agentlens-dashboard`); CLI `traceroost`; Docker image `traceroost/traceroost`.
-  - **The VS Code extension keeps its marketplace id (`agentlens.agentlens-dashboard`)** — only the display name changes — so installed copies update in place with nothing to reinstall.
+  - **The VS Code extension keeps its marketplace id (`agentlens.agentlens-dashboard`)**: only the display name changes, so installed copies update in place with nothing to reinstall.
   - VS Code settings and commands moved from `agentLens.*` to `traceRoost.*`; the activity-bar view container is now **TraceRoost**.
   - Background service label is `com.traceroost.server`; the local data directory is `~/.traceroost`; environment variables are `TRACEROOST_PORT` / `TRACEROOST_MAX_SPANS`; the Claude Code stop-hook marker is `~/.traceroost/pending-prompt.txt`.
   - New brand assets: `media/brand/` (wordmark + mark, with on-dark / mono / current-colour variants), regenerated activity-bar icon and marketplace icon, and a theme-adaptive **TraceRoost** wordmark in the dashboard's top tab bar, rendered as real text rather than an SVG path so it stays sharp at small sizes.
   - The dashboard footer no longer repeats "TraceRoost" next to the version number now that the wordmark appears at the top of the page.
-  - If both the AgentLens and TraceRoost extensions end up installed side by side, a one-time notice recommends which copy to keep — a temporary aid for the transition, removed once the marketplace listing itself is eventually consolidated.
-- **Upgrading from AgentLens is a clean break — no automatic migration.** After updating (#241):
+  - If both the AgentLens and TraceRoost extensions end up installed side by side, a one-time notice recommends which copy to keep: a temporary aid for the transition, removed once the marketplace listing itself is eventually consolidated.
+- **Upgrading from AgentLens is a clean break, with no automatic migration.** After updating (#241):
   - Re-run `npx traceroost@latest service install` if you use the background service (remove the old service first with `agentlens service uninstall`).
   - Let auto-config rewrite your agents' OTEL settings on their next start, or click **Configure OTEL** in Settings. Old `agentLens.*` settings values are not carried over.
   - Session history under the old `~/.agentlens` directory is not moved; pass `--data-dir ~/.agentlens` if you need it, or copy its contents into `~/.traceroost`.
 - The old `agentlens-dashboard` npm package and `agentlens/agentlens` Docker image are **deprecated**. They receive security fixes only, from the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch, until they are archived (#241)
-- **README reorganized around getting started faster** — a quick-start blurb and a table of contents added near the top; sections describing what TraceRoost does (Features, Data Sources, Cost, Export/Import, Recommendations) now come right after it, ahead of installation instructions; "Getting Started" is renamed "Ways to Run"; two pairs of sections that had drifted into restating the same facts (Features/Additional Features, Data Sources/Agent Data Formats) are merged (#243, #244)
-- Added a scripted, isolated way to regenerate the README's demo GIF (`pnpm run demo:gif`) — internal dev tooling only, no user-facing product change (#242)
+- **README reorganized around getting started faster**: a quick-start blurb and a table of contents added near the top; sections describing what TraceRoost does (Features, Data Sources, Cost, Export/Import, Recommendations) now come right after it, ahead of installation instructions; "Getting Started" is renamed "Ways to Run"; two pairs of sections that had drifted into restating the same facts (Features/Additional Features, Data Sources/Agent Data Formats) are merged (#243, #244)
+- Added a scripted, isolated way to regenerate the README's demo GIF (`pnpm run demo:gif`): internal dev tooling only, no user-facing product change (#242)
 
 ### Fixed
 
-- **The loop/malfunction pattern count was stale in both the README and the in-app Help tab** — the README said five and Help said eight; TraceRoost has detected ten for a while, and two of them (Fabricated Dependency, Unverified Submission) were undocumented anywhere. Both now list all ten (#243)
+- **The loop/malfunction pattern count was stale in both the README and the in-app Help tab**: the README said five and Help said eight; TraceRoost has detected ten for a while, and two of them (Fabricated Dependency, Unverified Submission) were undocumented anywhere. Both now list all ten (#243)
 
 ---
 
-## [0.15.4] — 2026-09-07
+## [0.15.4] (2026-09-07)
 
 ### Fixed
 
-- **Claude Code sessions with multi-block assistant responses over-counted tokens, turns, and cost** — Claude Code persists one assistant message as one JSONL line per content block (a text block plus N `tool_use` blocks — the common agent shape), and every one of those lines repeats the same `message.id` and the same `message.usage`. AgentLens billed each line independently, so a response split across four blocks counted its usage (and its turn) four times, inflating session cost and token totals for essentially every agentic Claude session. Usage is now reconciled to a single snapshot per message identity — greatest `output_tokens`, since Claude's output count is cumulative within a request, with later records winning ties — while every content block still parses for tool, file, and timeline data. Affected sessions re-cost themselves on the next log rescan, no manual action needed (#239)
+- **Claude Code sessions with multi-block assistant responses over-counted tokens, turns, and cost**: Claude Code persists one assistant message as one JSONL line per content block (a text block plus N `tool_use` blocks, the common agent shape), and every one of those lines repeats the same `message.id` and the same `message.usage`. AgentLens billed each line independently, so a response split across four blocks counted its usage (and its turn) four times, inflating session cost and token totals for essentially every agentic Claude session. Usage is now reconciled to a single snapshot per message identity (greatest `output_tokens`, since Claude's output count is cumulative within a request, with later records winning ties), while every content block still parses for tool, file, and timeline data. Affected sessions re-cost themselves on the next log rescan, no manual action needed (#239)
 
 ### Changed
 
-- **Sessions conversation bar is ~35% wider** — the colored left-edge bar marking rows that belong to the same split conversation went from 4px to 5px (6px to 8px when that conversation is isolated), making it easier to spot and a larger click target for the click-to-isolate gesture. Cosmetic; no behavior change (#238)
-- **Repository and documentation links now point to `traceroost/core`** — the repository, issue, CLA, README, and in-app documentation links moved to the new GitHub location for the in-progress TraceRoost rebrand. The npm package (`agentlens-dashboard`), VS Code publisher, Open VSX identity, and Docker image are unchanged, and tagged releases still publish to the existing AgentLens destinations — no user-facing product change (#240)
+- **Sessions conversation bar is ~35% wider**: the colored left-edge bar marking rows that belong to the same split conversation went from 4px to 5px (6px to 8px when that conversation is isolated), making it easier to spot and a larger click target for the click-to-isolate gesture. Cosmetic; no behavior change (#238)
+- **Repository and documentation links now point to `traceroost/core`**: the repository, issue, CLA, README, and in-app documentation links moved to the new GitHub location for the in-progress TraceRoost rebrand. The npm package (`agentlens-dashboard`), VS Code publisher, Open VSX identity, and Docker image are unchanged, and tagged releases still publish to the existing AgentLens destinations; no user-facing product change (#240)
 
 ---
 
-## [0.15.3] — 2026-09-01
+## [0.15.3] (2026-09-01)
 
 ### Fixed
 
-- **`agentlens service install` on an already-installed service printed a raw error the first time and only succeeded on a re-run** — on macOS `launchctl bootout` returns before the old service has finished unloading, so the immediate re-`bootstrap` raced it, failed with `Bootstrap failed: 5: Input/output error`, and surfaced as an uncaught stack trace. `install` now waits for the old service to fully unload before re-registering (with a bounded retry for the residual race); on Windows it stops any running instance and waits for it to release its ports before recreating the task (#237)
+- **`agentlens service install` on an already-installed service printed a raw error the first time and only succeeded on a re-run**: on macOS `launchctl bootout` returns before the old service has finished unloading, so the immediate re-`bootstrap` raced it, failed with `Bootstrap failed: 5: Input/output error`, and surfaced as an uncaught stack trace. `install` now waits for the old service to fully unload before re-registering (with a bounded retry for the residual race); on Windows it stops any running instance and waits for it to release its ports before recreating the task (#237)
 
 ### Changed
 
-- **`agentlens service install` output is more informative** — it now prints the AgentLens version, says when it's replacing an existing service, keeps the existing dashboard access token across a reinstall instead of rotating it (so bookmarked `?token=…` URLs keep working), waits for a health check before reporting success and printing the dashboard URL, and on failure prints a one-line reason and rolls back the partial install rather than dumping a stack trace. `service status` now distinguishes "installed but not reachable" from "nothing installed" (#237)
+- **`agentlens service install` output is more informative**: it now prints the AgentLens version, says when it's replacing an existing service, keeps the existing dashboard access token across a reinstall instead of rotating it (so bookmarked `?token=…` URLs keep working), waits for a health check before reporting success and printing the dashboard URL, and on failure prints a one-line reason and rolls back the partial install rather than dumping a stack trace. `service status` now distinguishes "installed but not reachable" from "nothing installed" (#237)
 
 ---
 
-## [0.15.2] — 2026-09-01
+## [0.15.2] (2026-09-01)
 
 ### Fixed
 
-- **`npx` / `bunx` instructions now pin `@latest`, so a stale cache can't silently keep you on an old version** — a bare `npx agentlens-dashboard` re-runs whatever version npx cached the first time it was invoked and never revalidates against npm, so you could stay on an old release for weeks while `npm view` still reported the new one (the README's quick-start comment even claimed the bare form always used the latest). Every documented `npx`/`bunx` command and the global `npm install -g` now use `@latest`, with a note on clearing the npx cache (`rm -rf ~/.npm/_npx`), and the standalone server now prints a one-line reminder at startup when it detects it was launched via `npx` that the running version may be a cached copy (#236)
+- **`npx` / `bunx` instructions now pin `@latest`, so a stale cache can't silently keep you on an old version**: a bare `npx agentlens-dashboard` re-runs whatever version npx cached the first time it was invoked and never revalidates against npm, so you could stay on an old release for weeks while `npm view` still reported the new one (the README's quick-start comment even claimed the bare form always used the latest). Every documented `npx`/`bunx` command and the global `npm install -g` now use `@latest`, with a note on clearing the npx cache (`rm -rf ~/.npm/_npx`), and the standalone server now prints a one-line reminder at startup when it detects it was launched via `npx` that the running version may be a cached copy (#236)
 
 ---
 
-## [0.15.1] — 2026-09-01
+## [0.15.1] (2026-09-01)
 
 ### Added
 
-- **`agentlens service install` now moves the background service to the latest published version** — the service definition points at a fixed path to whatever `cli.js` launched `service install`, and nothing ever refreshed it, so an older global install already on `PATH` (or a stale npx cache) could leave the background service a release or more behind with nothing said. When run from a global install, `service install` now fetches `agentlens-dashboard@latest` first and points the service at that copy, so re-running it is a supported way to upgrade alongside `service update`. If the download fails (offline, registry down) it prints a clear one-line notice naming the likely cause and continues on the version already installed rather than aborting. A dev checkout is left untouched. The documented command is now `npx agentlens-dashboard@latest service install` (#234)
+- **`agentlens service install` now moves the background service to the latest published version**: the service definition points at a fixed path to whatever `cli.js` launched `service install`, and nothing ever refreshed it, so an older global install already on `PATH` (or a stale npx cache) could leave the background service a release or more behind with nothing said. When run from a global install, `service install` now fetches `agentlens-dashboard@latest` first and points the service at that copy, so re-running it is a supported way to upgrade alongside `service update`. If the download fails (offline, registry down) it prints a clear one-line notice naming the likely cause and continues on the version already installed rather than aborting. A dev checkout is left untouched. The documented command is now `npx agentlens-dashboard@latest service install` (#234)
 
 ### Fixed
 
-- **Imported Copilot VS Code sessions on dotted-version Claude models were costed at $0.00** — Copilot VS Code emits model IDs like `claude-opus-4.8`, while the rate table keys them `claude-opus-4-8`. The pricing lookup normalized only case and a trailing date suffix, then did an exact match, so the dotted ID missed, no rate was found, and the session's `cost_usd` computed as zero despite real token usage on a known, priced model. Lookup now collapses `.`, whitespace, and `_` to `-` on both the incoming ID and every rate-table key, so the two spellings resolve to the same rate in either direction. Affected sessions re-price themselves on the next log rescan — no manual action needed (#233)
+- **Imported Copilot VS Code sessions on dotted-version Claude models were costed at $0.00**: Copilot VS Code emits model IDs like `claude-opus-4.8`, while the rate table keys them `claude-opus-4-8`. The pricing lookup normalized only case and a trailing date suffix, then did an exact match, so the dotted ID missed, no rate was found, and the session's `cost_usd` computed as zero despite real token usage on a known, priced model. Lookup now collapses `.`, whitespace, and `_` to `-` on both the incoming ID and every rate-table key, so the two spellings resolve to the same rate in either direction. Affected sessions re-price themselves on the next log rescan, with no manual action needed (#233)
 
 ### Changed
 
-- **Model pricing refreshed** — added Claude Fable 5.1 and Claude Mythos 5.1 (new on Anthropic's pricing page; cache reads billed at 0.025x base input rather than the usual 0.1x) and two new free OpenCode Zen evaluation models. All existing rates re-verified against each vendor's current pricing page and unchanged (#235)
-- **Stopped tracking the generated `media/dashboard.css` bundle** — it is a build artifact regenerated on every build and had drifted from source in the repo; no user-facing change, the published package and extension always ship the freshly built file (#232)
+- **Model pricing refreshed**: added Claude Fable 5.1 and Claude Mythos 5.1 (new on Anthropic's pricing page; cache reads billed at 0.025x base input rather than the usual 0.1x) and two new free OpenCode Zen evaluation models. All existing rates re-verified against each vendor's current pricing page and unchanged (#235)
+- **Stopped tracking the generated `media/dashboard.css` bundle**: it is a build artifact regenerated on every build and had drifted from source in the repo; no user-facing change, the published package and extension always ship the freshly built file (#232)
 
 ---
 
-## [0.15.0] — 2026-08-29
+## [0.15.0] (2026-08-29)
 
 ### Added
 
-- **Sessions table marks and lets you isolate conversations split across multiple cards** — splitting log-sourced sessions on prompt boundaries means one real conversation with an agent can now show up as several separate rows, often far apart since the list is time-sorted and unrelated sessions land between them. A colored bar on the left edge of a row now marks sessions that share an originating log file, with a hover tooltip giving its position (e.g. "Part 2 of 5"). Clicking the bar isolates the table to just that conversation — a banner names the conversation's first prompt with a "Show all sessions" button to clear it, or click the same bar again to toggle off. Added a "Conversation" glossary term explaining the concept (#229, #230)
+- **Sessions table marks and lets you isolate conversations split across multiple cards**: splitting log-sourced sessions on prompt boundaries means one real conversation with an agent can now show up as several separate rows, often far apart since the list is time-sorted and unrelated sessions land between them. A colored bar on the left edge of a row now marks sessions that share an originating log file, with a hover tooltip giving its position (e.g. "Part 2 of 5"). Clicking the bar isolates the table to just that conversation: a banner names the conversation's first prompt with a "Show all sessions" button to clear it, or click the same bar again to toggle off. Added a "Conversation" glossary term explaining the concept (#229, #230)
 
 ---
 
-## [0.14.0] — 2026-08-28
+## [0.14.0] (2026-08-28)
 
 ### Added
 
-- **Configurable Sessions list pagination** — the Sessions table previously rendered its entire matching list with no cap for the "All time" view and no way to limit how many rows render at once, with total session counts only likely to grow given the prompt-boundary splitting below (one log file can now yield many session cards instead of one). Adds a page size setting (25/50/100/250/500, default 50, persisted across reloads) with Prev/Next controls shown both in the table's own footer and alongside the Time/Agent filters at the top (#226)
+- **Configurable Sessions list pagination**: the Sessions table previously rendered its entire matching list with no cap for the "All time" view and no way to limit how many rows render at once, with total session counts only likely to grow given the prompt-boundary splitting below (one log file can now yield many session cards instead of one). Adds a page size setting (25/50/100/250/500, default 50, persisted across reloads) with Prev/Next controls shown both in the table's own footer and alongside the Time/Agent filters at the top (#226)
 
 ### Fixed
 
-- **Log-sourced sessions merged an entire day's (or longer) work into one card instead of splitting on actual conversation boundaries** — Claude Code, Codex, and Copilot VS Code each write one log file per work session on disk, but a single file can span many genuinely separate prompts/conversations hours or days apart; AgentLens treated the whole file as one session, producing durations of 50+ hours that weren't real. Sessions are now split on prompt gaps (a 30+ minute idle gap between turns) for all three log-sourced formats, so each card reflects one actual interaction (#225)
-- **Help page section nav wrapped tall and clipped off the right edge at narrower widths** — the horizontal pill row grew multi-line for longer labels and hid overflowing pills with no visible way to reach them. Replaced with a sticky sidebar list that highlights the current section as you scroll (#228)
+- **Log-sourced sessions merged an entire day's (or longer) work into one card instead of splitting on actual conversation boundaries**: Claude Code, Codex, and Copilot VS Code each write one log file per work session on disk, but a single file can span many genuinely separate prompts/conversations hours or days apart; AgentLens treated the whole file as one session, producing durations of 50+ hours that weren't real. Sessions are now split on prompt gaps (a 30+ minute idle gap between turns) for all three log-sourced formats, so each card reflects one actual interaction (#225)
+- **Help page section nav wrapped tall and clipped off the right edge at narrower widths**: the horizontal pill row grew multi-line for longer labels and hid overflowing pills with no visible way to reach them. Replaced with a sticky sidebar list that highlights the current section as you scroll (#228)
 
 ### Changed
 
-- **Sessions table footer** — dropped the "N sessions stored — managed by retention policy" line (redundant with the filter row's own session count) and shows the running AgentLens version there instead; removed the now-duplicate version display from the Help page nav (#227)
+- **Sessions table footer**: dropped the "N sessions stored: managed by retention policy" line (redundant with the filter row's own session count) and shows the running AgentLens version there instead; removed the now-duplicate version display from the Help page nav (#227)
 
 ---
 
-## [0.13.0] — 2026-08-27
+## [0.13.0] (2026-08-27)
 
 ### Added
 
-- **Local auth token and Host-header validation for the standalone servers** — the UI, OTLP, and MCP servers were previously reachable by any process or web page on the machine with zero access control once `BIND_HOST` was set non-loopback. Adds a bearer token generated at first run, Host-header validation against the DNS-rebinding vector, and a startup refusal if a non-loopback bind somehow has no token in place. Also adds an unauthenticated `/health` endpoint for liveness checks, since `agentlens service status` and the Dockerfile healthcheck previously probed the now-gated `/` (#214)
-- **System/Dark/Light theme toggle for the standalone dashboard** — standalone previously hardcoded a single dark palette with no light option and no OS/browser preference detection. New three-state toggle at the top of Settings, persisted across reloads; the VS Code webview is unaffected and continues to follow the IDE's own theme as before (#218, #222)
+- **Local auth token and Host-header validation for the standalone servers**: the UI, OTLP, and MCP servers were previously reachable by any process or web page on the machine with zero access control once `BIND_HOST` was set non-loopback. Adds a bearer token generated at first run, Host-header validation against the DNS-rebinding vector, and a startup refusal if a non-loopback bind somehow has no token in place. Also adds an unauthenticated `/health` endpoint for liveness checks, since `agentlens service status` and the Dockerfile healthcheck previously probed the now-gated `/` (#214)
+- **System/Dark/Light theme toggle for the standalone dashboard**: standalone previously hardcoded a single dark palette with no light option and no OS/browser preference detection. New three-state toggle at the top of Settings, persisted across reloads; the VS Code webview is unaffected and continues to follow the IDE's own theme as before (#218, #222)
 - **Three new loop/malfunction signals**: `chronic_tool_failures` (an unusually high share of a session's tool calls failed), `context_flooding_risk` (a tool result too large for the model to use well), and `malformed_tool_call` (the agent's own harness rejected a call before it even ran). The first two are promoted from ad-hoc checks that existed only in the Insights tab, invisible to MCP tools and the Instruction Advisor's cross-session aggregation; the third is new. Extends the loop-signal taxonomy from 5 to 8 (#217)
 - **Two new post-hoc malfunction detectors**: `hallucinated_import` (an edit imports a package absent from the project's manifest and unresolvable on disk) and `failed_check_submission` (the session's last tool call was a failing test/build run with no further fix attempt before the session ended) (#216, #221)
-- **Promotional-pricing note on the Pricing page** — a `‡` marker and hover note when a source explicitly labels a rate as promotional/temporary, using the vendor's own wording rather than a computed expiration date (#219)
+- **Promotional-pricing note on the Pricing page**: a `‡` marker and hover note when a source explicitly labels a rate as promotional/temporary, using the vendor's own wording rather than a computed expiration date (#219)
 
 ### Fixed
 
-- **Loop/malfunction detector accuracy** — `exact_tool_repeat` no longer treats a repeated verification command (tests, lint) run after each fix as a stuck loop; `edit_revert_cycle` only flags critical when the revert is still the file's final state when the session ends; `error_recurrence` normalizes dynamic substrings (temp paths, timestamps, hex ids) before grouping and caps less-certain label-fallback groupings below critical; `runaway_steps` weighs debugging/investigation language into its complexity estimate. All five existing signals are now tempered by a session's actual git outcome — a mid-session rough patch that recovered no longer reads at the same severity as one that never did (#215)
-- **OTEL badge unreadable in light mode** — the per-session "OTEL" badge and the SOURCE filter bar's OTEL pill used a hardcoded white color, readable only against a dark background (#222)
+- **Loop/malfunction detector accuracy**: `exact_tool_repeat` no longer treats a repeated verification command (tests, lint) run after each fix as a stuck loop; `edit_revert_cycle` only flags critical when the revert is still the file's final state when the session ends; `error_recurrence` normalizes dynamic substrings (temp paths, timestamps, hex ids) before grouping and caps less-certain label-fallback groupings below critical; `runaway_steps` weighs debugging/investigation language into its complexity estimate. All five existing signals are now tempered by a session's actual git outcome: a mid-session rough patch that recovered no longer reads at the same severity as one that never did (#215)
+- **OTEL badge unreadable in light mode**: the per-session "OTEL" badge and the SOURCE filter bar's OTEL pill used a hardcoded white color, readable only against a dark background (#222)
 
 ### Changed
 
-- **Model pricing refreshed** — `gpt-5.6-sol` and `gemini-3.6-flash` corrected for vendor price drops (both now labeled promotional, see above), several new models added (`gpt-5.6-cyber`, `gemini-3.7-flash`, `grok-4.6`, `gpt-4.1-nano`, `gpt-5-nano`, `gpt-5`), verified against each vendor's current pricing page (#219)
+- **Model pricing refreshed**: `gpt-5.6-sol` and `gemini-3.6-flash` corrected for vendor price drops (both now labeled promotional, see above), several new models added (`gpt-5.6-cyber`, `gemini-3.7-flash`, `grok-4.6`, `gpt-4.1-nano`, `gpt-5-nano`, `gpt-5`), verified against each vendor's current pricing page (#219)
 
 ---
 
-## [0.12.3] — 2026-08-23
+## [0.12.3] (2026-08-23)
 
 ### Added
 
-- **`agentlens service update`** — the background service (installed via `agentlens service install`) never auto-updates; it keeps running whatever version was installed until updated manually. Previously that required two separate commands (`npm install -g agentlens-dashboard@latest` then `agentlens service restart`) documented only in a single README sentence, with no mention in the CLI's own `--help` text or the in-app Help page. The new command does both steps together, reports the before/after version, and is now surfaced in all three places (#212)
-- **Version number shown at startup and on the Help page** — the VS Code extension's output channel and the standalone server's startup banner now log the running version as their first line, and the in-app Help page shows it in the upper-right corner of its navigation bar, in both VS Code and standalone/npx mode (#211)
+- **`agentlens service update`**: the background service (installed via `agentlens service install`) never auto-updates; it keeps running whatever version was installed until updated manually. Previously that required two separate commands (`npm install -g agentlens-dashboard@latest` then `agentlens service restart`) documented only in a single README sentence, with no mention in the CLI's own `--help` text or the in-app Help page. The new command does both steps together, reports the before/after version, and is now surfaced in all three places (#212)
+- **Version number shown at startup and on the Help page**: the VS Code extension's output channel and the standalone server's startup banner now log the running version as their first line, and the in-app Help page shows it in the upper-right corner of its navigation bar, in both VS Code and standalone/npx mode (#211)
 
 ---
 
-## [0.12.2] — 2026-08-23
+## [0.12.2] (2026-08-23)
 
 ### Fixed
 
-- **Codex sessions that finalized an edit via `git add`/`git commit` (or other git write/history-rewriting subcommands run through the shell) weren't counted as file changes** — a regression from v0.12.0's read-vs-write shell-command classification fix (#205), which only recognized a narrow set of write signals (redirection, `sed -i`, `mv`/`cp`/`rm`, `git apply`) and missed the common workflow of `git add <file> && git commit`, so every file staged/committed via shell was misclassified as merely read instead of changed. Added `add`, `commit`, `rm`, `mv`, `restore`, `checkout`, `cherry-pick`, `revert`, `merge`, `rebase`, and `stash` to the write-signal list (#210)
+- **Codex sessions that finalized an edit via `git add`/`git commit` (or other git write/history-rewriting subcommands run through the shell) weren't counted as file changes**: a regression from v0.12.0's read-vs-write shell-command classification fix (#205), which only recognized a narrow set of write signals (redirection, `sed -i`, `mv`/`cp`/`rm`, `git apply`) and missed the common workflow of `git add <file> && git commit`, so every file staged/committed via shell was misclassified as merely read instead of changed. Added `add`, `commit`, `rm`, `mv`, `restore`, `checkout`, `cherry-pick`, `revert`, `merge`, `rebase`, and `stash` to the write-signal list (#210)
 
 ---
 
-## [0.12.1] — 2026-08-18
+## [0.12.1] (2026-08-18)
 
 ### Fixed
 
-- **`npx agentlens-dashboard service install` didn't work**, introduced in v0.12.0's background-service feature. Two compounding bugs: (1) after bootstrapping a global install, the re-exec inherited the parent process's environment, including the original `npx`-flavored `npm_config_user_agent`, so the freshly-installed child still looked like it was running via `npx` and bootstrapped again, endlessly, until manually interrupted (#208); (2) even with that fixed, re-invoking `agentlens` by name still resolved through `PATH` to the stale npx-cached copy rather than the new global install — npx prepends its own cache's bin directory to `PATH` for its entire process tree — so the fixed recursion guard correctly refused to loop again but surfaced as an uncaught crash instead of completing. The re-exec now resolves and runs the newly-installed global copy directly via `npm root -g`, sidestepping `PATH` lookup entirely, with a hard recursion guard as a backstop against any other undiscovered path to the same failure mode (#208, #209)
+- **`npx agentlens-dashboard service install` didn't work**, introduced in v0.12.0's background-service feature. Two compounding bugs: (1) after bootstrapping a global install, the re-exec inherited the parent process's environment, including the original `npx`-flavored `npm_config_user_agent`, so the freshly-installed child still looked like it was running via `npx` and bootstrapped again, endlessly, until manually interrupted (#208); (2) even with that fixed, re-invoking `agentlens` by name still resolved through `PATH` to the stale npx-cached copy rather than the new global install, because npx prepends its own cache's bin directory to `PATH` for its entire process tree, so the fixed recursion guard correctly refused to loop again but surfaced as an uncaught crash instead of completing. The re-exec now resolves and runs the newly-installed global copy directly via `npm root -g`, sidestepping `PATH` lookup entirely, with a hard recursion guard as a backstop against any other undiscovered path to the same failure mode (#208, #209)
 
 ---
 
-## [0.12.0] — 2026-08-18
+## [0.12.0] (2026-08-18)
 
 ### Added
 
-- **Background Service mode** — `agentlens service <install|uninstall|start|stop|restart|status|logs>` installs the standalone server as an OS-native background service (macOS `launchd`, Linux `systemd --user`, Windows Scheduled Task at logon), so it survives a closed terminal, sleep, or reboot instead of silently losing incoming OTEL data whenever nothing is running to receive it. `npx agentlens-dashboard service install` works as a single command even with no prior install — it bootstraps a global install first, then continues (#207)
-- **Automation triggers exposed via a new MCP tool** — `check_automation_triggers` lets an agent poll Automation's threshold state directly over MCP, alongside the existing notification/prompts-file delivery paths (#197)
+- **Background Service mode**: `agentlens service <install|uninstall|start|stop|restart|status|logs>` installs the standalone server as an OS-native background service (macOS `launchd`, Linux `systemd --user`, Windows Scheduled Task at logon), so it survives a closed terminal, sleep, or reboot instead of silently losing incoming OTEL data whenever nothing is running to receive it. `npx agentlens-dashboard service install` works as a single command even with no prior install: it bootstraps a global install first, then continues (#207)
+- **Automation triggers exposed via a new MCP tool**: `check_automation_triggers` lets an agent poll Automation's threshold state directly over MCP, alongside the existing notification/prompts-file delivery paths (#197)
 
 ### Fixed
 
-- **Export silently truncated to 25 sessions for any bounded time range** (Today, Last 7 Days, Last 30 Days, custom range) — Export reused a signal deliberately capped for chart/table rendering, so choosing any range other than "All" exported only the first 25 matching sessions with no indication anything was cut off, contradicting the documented "full session history" export behavior. Also adds a missing `dataSource` field and `filesRead` section to CSV/Markdown export output (#203)
-- **Copilot sessions with a broken telemetry parent-span link showed an empty Tools/Files tab** despite clearly running tools and editing files — added a same-trace fallback for the case where a Copilot session's tool spans never resolve back to their parent (#201)
-- **Codex sessions using `apply_patch` showed an empty Files tab** — its arguments are a unified-diff patch string, not the `filePath`/`path` shape AgentLens expected, so file paths were silently dropped while tool-call counts stayed correct, making the gap easy to miss (#202)
-- **Codex sessions could show files as modified that were only read** — a shell-command fallback used to extract file paths from Codex's `exec_command` tool calls pulled every file-looking path out of the raw command string regardless of whether the command actually wrote anything, so a read-only command like `cat foo.ts` or `rg pattern foo.ts` marked `foo.ts` as changed (#205)
-- **Sidebar token-usage bar averages could be skewed by a single unusually long session** — averaged across a session's entire history instead of the 5 most recent, so with few total sessions one outlier could dominate the bar scaling for everything else (#204)
+- **Export silently truncated to 25 sessions for any bounded time range** (Today, Last 7 Days, Last 30 Days, custom range): Export reused a signal deliberately capped for chart/table rendering, so choosing any range other than "All" exported only the first 25 matching sessions with no indication anything was cut off, contradicting the documented "full session history" export behavior. Also adds a missing `dataSource` field and `filesRead` section to CSV/Markdown export output (#203)
+- **Copilot sessions with a broken telemetry parent-span link showed an empty Tools/Files tab** despite clearly running tools and editing files. Added a same-trace fallback for the case where a Copilot session's tool spans never resolve back to their parent (#201)
+- **Codex sessions using `apply_patch` showed an empty Files tab**: its arguments are a unified-diff patch string, not the `filePath`/`path` shape AgentLens expected, so file paths were silently dropped while tool-call counts stayed correct, making the gap easy to miss (#202)
+- **Codex sessions could show files as modified that were only read**: a shell-command fallback used to extract file paths from Codex's `exec_command` tool calls pulled every file-looking path out of the raw command string regardless of whether the command actually wrote anything, so a read-only command like `cat foo.ts` or `rg pattern foo.ts` marked `foo.ts` as changed (#205)
+- **Sidebar token-usage bar averages could be skewed by a single unusually long session**: averaged across a session's entire history instead of the 5 most recent, so with few total sessions one outlier could dominate the bar scaling for everything else (#204)
 
 ### Changed
 
@@ -586,15 +586,15 @@ These ship only in the full edition; released core builds contain no TraceRoost 
 
 ---
 
-## [0.11.0] — 2026-08-17
+## [0.11.0] (2026-08-17)
 
 ### Added
 
-- **Pricing page** — a new `$` icon in the header, next to Help, opens a page showing the exact rate table AgentLens uses to estimate cost: every model, grouped by vendor (OpenAI, Anthropic, Google, fine-tuned/third-party Copilot-marketplace models, OpenCode Zen), each with a "verified `<date>`" and source links as footnotes. An "Uncategorized" fallback section guarantees a model can never silently go missing from the page even if a future pricing refresh forgets to sort it into a vendor group (#194)
+- **Pricing page**: a new `$` icon in the header, next to Help, opens a page showing the exact rate table AgentLens uses to estimate cost: every model, grouped by vendor (OpenAI, Anthropic, Google, fine-tuned/third-party Copilot-marketplace models, OpenCode Zen), each with a "verified `<date>`" and source links as footnotes. An "Uncategorized" fallback section guarantees a model can never silently go missing from the page even if a future pricing refresh forgets to sort it into a vendor group (#194)
 
 ### Fixed
 
-- **A Codex or Claude fast-mode session's cost could be silently wrong.** Three related gaps found while auditing the cost-estimation system: (1) `lookupRates()`'s substring-prefix fallback could mis-price a brand-new, unrecognized model by matching it against an older, unrelated model already in the rate table instead of showing the intended "unknown model" indicator — removed; (2) Claude Code fast-mode (`/fast`) sessions with a date-suffixed model ID (a common shape) were silently priced at the standard rate instead of the real fast-mode rate — up to 6x underestimated — fixed by stripping the date before appending the fast-mode marker; (3) fast mode is undetectable at all for Claude Code sessions ingested via OTEL rather than the local log file — this appears to be a gap in what Claude Code's OTEL telemetry exposes rather than something AgentLens can read around, so it's documented as a known limitation in `PRICING_SOURCES.md` rather than fixed in code (#195)
+- **A Codex or Claude fast-mode session's cost could be silently wrong.** Three related gaps found while auditing the cost-estimation system: (1) `lookupRates()`'s substring-prefix fallback could mis-price a brand-new, unrecognized model by matching it against an older, unrelated model already in the rate table instead of showing the intended "unknown model" indicator (removed); (2) Claude Code fast-mode (`/fast`) sessions with a date-suffixed model ID (a common shape) were silently priced at the standard rate instead of the real fast-mode rate, up to 6x underestimated (fixed by stripping the date before appending the fast-mode marker); (3) fast mode is undetectable at all for Claude Code sessions ingested via OTEL rather than the local log file; this appears to be a gap in what Claude Code's OTEL telemetry exposes rather than something AgentLens can read around, so it's documented as a known limitation in `PRICING_SOURCES.md` rather than fixed in code (#195)
 
 ### Changed
 
@@ -602,35 +602,35 @@ These ship only in the full edition; released core builds contain no TraceRoost 
 
 ---
 
-## [0.10.1] — 2026-08-15
+## [0.10.1] (2026-08-15)
 
 ### Fixed
 
-- **Codex sessions never populated the Context Growth chart or triggered the token-runaway "Infinite Loop — Context Accumulation" signal** — a Codex turn's per-turn token usage is carried on its `tool_decision` span for most sessions, and that span updated aggregate session totals but never wrote a timeline entry, so both features always saw zero turns for any Codex session, real or demo. Codex's Context Growth chart and that Automation signal now work like Claude's and Copilot's (#192)
+- **Codex sessions never populated the Context Growth chart or triggered the token-runaway "Infinite Loop: Context Accumulation" signal**: a Codex turn's per-turn token usage is carried on its `tool_decision` span for most sessions, and that span updated aggregate session totals but never wrote a timeline entry, so both features always saw zero turns for any Codex session, real or demo. Codex's Context Growth chart and that Automation signal now work like Claude's and Copilot's (#192)
 
 ### Changed
 
-- Expanded the internal demo tooling (`pnpm run demo`) with a new multi-agent "story" scenario — a 10-chapter petstore build-out told from Codex's, Claude's, and Copilot's perspectives — plus a `--cdp` flag to reuse an already-open demo browser instead of launching a new window each run. No user-facing product change (#192)
+- Expanded the internal demo tooling (`pnpm run demo`) with a new multi-agent "story" scenario (a 10-chapter petstore build-out told from Codex's, Claude's, and Copilot's perspectives), plus a `--cdp` flag to reuse an already-open demo browser instead of launching a new window each run. No user-facing product change (#192)
 
 ---
 
-## [0.10.0] — 2026-08-12
+## [0.10.0] (2026-08-12)
 
 ### Added
 
-- **Git outcome correlation** — for each file a session changed, compares its content before and after against local git history to show whether the work was committed, reverted, or left uncommitted after the fact — answers "did this session's changes actually survive?" without checking git yourself. Computed on demand when a session's Files sub-tab is opened, with results cached for the life of the session. Works in both the VS Code extension and standalone/npx mode (#176, #182, #189, #190)
-- **One-shot / retry-rate metric** — tracks what fraction of a session's edited files reached their final state in a single edit pass vs. needed retries, shown per-session in the Files sub-tab and aggregated per-agent in Analytics. A proxy for correction effort, not a correctness signal (#177, #183)
-- **Daily cost threshold alert** — a new configurable alert (disabled by default, $20/day) that sums estimated cost across all agents for the current UTC day, using the same alert/notification plumbing as the existing threshold alerts (#175, #183)
-- **CSV and Markdown export formats** — alongside the existing JSON export, sessions can now be exported as CSV (one row per session, for spreadsheets) or Markdown (one section per session, for sharing a report). JSON remains the only format the Import tab reads back in (#178)
-- **Per-model long-context pricing surcharge** — cost estimates now correctly apply the "long context" pricing tier that several models (GPT-5.4, GPT-5.5, the GPT-5.6 family, Gemini 3.1 Pro, Grok 4.5) charge above a per-model token-per-call threshold — previously not modeled at all, silently under-billing large-context calls on these models (#187)
+- **Git outcome correlation**: for each file a session changed, compares its content before and after against local git history to show whether the work was committed, reverted, or left uncommitted after the fact. It answers "did this session's changes actually survive?" without checking git yourself. Computed on demand when a session's Files sub-tab is opened, with results cached for the life of the session. Works in both the VS Code extension and standalone/npx mode (#176, #182, #189, #190)
+- **One-shot / retry-rate metric**: tracks what fraction of a session's edited files reached their final state in a single edit pass vs. needed retries, shown per-session in the Files sub-tab and aggregated per-agent in Analytics. A proxy for correction effort, not a correctness signal (#177, #183)
+- **Daily cost threshold alert**: a new configurable alert (disabled by default, $20/day) that sums estimated cost across all agents for the current UTC day, using the same alert/notification plumbing as the existing threshold alerts (#175, #183)
+- **CSV and Markdown export formats**: alongside the existing JSON export, sessions can now be exported as CSV (one row per session, for spreadsheets) or Markdown (one section per session, for sharing a report). JSON remains the only format the Import tab reads back in (#178)
+- **Per-model long-context pricing surcharge**: cost estimates now correctly apply the "long context" pricing tier that several models (GPT-5.4, GPT-5.5, the GPT-5.6 family, Gemini 3.1 Pro, Grok 4.5) charge above a per-model token-per-call threshold, previously not modeled at all, silently under-billing large-context calls on these models (#187)
 - New pricing entries: `gpt-4.1-mini`, `mai-code-1.1-flash`, and 7 newly-confirmed free OpenCode Zen models (#185)
 
 ### Fixed
 
-- **Copilot sessions using Grok 4.5, Kimi K3, Kimi K2.7 Code, or MAI-Code-1-Flash silently stored $0 cost** since these models were added in v0.9.3 — they existed in the browser-side pricing table but were never added to the extension-host one that actually computes and stores `cost_usd`. Both tables now match (#185)
-- **Claude Sonnet 5's rate table carried a scheduled increase to $3/$15 per million tokens on 2026-09-01** that would have silently changed displayed cost on that date — Anthropic has since cancelled the increase and made the current $2/$10 rate permanent (#185)
-- **`agentLens.sessionRetentionDays` was invisible in VS Code's Settings UI** — the setting was read in code and documented in the README, but never registered in the extension's configuration schema, so it couldn't be found or set through Settings without hand-editing `settings.json` (#188)
-- **`AgentLens: Show Storage Stats` never appeared in the Command Palette** — the command was fully implemented but missing from the extension manifest (#188)
+- **Copilot sessions using Grok 4.5, Kimi K3, Kimi K2.7 Code, or MAI-Code-1-Flash silently stored $0 cost** since these models were added in v0.9.3: they existed in the browser-side pricing table but were never added to the extension-host one that actually computes and stores `cost_usd`. Both tables now match (#185)
+- **Claude Sonnet 5's rate table carried a scheduled increase to $3/$15 per million tokens on 2026-09-01** that would have silently changed displayed cost on that date. Anthropic has since cancelled the increase and made the current $2/$10 rate permanent (#185)
+- **`agentLens.sessionRetentionDays` was invisible in VS Code's Settings UI**: the setting was read in code and documented in the README, but never registered in the extension's configuration schema, so it couldn't be found or set through Settings without hand-editing `settings.json` (#188)
+- **`AgentLens: Show Storage Stats` never appeared in the Command Palette**: the command was fully implemented but missing from the extension manifest (#188)
 
 ### Changed
 
@@ -640,12 +640,12 @@ These ship only in the full edition; released core builds contain no TraceRoost 
 
 ---
 
-## [0.9.3] — 2026-08-07
+## [0.9.3] (2026-08-07)
 
 ### Fixed
 
-- **Standalone dashboard's span store grew unbounded, eventually crashing every save** — spans accumulated in memory forever and were fully re-serialized to disk on every save; once the total exceeded V8's ~512MB max string length, `JSON.stringify` began throwing and saves failed silently forever (and, past that point, the persisted file became too large to even load back on restart). Spans are now capped (default 50k, configurable via `AGENTLENS_MAX_SPANS`), oversized existing files are backed up instead of crashing on load, and a save that still somehow fails self-heals by trimming and retrying. A pre-release review also caught and fixed two smaller issues in this same fix: `AGENTLENS_MAX_SPANS=0` was silently ignored in favor of the default, and a failed save on shutdown could still log a false "Saved" message (#169, #171)
-- **Corrected model pricing** — `gpt-5.6-luna` and `gpt-5.6-terra` were overpriced (both have since been repriced down by the vendor and gained real cache-write pricing), `gpt-5.1` was overpriced ($1.75→$1.25 input), and `gpt-4.1` was showing as free when it's actually billed again. See `PRICING_SOURCES.md` for sources (#170)
+- **Standalone dashboard's span store grew unbounded, eventually crashing every save**: spans accumulated in memory forever and were fully re-serialized to disk on every save; once the total exceeded V8's ~512MB max string length, `JSON.stringify` began throwing and saves failed silently forever (and, past that point, the persisted file became too large to even load back on restart). Spans are now capped (default 50k, configurable via `AGENTLENS_MAX_SPANS`), oversized existing files are backed up instead of crashing on load, and a save that still somehow fails self-heals by trimming and retrying. A pre-release review also caught and fixed two smaller issues in this same fix: `AGENTLENS_MAX_SPANS=0` was silently ignored in favor of the default, and a failed save on shutdown could still log a false "Saved" message (#169, #171)
+- **Corrected model pricing**: `gpt-5.6-luna` and `gpt-5.6-terra` were overpriced (both have since been repriced down by the vendor and gained real cache-write pricing), `gpt-5.1` was overpriced ($1.75→$1.25 input), and `gpt-4.1` was showing as free when it's actually billed again. See `PRICING_SOURCES.md` for sources (#170)
 
 ### Added
 
@@ -653,73 +653,73 @@ These ship only in the full edition; released core builds contain no TraceRoost 
 
 ---
 
-## [0.9.2] — 2026-08-01
+## [0.9.2] (2026-08-01)
 
 ### Changed
 
-- **SEO metadata refresh** — `package.json` description/keywords and the README now mention "monitoring" and "agentic" alongside "observability" and "OTEL" so npm, VS Code Marketplace, and GitHub search surface AgentLens for those terms. Added alt text to README images. GitHub repo topics, homepage, and description updated to match (#168)
+- **SEO metadata refresh**: `package.json` description/keywords and the README now mention "monitoring" and "agentic" alongside "observability" and "OTEL" so npm, VS Code Marketplace, and GitHub search surface AgentLens for those terms. Added alt text to README images. GitHub repo topics, homepage, and description updated to match (#168)
 
 ---
 
-## [0.9.1] — 2026-07-26
+## [0.9.1] (2026-07-26)
 
 ### Fixed
 
-- **Export tab claimed "All recorded sessions exported as JSON" but only exported the currently filtered subset** — a user who filtered down by Time/Agent/Source/text elsewhere in the app could silently export a partial subset while believing they got everything. Both export cards now show "N sessions matching your current filters" (#167)
-- **Analytics daily-cost chart's x-axis date labels could overlap into illegible text** — the minimum-gap check compared day-group midpoints, but labels were rendered left-aligned at the group's start edge, letting labels drift into each other for days with more sessions. Render and gap-check now share the same anchor point (#167)
-- **Flow graph rendered small/sparse sessions tiny in a mostly-empty canvas** — zoom was hard-capped at 1.4x regardless of available canvas space; raised to 2.2x (#167)
-- **Session/Analytics/Advisor data tables gave no visual hint they were horizontally scrollable at narrow widths** (e.g. a resized VS Code panel) — overlay scrollbars are invisible until hover. Added a persistent thin styled scrollbar across all four scrollable tables (#167)
+- **Export tab claimed "All recorded sessions exported as JSON" but only exported the currently filtered subset**: a user who filtered down by Time/Agent/Source/text elsewhere in the app could silently export a partial subset while believing they got everything. Both export cards now show "N sessions matching your current filters" (#167)
+- **Analytics daily-cost chart's x-axis date labels could overlap into illegible text**: the minimum-gap check compared day-group midpoints, but labels were rendered left-aligned at the group's start edge, letting labels drift into each other for days with more sessions. Render and gap-check now share the same anchor point (#167)
+- **Flow graph rendered small/sparse sessions tiny in a mostly-empty canvas**: zoom was hard-capped at 1.4x regardless of available canvas space; raised to 2.2x (#167)
+- **Session/Analytics/Advisor data tables gave no visual hint they were horizontally scrollable at narrow widths** (e.g. a resized VS Code panel): overlay scrollbars are invisible until hover. Added a persistent thin styled scrollbar across all four scrollable tables (#167)
 
 ---
 
-## [0.9.0] — 2026-07-24
+## [0.9.0] (2026-07-24)
 
 ### Added
 
-- **"Configure OTEL" button in Settings** — manually re-applies AgentLens's OTEL configuration to Claude Code, Codex, and Copilot on demand, in both the VS Code extension and standalone. Useful when you've changed one of those agents' telemetry settings by hand and want it pointed back at AgentLens without waiting for the next restart (#166)
-- **Notification on successful OTEL auto-configuration** — the VS Code extension now shows an info toast and logs to the Output panel whenever auto-configuration actually changes an agent's config, instead of doing so silently. Stays quiet once already configured, since the underlying write is idempotent (#166)
+- **"Configure OTEL" button in Settings**: manually re-applies AgentLens's OTEL configuration to Claude Code, Codex, and Copilot on demand, in both the VS Code extension and standalone. Useful when you've changed one of those agents' telemetry settings by hand and want it pointed back at AgentLens without waiting for the next restart (#166)
+- **Notification on successful OTEL auto-configuration**: the VS Code extension now shows an info toast and logs to the Output panel whenever auto-configuration actually changes an agent's config, instead of doing so silently. Stays quiet once already configured, since the underlying write is idempotent (#166)
 - **"Live · Current Session Activity" header** on the live session sidebar, in both the standalone dashboard's left panel and the VS Code extension's native sidebar view, making clear what that panel shows (#166)
 - **Log-only sessions now explain why the Trace, Flow, Tools, and Files tabs are empty** instead of rendering silently blank, with a link to the Help tab's OTEL setup section (#166)
 
 ### Fixed
 
-- **Standalone's live session sidebar no longer opens expanded by default** — it duplicated content already visible in the main dashboard; VS Code's own native sidebar is unaffected (#166)
-- **Flow tab showed a nonzero LLM-call count next to an empty canvas** for log-only Codex/Copilot sessions — the tab label counts LLM calls from a field every ingestion path populates, but the canvas itself renders from the session timeline, which log ingestion leaves empty. Now shows a labeled empty state instead of a near-invisible canvas-drawn message (#166)
-- **"Configure OTEL" button hung forever on "Configuring…" in standalone mode** — the standalone dashboard polyfills the VS Code webview API so its `postMessage` calls always take that code path instead of falling back to a direct fetch, but the polyfill had no handler for the new message type, so the request silently went nowhere (#166)
+- **Standalone's live session sidebar no longer opens expanded by default**: it duplicated content already visible in the main dashboard; VS Code's own native sidebar is unaffected (#166)
+- **Flow tab showed a nonzero LLM-call count next to an empty canvas** for log-only Codex/Copilot sessions: the tab label counts LLM calls from a field every ingestion path populates, but the canvas itself renders from the session timeline, which log ingestion leaves empty. Now shows a labeled empty state instead of a near-invisible canvas-drawn message (#166)
+- **"Configure OTEL" button hung forever on "Configuring…" in standalone mode**: the standalone dashboard polyfills the VS Code webview API so its `postMessage` calls always take that code path instead of falling back to a direct fetch, but the polyfill had no handler for the new message type, so the request silently went nowhere (#166)
 
 ---
 
-## [0.8.8] — 2026-07-19
+## [0.8.8] (2026-07-19)
 
 ### Fixed
 
-- **Sessions using more than one model showed the wrong model and mispriced cost** — session cards reported whichever model happened to handle the *last* LLM call, even when a session legitimately used more than one (a Task-tool subagent on a cheaper model, switching models mid-conversation via `/model`). Cost was computed by pricing the session's entire token count at that one model's rate, so mixed-model sessions could be significantly over- or under-billed. Fix: the reported model is now the token-weighted dominant one, a full list of models used is exposed and shown as a "+N" badge in the Sessions tab, and cost is computed per LLM call at that call's own rate whenever a session's timeline shows more than one distinct model — applied consistently in both the extension's stored cost and the webview's live cost calculator, which had the same bug independently (#165)
+- **Sessions using more than one model showed the wrong model and mispriced cost**: session cards reported whichever model happened to handle the *last* LLM call, even when a session legitimately used more than one (a Task-tool subagent on a cheaper model, switching models mid-conversation via `/model`). Cost was computed by pricing the session's entire token count at that one model's rate, so mixed-model sessions could be significantly over- or under-billed. Fix: the reported model is now the token-weighted dominant one, a full list of models used is exposed and shown as a "+N" badge in the Sessions tab, and cost is computed per LLM call at that call's own rate whenever a session's timeline shows more than one distinct model, applied consistently in both the extension's stored cost and the webview's live cost calculator, which had the same bug independently (#165)
 
 ### Added
 
-- **`agentLens.autoConfigureAgents` setting** (default on) — the extension automatically writes OTEL telemetry settings into Claude Code's, Codex's, and GitHub Copilot's own configuration on activation; this is now an inspectable, toggleable setting instead of an unconditional side effect (#165)
+- **`agentLens.autoConfigureAgents` setting** (default on): the extension automatically writes OTEL telemetry settings into Claude Code's, Codex's, and GitHub Copilot's own configuration on activation; this is now an inspectable, toggleable setting instead of an unconditional side effect (#165)
 
 ---
 
-## [0.8.7] — 2026-07-19
+## [0.8.7] (2026-07-19)
 
 ### Chore
 
-- **Upgraded CI, release, and Docker to Node 24** — the release workflow's `publish-npm` job was broken on Node 20: `npm install -g npm@latest` now installs an npm version requiring Node `^22.22.2 || ^24.15.0 || >=26`, so the step failed before ever attempting to publish (this is what blocked npm publishing on v0.8.6). `ci.yml`'s test matrix, all three `release.yml` jobs, and both `Dockerfile` stages now standardize on Node 24 (current Active LTS); `package.json` gained an explicit `engines.node: ">=24"` (#164)
+- **Upgraded CI, release, and Docker to Node 24**: the release workflow's `publish-npm` job was broken on Node 20: `npm install -g npm@latest` now installs an npm version requiring Node `^22.22.2 || ^24.15.0 || >=26`, so the step failed before ever attempting to publish (this is what blocked npm publishing on v0.8.6). `ci.yml`'s test matrix, all three `release.yml` jobs, and both `Dockerfile` stages now standardize on Node 24 (current Active LTS); `package.json` gained an explicit `engines.node: ">=24"` (#164)
 
 ---
 
-## [0.8.6] — 2026-07-19
+## [0.8.6] (2026-07-19)
 
 ### Fixed
 
-- **Opus 4.6 fast mode billed at stale 6x rate** — Anthropic removed fast mode for Claude Opus 4.6 on 2026-06-29 (requests now run at standard speed and bill at standard rates), but the `claude-opus-4-6-fast` rate table entry still applied the old 6x multiplier. Sessions using Opus 4.6 fast mode were overpriced by roughly 5x. Fix: `claude-opus-4-6-fast` now matches the standard `claude-opus-4-6` rate in both `src/pricing.ts` and `media/src/pricing.ts` (#163)
-- **gpt-5-mini, raptor-mini no longer free** — both models moved from GitHub Copilot's included/$0 tier to standard paid AI Credits rates ($0.25/$0.025/–/$2.00 per MTok); sessions using them were showing $0 cost. Fix: rate tables updated to the current paid rate (#163)
-- **gpt-5.5 annual-plan multiplier stale** — `multiplierAnnualPostJun1` was 7.5, current Copilot docs show 57; annual-plan legacy-billing users on gpt-5.5 were significantly underpriced. Fix: corrected in `media/src/pricing.ts` (#163)
+- **Opus 4.6 fast mode billed at stale 6x rate**: Anthropic removed fast mode for Claude Opus 4.6 on 2026-06-29 (requests now run at standard speed and bill at standard rates), but the `claude-opus-4-6-fast` rate table entry still applied the old 6x multiplier. Sessions using Opus 4.6 fast mode were overpriced by roughly 5x. Fix: `claude-opus-4-6-fast` now matches the standard `claude-opus-4-6` rate in both `src/pricing.ts` and `media/src/pricing.ts` (#163)
+- **gpt-5-mini, raptor-mini no longer free**: both models moved from GitHub Copilot's included/$0 tier to standard paid AI Credits rates ($0.25/$0.025/–/$2.00 per MTok); sessions using them were showing $0 cost. Fix: rate tables updated to the current paid rate (#163)
+- **gpt-5.5 annual-plan multiplier stale**: `multiplierAnnualPostJun1` was 7.5, current Copilot docs show 57; annual-plan legacy-billing users on gpt-5.5 were significantly underpriced. Fix: corrected in `media/src/pricing.ts` (#163)
 
 ### Added
 
-- **New models** — `claude-sonnet-5` (introductory pricing through 2026-08-31), `claude-mythos-5`, the `gpt-5.6` family (Luna/Terra/Sol), and new Copilot marketplace models `mai-code-1-flash` / `kimi-k2.7-code` (#163)
+- **New models**: `claude-sonnet-5` (introductory pricing through 2026-08-31), `claude-mythos-5`, the `gpt-5.6` family (Luna/Terra/Sol), and new Copilot marketplace models `mai-code-1-flash` / `kimi-k2.7-code` (#163)
 
 ### Docs
 
@@ -727,93 +727,93 @@ These ship only in the full edition; released core builds contain no TraceRoost 
 
 ---
 
-## [0.8.5] — 2026-06-15
+## [0.8.5] (2026-06-15)
 
 ### Fixed
 
-- **First session in standalone Traces tab never loads timeline** — The first session in the Traces tab starts expanded by default, but `loadSessionDetail` was only dispatched inside `toggle()`, which fires on user click. The auto-expanded session would show "Loading timeline…" indefinitely until the user manually collapsed and re-expanded it. Fix: add a `useEffect` that fires on mount (and whenever `collapsed` changes) to dispatch the fetch whenever the session is expanded but its timeline has not yet loaded (#161, #162)
+- **First session in standalone Traces tab never loads timeline**: The first session in the Traces tab starts expanded by default, but `loadSessionDetail` was only dispatched inside `toggle()`, which fires on user click. The auto-expanded session would show "Loading timeline…" indefinitely until the user manually collapsed and re-expanded it. Fix: add a `useEffect` that fires on mount (and whenever `collapsed` changes) to dispatch the fetch whenever the session is expanded but its timeline has not yet loaded (#161, #162)
 
 ---
 
-## [0.8.4] — 2026-06-14
+## [0.8.4] (2026-06-14)
 
 ### Fixed
 
-- **Per-turn token costs wrong for cached Claude turns** — `TimelineEntry` had no `cacheReadTokens` / `cacheCreateTokens` fields, so `calcEntryCost` passed zeros for both cache tiers and billed every token at the full input rate. A turn with 100 K total context where 90 K is cached was priced ~5–10× too high, and costs looked uniform across turns because the inflated formula only grew with the slowly-expanding context window. Fix: add the two optional fields throughout the pipeline (summarizer, DB schema + migration, writer, reader, webview types) and update `calcEntryCost` to apply the correct cache-read (10%) and cache-write (125%) rates. The Traces tab StepRow compact display now shows total tokens and cache-read count on two short lines that fit the 90 px column instead of a single overflowing string (#157, #159)
-- **Standalone server locks up Safari on load** — `getHtml()` inlined `window.__INITIAL_SPANS__` (the full raw spans array, never consumed by the Preact app — potentially multiple MB) and full per-session timeline arrays inside `__INITIAL_SESSION_SUMMARY__`, all synchronously in `<script>` tags before `dashboard.js` could evaluate. Safari's JavaScriptCore parses large inline scripts on the main thread with no incremental yield, freezing the page immediately after first paint. The raw spans array was also re-sent in every SSE update payload. Fix: remove `__INITIAL_SPANS__` entirely, strip timeline arrays from the inline summary, add `/api/summary` and `/api/timeline/:sessionId` endpoints for lazy loading, wire `loadSessionDetail` in the `acquireVsCodeApi` shim to fetch timelines on demand, and add an SSE `onerror` → 2-second polling fallback so Safari private mode (where ITP blocks `EventSource`) shows live data instead of a frozen page. Diagnostic `console.log` timestamps are now emitted at key load stages to aid future cross-browser diagnosis (#158, #160)
+- **Per-turn token costs wrong for cached Claude turns**: `TimelineEntry` had no `cacheReadTokens` / `cacheCreateTokens` fields, so `calcEntryCost` passed zeros for both cache tiers and billed every token at the full input rate. A turn with 100 K total context where 90 K is cached was priced ~5–10× too high, and costs looked uniform across turns because the inflated formula only grew with the slowly-expanding context window. Fix: add the two optional fields throughout the pipeline (summarizer, DB schema + migration, writer, reader, webview types) and update `calcEntryCost` to apply the correct cache-read (10%) and cache-write (125%) rates. The Traces tab StepRow compact display now shows total tokens and cache-read count on two short lines that fit the 90 px column instead of a single overflowing string (#157, #159)
+- **Standalone server locks up Safari on load**: `getHtml()` inlined `window.__INITIAL_SPANS__` (the full raw spans array, never consumed by the Preact app, potentially multiple MB) and full per-session timeline arrays inside `__INITIAL_SESSION_SUMMARY__`, all synchronously in `<script>` tags before `dashboard.js` could evaluate. Safari's JavaScriptCore parses large inline scripts on the main thread with no incremental yield, freezing the page immediately after first paint. The raw spans array was also re-sent in every SSE update payload. Fix: remove `__INITIAL_SPANS__` entirely, strip timeline arrays from the inline summary, add `/api/summary` and `/api/timeline/:sessionId` endpoints for lazy loading, wire `loadSessionDetail` in the `acquireVsCodeApi` shim to fetch timelines on demand, and add an SSE `onerror` → 2-second polling fallback so Safari private mode (where ITP blocks `EventSource`) shows live data instead of a frozen page. Diagnostic `console.log` timestamps are now emitted at key load stages to aid future cross-browser diagnosis (#158, #160)
 
 ---
 
-## [0.8.3] — 2026-06-14
+## [0.8.3] (2026-06-14)
 
 ### Fixed
 
-- **OOM crash during long Claude Code sessions with enhanced telemetry** — `genAiResponseBuffer` in the OTLP collector leaked one large JSON blob per LLM call when the `claude_code.llm_request` span arrived before its matching `gen_ai.choice` log event (the common ordering with `gen_ai_latest_experimental`). `processTraces` deleted buffer entries when it consumed them, but when the span was already in the store by the time the log arrived, `processLogs` injected immediately and never cleaned up its own entry. Over a long session the buffer accumulated the full accumulated conversation context for every turn, growing the heap to the 4 GB V8 limit and crashing VS Code. Fix: check `injectSpanAttribute`'s return value and delete the buffer key immediately on successful injection. A 500-entry LRU-style cap also guards against orphaned entries when a span is dropped by the agent's OTLP exporter (#155, #156)
+- **OOM crash during long Claude Code sessions with enhanced telemetry**: `genAiResponseBuffer` in the OTLP collector leaked one large JSON blob per LLM call when the `claude_code.llm_request` span arrived before its matching `gen_ai.choice` log event (the common ordering with `gen_ai_latest_experimental`). `processTraces` deleted buffer entries when it consumed them, but when the span was already in the store by the time the log arrived, `processLogs` injected immediately and never cleaned up its own entry. Over a long session the buffer accumulated the full accumulated conversation context for every turn, growing the heap to the 4 GB V8 limit and crashing VS Code. Fix: check `injectSpanAttribute`'s return value and delete the buffer key immediately on successful injection. A 500-entry LRU-style cap also guards against orphaned entries when a span is dropped by the agent's OTLP exporter (#155, #156)
 
 ---
 
-## [0.8.2] — 2026-06-11
+## [0.8.2] (2026-06-11)
 
 ### Fixed
 
-- **Windows: Codex and Copilot CLI sessions not discovered** — `codexSessionsDirs()` and `copilotSessionStateDir()` only checked Unix-style home-directory paths. On Windows, Codex likely stores sessions under `%LOCALAPPDATA%\Codex\sessions` or `%APPDATA%\Codex\sessions`, and Copilot CLI under `%APPDATA%\copilot\session-state`. Both are now checked as primary candidates on `win32` before falling back to the `~/.codex` / `~/.copilot` paths, matching the existing pattern used for Claude Code (#153, #154)
+- **Windows: Codex and Copilot CLI sessions not discovered**: `codexSessionsDirs()` and `copilotSessionStateDir()` only checked Unix-style home-directory paths. On Windows, Codex likely stores sessions under `%LOCALAPPDATA%\Codex\sessions` or `%APPDATA%\Codex\sessions`, and Copilot CLI under `%APPDATA%\copilot\session-state`. Both are now checked as primary candidates on `win32` before falling back to the `~/.codex` / `~/.copilot` paths, matching the existing pattern used for Claude Code (#153, #154)
 
 ---
 
-## [0.8.1] — 2026-06-11
+## [0.8.1] (2026-06-11)
 
 ### Fixed
 
-- **Standalone UI hangs empty on startup** — `startLogIngestion()` awaits sql.js before scanning, so the browser frequently connects to the SSE `/events` endpoint during that async gap and receives an empty payload. After the scan completes and `logSessions` is populated, `fileState` is fully current so the 5-second `runLogScan` poll finds no changed files and never pushes an update — the dashboard stays blank indefinitely. Fix: call `pushUpdate()` at the end of `startLogIngestion()` to flush sessions to any already-connected SSE clients (#151, #152)
+- **Standalone UI hangs empty on startup**: `startLogIngestion()` awaits sql.js before scanning, so the browser frequently connects to the SSE `/events` endpoint during that async gap and receives an empty payload. After the scan completes and `logSessions` is populated, `fileState` is fully current so the 5-second `runLogScan` poll finds no changed files and never pushes an update, so the dashboard stays blank indefinitely. Fix: call `pushUpdate()` at the end of `startLogIngestion()` to flush sessions to any already-connected SSE clients (#151, #152)
 
 ---
 
-## [0.8.0] — 2026-06-10
+## [0.8.0] (2026-06-10)
 
 ### Added
 
-- **OpenCode support** — AgentLens now reads OpenCode's local SQLite database (`~/.local/share/opencode/opencode.db` on Mac/Linux, `%APPDATA%\opencode\opencode.db` on Windows) directly, with no agent configuration required. Sessions, messages, parts (tool calls, file accesses), and token counts are all parsed; the WAL is merged at read time so sessions appear immediately after each run. Subagent sessions (`parent_id` set) are excluded. Falls back to reading `storage/message/*.json` files when the SQLite driver is not available (Docker). Override the default path with `OPENCODE_DATA_DIR` (comma-separated for multiple directories). Windows path (`%APPDATA%\opencode`) is also checked automatically (#147)
-- **Import tab** — New **Import** tab in the dashboard accepts an AgentLens JSON export file (drag-drop or file picker), shows a preview with session count by agent source and date range, then imports with live progress updates. Sessions already present in the local database are skipped automatically. Works in both VS Code extension mode and standalone server mode. The standalone server adds a `/api/import` endpoint for the batched POST path (#148)
-- **Pricing: claude-fable-5** — Added `claude-fable-5` to both pricing tables at `$10/$50` per MTok input/output with a 1 M token context window (#150)
-- **Pricing: big-pickle** — Added `big-pickle` (OpenCode's stealth model, free during limited evaluation) to both pricing tables (#147)
+- **OpenCode support**: AgentLens now reads OpenCode's local SQLite database (`~/.local/share/opencode/opencode.db` on Mac/Linux, `%APPDATA%\opencode\opencode.db` on Windows) directly, with no agent configuration required. Sessions, messages, parts (tool calls, file accesses), and token counts are all parsed; the WAL is merged at read time so sessions appear immediately after each run. Subagent sessions (`parent_id` set) are excluded. Falls back to reading `storage/message/*.json` files when the SQLite driver is not available (Docker). Override the default path with `OPENCODE_DATA_DIR` (comma-separated for multiple directories). Windows path (`%APPDATA%\opencode`) is also checked automatically (#147)
+- **Import tab**: New **Import** tab in the dashboard accepts an AgentLens JSON export file (drag-drop or file picker), shows a preview with session count by agent source and date range, then imports with live progress updates. Sessions already present in the local database are skipped automatically. Works in both VS Code extension mode and standalone server mode. The standalone server adds a `/api/import` endpoint for the batched POST path (#148)
+- **Pricing: claude-fable-5**: Added `claude-fable-5` to both pricing tables at `$10/$50` per MTok input/output with a 1 M token context window (#150)
+- **Pricing: big-pickle**: Added `big-pickle` (OpenCode's stealth model, free during limited evaluation) to both pricing tables (#147)
 
 ### Fixed
 
-- **Import hang in VS Code** — Importing sessions previously blocked indefinitely because `drain()` returned the shared `drainPromise`, which could be an in-flight log-reader drain waiting on async blob writes. Import now uses a dedicated `importCards()` synchronous transaction path that bypasses the drain pipeline entirely (#148)
-- **Import progress stuck at 0 in standalone** — Standalone HTML injects `window.acquireVsCodeApi` as a shim, making `vscode` truthy even in browser mode. The Import tab now checks `window.__STANDALONE__` to route correctly, and sends sessions in 50-session batches so progress updates are visible during large imports (#148)
-- **Context window values for 1 M-context models** — `contextWindowTokens` corrected from `200_000` to `1_000_000` for all Opus 4.x, Sonnet 4.x, and Opus fast-mode entries; these models have supported 1 M context since Opus 4.6 (#150)
+- **Import hang in VS Code**: Importing sessions previously blocked indefinitely because `drain()` returned the shared `drainPromise`, which could be an in-flight log-reader drain waiting on async blob writes. Import now uses a dedicated `importCards()` synchronous transaction path that bypasses the drain pipeline entirely (#148)
+- **Import progress stuck at 0 in standalone**: Standalone HTML injects `window.acquireVsCodeApi` as a shim, making `vscode` truthy even in browser mode. The Import tab now checks `window.__STANDALONE__` to route correctly, and sends sessions in 50-session batches so progress updates are visible during large imports (#148)
+- **Context window values for 1 M-context models**: `contextWindowTokens` corrected from `200_000` to `1_000_000` for all Opus 4.x, Sonnet 4.x, and Opus fast-mode entries; these models have supported 1 M context since Opus 4.6 (#150)
 
-## [0.7.3] — 2026-06-09
+## [0.7.3] (2026-06-09)
 
 ### Fixed
 
-- **sql.js not resolvable in packaged extension** — `require('sql.js')` failed with `Cannot find module` in installed extensions because `sql.js` was marked external in esbuild but `node_modules` is excluded from the `.vsix`. `sql-wasm.js` is now copied to `dist/` at build time and required by path; covers both the primary window (`openDatabase`) and secondary sync windows (`openReadonlySnapshot`) (#141)
-- **Friendly EADDRINUSE errors** — MCP (port 4316) and UI (port 3000) servers now print an actionable message and exit cleanly on port conflict instead of crashing with a raw Node stack trace; all three servers (OTLP, MCP, UI) now use the same pattern (#140)
+- **sql.js not resolvable in packaged extension**: `require('sql.js')` failed with `Cannot find module` in installed extensions because `sql.js` was marked external in esbuild but `node_modules` is excluded from the `.vsix`. `sql-wasm.js` is now copied to `dist/` at build time and required by path; covers both the primary window (`openDatabase`) and secondary sync windows (`openReadonlySnapshot`) (#141)
+- **Friendly EADDRINUSE errors**: MCP (port 4316) and UI (port 3000) servers now print an actionable message and exit cleanly on port conflict instead of crashing with a raw Node stack trace; all three servers (OTLP, MCP, UI) now use the same pattern (#140)
 
 ---
 
-## [0.7.2] — 2026-06-08
+## [0.7.2] (2026-06-08)
 
 ### Fixed
 
-- `media/help-mascot.png` removed from `.dockerignore`, `.vscodeignore`, and `.npmignore` — it is served by the VS Code webview, standalone server, and Docker image and must be included in all packages; only `media/demo.gif` is README-only
+- `media/help-mascot.png` removed from `.dockerignore`, `.vscodeignore`, and `.npmignore`: it is served by the VS Code webview, standalone server, and Docker image and must be included in all packages; only `media/demo.gif` is README-only
 
 ---
 
-## [0.7.1] — 2026-06-08
+## [0.7.1] (2026-06-08)
 
 ### Added
 
-- **Ingestion toggles** — new Settings tab with per-source ingestion toggles (Claude Code logs, Copilot logs, OTEL spans); each source can be disabled independently without clearing data
+- **Ingestion toggles**: new Settings tab with per-source ingestion toggles (Claude Code logs, Copilot logs, OTEL spans); each source can be disabled independently without clearing data
 
 ### Fixed
 
-- **Fast mode cost multiplier** — fast mode sessions now apply the 5× cost multiplier from the `usage.speed` field; was previously ignored, causing fast mode sessions to be underpriced (#124)
-- **Tiered pricing for claude-sonnet-4** — input tokens above 200 K now apply the correct surcharge tier; the `calcTokenCostUsd` calling convention was also corrected to pre-subtract cache tokens before tier lookup (#130)
-- **Copilot OTEL token convention** — GPT-model Copilot sessions use the OpenAI token convention (`input_tokens` = total context including cached); the summarizer no longer double-counts cached tokens when `cacheRead` is non-zero (#133)
-- **Unpriced sessions excluded from cost chart** — sessions with unrecognized model IDs (grey `?` markers) are now filtered out of the ESTIMATED COST bar chart; they contributed $0 to all calculations but consumed slots and created visual noise; a footnote reports how many were excluded (#135)
-- **"Clear All Data" visually confirms** — post-clear re-ingestion delay increased from 500 ms to 5 s so the cleared state is visible before sessions reload (#136)
-- **Dashboard picks up log scan results** — `DashboardPanel.update()` is now called after every `runLogScan` drain; previously the dashboard could lag up to 40 s behind the sidebar after a log scan (#136)
+- **Fast mode cost multiplier**: fast mode sessions now apply the 5× cost multiplier from the `usage.speed` field; was previously ignored, causing fast mode sessions to be underpriced (#124)
+- **Tiered pricing for claude-sonnet-4**: input tokens above 200 K now apply the correct surcharge tier; the `calcTokenCostUsd` calling convention was also corrected to pre-subtract cache tokens before tier lookup (#130)
+- **Copilot OTEL token convention**: GPT-model Copilot sessions use the OpenAI token convention (`input_tokens` = total context including cached); the summarizer no longer double-counts cached tokens when `cacheRead` is non-zero (#133)
+- **Unpriced sessions excluded from cost chart**: sessions with unrecognized model IDs (grey `?` markers) are now filtered out of the ESTIMATED COST bar chart; they contributed $0 to all calculations but consumed slots and created visual noise; a footnote reports how many were excluded (#135)
+- **"Clear All Data" visually confirms**: post-clear re-ingestion delay increased from 500 ms to 5 s so the cleared state is visible before sessions reload (#136)
+- **Dashboard picks up log scan results**: `DashboardPanel.update()` is now called after every `runLogScan` drain; previously the dashboard could lag up to 40 s behind the sidebar after a log scan (#136)
 
 ### Chore
 
@@ -822,152 +822,152 @@ These ship only in the full edition; released core builds contain no TraceRoost 
 
 ---
 
-## [0.7.0] — 2026-06-07
+## [0.7.0] (2026-06-07)
 
 ### Added
 
-- **Advisor tab** — new tab (merged into the Patterns tab area) with three sub-panels:
-  - *Instruction Advisor* — surfaces per-workspace suggestions derived from session patterns: hot file guidance, loop prevention rules, scope discipline, tool discipline, and discovery prompts; each card shows the suggested text and an "Apply to file" button with a file-picker dropdown targeting detected instruction files (CLAUDE.md, .cursorrules, etc.)
-  - *Instruction Effectiveness* — tracks the before/after impact of applied suggestions; compares cost-per-session and turns-per-session in a 20-session window before vs. after each applied suggestion; surface area shows `baselineCostAvg`, `postCostAvg`, delta, and a trend indicator; requires at least 5 post-apply sessions to report
-  - *Prompt Analyzer* — pre-session cost prediction and context advice (foundation for issue #119)
-- **Hot Files — Written mode** — new toggle on the Patterns tab Hot Files panel; switches from "files read most" to "files fully written by the agent"; files where the agent overwrote the entire content are ranked by session count; tip box adapts to Written mode with guidance on what fully-written files indicate
-- **Instruction file apply/remove** — suggestions can be applied directly to a target file (appends a marked block `<!-- AgentLens suggestion applied -->`); remove clears the block; both VS Code extension and standalone server support apply/remove; standalone adds `POST /api/instructions/apply` and `DELETE /api/instructions/applied/:id` endpoints
-- **Effectiveness persistence** — `instruction_applied` and `instruction_dismissed` SQLite tables store applied suggestion records, baseline snapshots, and dismissed IDs per workspace; `InstructionRepository` and `InstructionEffectiveness` modules implement the full persistence and computation layer
-- **Understanding Cost Estimates** — new Help section explaining how costs are derived, why estimates differ from billing, what "accumulated" means for multi-turn cached sessions, and known gaps per agent
+- **Advisor tab**: new tab (merged into the Patterns tab area) with three sub-panels:
+  - *Instruction Advisor*: surfaces per-workspace suggestions derived from session patterns: hot file guidance, loop prevention rules, scope discipline, tool discipline, and discovery prompts; each card shows the suggested text and an "Apply to file" button with a file-picker dropdown targeting detected instruction files (CLAUDE.md, .cursorrules, etc.)
+  - *Instruction Effectiveness*: tracks the before/after impact of applied suggestions; compares cost-per-session and turns-per-session in a 20-session window before vs. after each applied suggestion; surface area shows `baselineCostAvg`, `postCostAvg`, delta, and a trend indicator; requires at least 5 post-apply sessions to report
+  - *Prompt Analyzer*: pre-session cost prediction and context advice (foundation for issue #119)
+- **Hot Files: Written mode**: new toggle on the Patterns tab Hot Files panel; switches from "files read most" to "files fully written by the agent"; files where the agent overwrote the entire content are ranked by session count; tip box adapts to Written mode with guidance on what fully-written files indicate
+- **Instruction file apply/remove**: suggestions can be applied directly to a target file (appends a marked block `<!-- AgentLens suggestion applied -->`); remove clears the block; both VS Code extension and standalone server support apply/remove; standalone adds `POST /api/instructions/apply` and `DELETE /api/instructions/applied/:id` endpoints
+- **Effectiveness persistence**: `instruction_applied` and `instruction_dismissed` SQLite tables store applied suggestion records, baseline snapshots, and dismissed IDs per workspace; `InstructionRepository` and `InstructionEffectiveness` modules implement the full persistence and computation layer
+- **Understanding Cost Estimates**: new Help section explaining how costs are derived, why estimates differ from billing, what "accumulated" means for multi-turn cached sessions, and known gaps per agent
 
 ### UX
 
-- **$0.00 row suppression** — cost table hides rows with zero estimated cost by default; "Show $0" toggle reveals them; reduces visual noise for agents that produce no billable activity in the window
-- **Cost disclaimer link** — `?` link on the "ESTIMATED COST" heading and in the disclaimer bar jumps to the Understanding Cost Estimates Help section
-- **Accumulated token display** — tooltip clarifies that token counts for cached sessions represent accumulated totals across the turn chain, not per-turn usage
+- **$0.00 row suppression**: cost table hides rows with zero estimated cost by default; "Show $0" toggle reveals them; reduces visual noise for agents that produce no billable activity in the window
+- **Cost disclaimer link**: `?` link on the "ESTIMATED COST" heading and in the disclaimer bar jumps to the Understanding Cost Estimates Help section
+- **Accumulated token display**: tooltip clarifies that token counts for cached sessions represent accumulated totals across the turn chain, not per-turn usage
 
 ### Fixed
 
-- **Strict equality** — replaced all `!= null` / `== null` comparisons with `!== null` / `=== null` (eqeqeq lint rule) across App.tsx, sidebarWebview.ts, reader.ts, and sessionRepository.ts
-- **Stale instruction files on workspace switch** — switching the workspace filter to "All" now clears the `instructionFiles` signal, preventing stale file options from a previous workspace appearing in the Apply dropdown
-- **Standalone remove endpoint** — VS Code extension had `removeInstructionSuggestion` message handling but standalone had no HTTP endpoint; added `DELETE /api/instructions/applied/:id` that scans all session workspaces
+- **Strict equality**: replaced all `!= null` / `== null` comparisons with `!== null` / `=== null` (eqeqeq lint rule) across App.tsx, sidebarWebview.ts, reader.ts, and sessionRepository.ts
+- **Stale instruction files on workspace switch**: switching the workspace filter to "All" now clears the `instructionFiles` signal, preventing stale file options from a previous workspace appearing in the Apply dropdown
+- **Standalone remove endpoint**: VS Code extension had `removeInstructionSuggestion` message handling but standalone had no HTTP endpoint; added `DELETE /api/instructions/applied/:id` that scans all session workspaces
 
 ---
 
-## [0.6.1] — 2026-06-06
+## [0.6.1] (2026-06-06)
 
 ### Added
 
-- **Workspace filter** — new dropdown in the filter bar surfaces the project path for each session and lets you narrow the view to a single workspace; works across Sessions, Analytics, Patterns, and Export tabs
-- **Cross-source workspace resolution** — OTEL-traced sessions (Claude Code, Codex) that lack a workspace attribute are matched to a log-ingested session from the same source that started within the same minute; the resolved workspace propagates to the OTEL session for filter purposes
-- **Codex workspace from session_meta** — Codex sessions now read `session_meta.cwd` as the workspace path instead of the date-based directory name
+- **Workspace filter**: new dropdown in the filter bar surfaces the project path for each session and lets you narrow the view to a single workspace; works across Sessions, Analytics, Patterns, and Export tabs
+- **Cross-source workspace resolution**: OTEL-traced sessions (Claude Code, Codex) that lack a workspace attribute are matched to a log-ingested session from the same source that started within the same minute; the resolved workspace propagates to the OTEL session for filter purposes
+- **Codex workspace from session_meta**: Codex sessions now read `session_meta.cwd` as the workspace path instead of the date-based directory name
 
 ### Fixed
 
-- **Workspace in live sessions** — OTEL span attributes (`process.cwd`, `session.workspace`) are now extracted and surfaced in live (in-memory) sessions, not just persisted ones
-- **Workspace filter applied to DB results** — `rangedSessions` was not applying the workspace filter to SQLite query results; fixed to filter in the DB layer
+- **Workspace in live sessions**: OTEL span attributes (`process.cwd`, `session.workspace`) are now extracted and surfaced in live (in-memory) sessions, not just persisted ones
+- **Workspace filter applied to DB results**: `rangedSessions` was not applying the workspace filter to SQLite query results; fixed to filter in the DB layer
 
 ---
 
-## [0.6.0] — 2026-06-05
+## [0.6.0] (2026-06-05)
 
 ### Added
 
-- **Patterns tab** — new cross-session behavioral analysis tab with two panels:
-  - *Efficiency Map* — scatter plot (cost × LLM calls) colored by cache hit rate; click any dot to navigate to that session; top-10 table is sortable by time, cost, turns, or cache hit; each row shows an agent dot and a time hyperlink that jumps to the expanded session in the Sessions tab
-  - *Hot Files* — files the agent accessed most often, ranked by session count; shows read and changed counts per file with a "last seen" date; tip box adapts per mode (Read / Changed / Both) explaining what to do about each pattern
-- **MCP server** — Streamable HTTP server (port 4316) that gives Claude Code and other agents direct access to session history via five tools: `get_recent_sessions`, `get_workspace_patterns`, `get_session_detail`, `find_relevant_context`, `get_efficiency_report`; toggle in Settings; auto-starts with the extension; standalone server also runs on port 4316
-- **Shared filter bar** — time range, agent, source, text search, and From (initiator) filters now appear on Sessions, Analytics, Patterns, and Export tabs; state retained when switching tabs; Reset available everywhere
-- **Export respects filters** — export sends the active filtered session IDs to the backend; both VS Code and standalone export only what is visible, not the full database
-- **Chart → session navigation** — clicking a bar in Estimated Cost or Token Usage Per Session, or a line in Context Growth, navigates to the Sessions tab and expands that session
-- **Loop signals for log sessions** — `detectLoopSignals` now runs on log-reader sessions (was always empty); exact-tool-repeat and runaway-step signals now appear on log-sourced sessions
-- **VS Code-family IDE coverage** — Copilot Chat log ingestion now scans Cursor, Windsurf, VSCodium, Trae, and Kiro workspace storage directories in addition to VS Code and VS Code Insiders
-- **Improved ingestion logs** — span ingestion now shows agent name instead of a running total; session load shows per-agent breakdown with source directories
+- **Patterns tab**: new cross-session behavioral analysis tab with two panels:
+  - *Efficiency Map*: scatter plot (cost × LLM calls) colored by cache hit rate; click any dot to navigate to that session; top-10 table is sortable by time, cost, turns, or cache hit; each row shows an agent dot and a time hyperlink that jumps to the expanded session in the Sessions tab
+  - *Hot Files*: files the agent accessed most often, ranked by session count; shows read and changed counts per file with a "last seen" date; tip box adapts per mode (Read / Changed / Both) explaining what to do about each pattern
+- **MCP server**: Streamable HTTP server (port 4316) that gives Claude Code and other agents direct access to session history via five tools: `get_recent_sessions`, `get_workspace_patterns`, `get_session_detail`, `find_relevant_context`, `get_efficiency_report`; toggle in Settings; auto-starts with the extension; standalone server also runs on port 4316
+- **Shared filter bar**: time range, agent, source, text search, and From (initiator) filters now appear on Sessions, Analytics, Patterns, and Export tabs; state retained when switching tabs; Reset available everywhere
+- **Export respects filters**: export sends the active filtered session IDs to the backend; both VS Code and standalone export only what is visible, not the full database
+- **Chart → session navigation**: clicking a bar in Estimated Cost or Token Usage Per Session, or a line in Context Growth, navigates to the Sessions tab and expands that session
+- **Loop signals for log sessions**: `detectLoopSignals` now runs on log-reader sessions (was always empty); exact-tool-repeat and runaway-step signals now appear on log-sourced sessions
+- **VS Code-family IDE coverage**: Copilot Chat log ingestion now scans Cursor, Windsurf, VSCodium, Trae, and Kiro workspace storage directories in addition to VS Code and VS Code Insiders
+- **Improved ingestion logs**: span ingestion now shows agent name instead of a running total; session load shows per-agent breakdown with source directories
 - **Context and Context Window** added to the Help glossary with precise definitions
 
 ### UX
 
-- **Analytics section headers** — all-caps with letter-spacing; first section spacing tightened to match filter bar
-- **Patterns section headers** — all-caps with letter-spacing, matching Analytics style
-- **Context Growth chart** — most recent 25 sessions shown (was oldest 25); session count label; ◀▶ step buttons moved next to speed controls; fixed step buttons not highlighting when an external session focus was set
-- **Context Growth bug fix** — chart was missing for log-sourced sessions because tool-using turns were classified as `type:'tool'` instead of `'llm'`; now correctly picks up turns with `inputTokens > 0` regardless of type
-- **View Automations button** — automation popup now has a View Automations button to the left of Copy Prompt, matching the alert popup pattern
-- **Padding and spacing** — added padding above sessions table, patterns content, and export cards
-- **Export tab** — removed total session count header; removed "browser download" label
+- **Analytics section headers**: all-caps with letter-spacing; first section spacing tightened to match filter bar
+- **Patterns section headers**: all-caps with letter-spacing, matching Analytics style
+- **Context Growth chart**: most recent 25 sessions shown (was oldest 25); session count label; ◀▶ step buttons moved next to speed controls; fixed step buttons not highlighting when an external session focus was set
+- **Context Growth bug fix**: chart was missing for log-sourced sessions because tool-using turns were classified as `type:'tool'` instead of `'llm'`; now correctly picks up turns with `inputTokens > 0` regardless of type
+- **View Automations button**: automation popup now has a View Automations button to the left of Copy Prompt, matching the alert popup pattern
+- **Padding and spacing**: added padding above sessions table, patterns content, and export cards
+- **Export tab**: removed total session count header; removed "browser download" label
 
 ### Fixed
 
-- **Analytics charts filter** — Estimated Cost bar chart, Token Usage Per Session, and Context Growth were not updating when the text filter or From filter changed; fixed to use `filteredSessions` (sorted by time) instead of `rangedSessions`
-- **Refresh button stale range** — time range picker's Refresh button now writes the fresh `TimeRange` to the signal before calling `fireSearch`, fixing stale in-memory session boundaries after refresh
-- **MCP workspace filter no-op** — `get_recent_sessions` workspace filter had `|| true` making it always pass; removed
-- **logReader sparse array crash** — `Math.max(...turnTimestamps)` on a sparse array (turns with missing timestamps) threw `RangeError: Invalid time value`; now filters undefined entries first
-- **Cost sort wrong pricing mode** — session sort by cost was pricing session B with session A's mode; fixed to derive mode per session
-- **Session detail request on every render** — `vscode.postMessage({ type: 'loadSessionDetail' })` was called in the render body of `SessionDetail`, firing on every re-render; moved into `useEffect`
-- **Export standalone fix** — standalone export was a no-op (re-dispatched message to window with no listener); now triggers a real browser download
-- **Redacted export** — now replaces file paths with `[redacted]` in addition to prompt text
-- **`scheduleWatchScan` debounce** — was leading-edge (only first event in a burst); converted to trailing-edge so scan fires 300ms after the *last* fs.watch event, preventing partial reads during streaming file writes
+- **Analytics charts filter**: Estimated Cost bar chart, Token Usage Per Session, and Context Growth were not updating when the text filter or From filter changed; fixed to use `filteredSessions` (sorted by time) instead of `rangedSessions`
+- **Refresh button stale range**: time range picker's Refresh button now writes the fresh `TimeRange` to the signal before calling `fireSearch`, fixing stale in-memory session boundaries after refresh
+- **MCP workspace filter no-op**: `get_recent_sessions` workspace filter had `|| true` making it always pass; removed
+- **logReader sparse array crash**: `Math.max(...turnTimestamps)` on a sparse array (turns with missing timestamps) threw `RangeError: Invalid time value`; now filters undefined entries first
+- **Cost sort wrong pricing mode**: session sort by cost was pricing session B with session A's mode; fixed to derive mode per session
+- **Session detail request on every render**: `vscode.postMessage({ type: 'loadSessionDetail' })` was called in the render body of `SessionDetail`, firing on every re-render; moved into `useEffect`
+- **Export standalone fix**: standalone export was a no-op (re-dispatched message to window with no listener); now triggers a real browser download
+- **Redacted export**: now replaces file paths with `[redacted]` in addition to prompt text
+- **`scheduleWatchScan` debounce**: was leading-edge (only first event in a burst); converted to trailing-edge so scan fires 300ms after the *last* fs.watch event, preventing partial reads during streaming file writes
 
 ### Docs
 
-- **Help — Patterns section** — new section in the TOC and content covering the Efficiency Map and Hot Files panels
-- **Help — Export section** — corrected description; export now respects active filters
-- **Help — Agent Integration** — CLAUDE.md block tightened to 2 lines; note added that brevity avoids context window bloat; standalone MCP URL corrected to port 4316
-- **README** — Patterns feature bullet added; Export bullet updated to reflect filter-aware export
-- **CLAUDE.md** — tightened to 2-line instruction block
+- **Help, Patterns section**: new section in the TOC and content covering the Efficiency Map and Hot Files panels
+- **Help, Export section**: corrected description; export now respects active filters
+- **Help, Agent Integration**: CLAUDE.md block tightened to 2 lines; note added that brevity avoids context window bloat; standalone MCP URL corrected to port 4316
+- **README**: Patterns feature bullet added; Export bullet updated to reflect filter-aware export
+- **CLAUDE.md**: tightened to 2-line instruction block
 
 ---
 
-## [0.5.0] — 2026-06-03
+## [0.5.0] (2026-06-03)
 
 ### UX
 
-- **Navigation overhauled** — tab bar collapsed from six entries to three data views (`Sessions | Analytics | Export`); three icon buttons sit right-aligned in the header
-- **Bell icon — active alert status** — badge shows the number of currently triggered alerts; click to open a compact status card listing each alert with severity, name, and detail text; "Configure alerts →" link jumps to the settings panel
-- **Gear icon — settings panel** — slide-in panel (440px, scrollable) with collapsible Alerts and Automation sections, both open by default; close with × or Escape
-- **Help icon** — replaces the Help tab; active state shows the same blue underline as tab buttons
-- **SVG icons throughout** — bell, gear, help, and refresh buttons are all stroke-based SVGs using `currentColor`; same visual weight at any size, work in dark and light themes with no emoji rendering quirks
-- **Severity dots in alert card** — alert card rows use small coloured circles instead of emoji for severity indicators
-- **Tab bar alignment** — tabs now sit flush to the top of the view in both VS Code and standalone; standalone sidebar gets 8px top padding for breathing room
-- **Agent key legend removed** — the `● Copilot ● Claude ● Codex` row at the top of the sidebar was redundant with the per-session agent indicator already shown in each card
+- **Navigation overhauled**: tab bar collapsed from six entries to three data views (`Sessions | Analytics | Export`); three icon buttons sit right-aligned in the header
+- **Bell icon, active alert status**: badge shows the number of currently triggered alerts; click to open a compact status card listing each alert with severity, name, and detail text; "Configure alerts →" link jumps to the settings panel
+- **Gear icon, settings panel**: slide-in panel (440px, scrollable) with collapsible Alerts and Automation sections, both open by default; close with × or Escape
+- **Help icon**: replaces the Help tab; active state shows the same blue underline as tab buttons
+- **SVG icons throughout**: bell, gear, help, and refresh buttons are all stroke-based SVGs using `currentColor`; same visual weight at any size, work in dark and light themes with no emoji rendering quirks
+- **Severity dots in alert card**: alert card rows use small coloured circles instead of emoji for severity indicators
+- **Tab bar alignment**: tabs now sit flush to the top of the view in both VS Code and standalone; standalone sidebar gets 8px top padding for breathing room
+- **Agent key legend removed**: the `● Copilot ● Claude ● Codex` row at the top of the sidebar was redundant with the per-session agent indicator already shown in each card
 
 ### Fixed
 
-- **Copilot Chat log ingestion** — added `_parseCopilotVSCodeFile` (delta-log JSONL) and `_parseCopilotVSCodeJsonFile` (legacy JSON snapshot) for `workspaceStorage/chatSessions`; handles three `completionTokens` formats (direct kind=1, embedded in kind=2 push, pre-June 2026 result.usage); fixes k.length===1 guard to prevent sub-array inflation of `requestPushCount`; two-phase startup loading (fast group batch=10, slow .json group batch=2 with 50ms gap) to keep extension host responsive
-- **Copilot CLI session.shutdown** — reads `modelMetrics[model].usage` instead of `currentTokens` for correct token totals
-- **Codex prompt extraction** — extracts user prompt from `event_msg payload.type=user_message`; strips IDE context preamble (`## My request for Codex:`) via `_extractCodexUserText`
-- **Clear All Data** — `agentLens.clearSessions` command was registered but the button did nothing; now correctly clears pending queue and generation counter, refreshes UI before re-ingestion, and triggers `setImmediate(runLogScan)` in standalone so log sessions repopulate after clear
-- **Standalone alert / automation notifications** — match VS Code UX: automation label format `Automation: <label>`, alert notifications use `showActionNotification` with View Alerts secondary action and 30s dismiss; `\n` escaping fixed in template literals to prevent broken inline JS strings
+- **Copilot Chat log ingestion**: added `_parseCopilotVSCodeFile` (delta-log JSONL) and `_parseCopilotVSCodeJsonFile` (legacy JSON snapshot) for `workspaceStorage/chatSessions`; handles three `completionTokens` formats (direct kind=1, embedded in kind=2 push, pre-June 2026 result.usage); fixes k.length===1 guard to prevent sub-array inflation of `requestPushCount`; two-phase startup loading (fast group batch=10, slow .json group batch=2 with 50ms gap) to keep extension host responsive
+- **Copilot CLI session.shutdown**: reads `modelMetrics[model].usage` instead of `currentTokens` for correct token totals
+- **Codex prompt extraction**: extracts user prompt from `event_msg payload.type=user_message`; strips IDE context preamble (`## My request for Codex:`) via `_extractCodexUserText`
+- **Clear All Data**: `agentLens.clearSessions` command was registered but the button did nothing; now correctly clears pending queue and generation counter, refreshes UI before re-ingestion, and triggers `setImmediate(runLogScan)` in standalone so log sessions repopulate after clear
+- **Standalone alert / automation notifications**: match VS Code UX: automation label format `Automation: <label>`, alert notifications use `showActionNotification` with View Alerts secondary action and 30s dismiss; `\n` escaping fixed in template literals to prevent broken inline JS strings
 
 ### Docs
 
-- **Help — Settings section** — replaces separate Alerts and Automation sections in the Help TOC; describes the bell icon (badge, status card, Configure link) and gear icon (settings panel, collapsible sections)
+- **Help, Settings section**: replaces separate Alerts and Automation sections in the Help TOC; describes the bell icon (badge, status card, Configure link) and gear icon (settings panel, collapsible sections)
 
 ### Chore
 
-- **`.map` files gitignored** — `media/dashboard.js.map`, `media/dashboard.css.map`, `media/sidebar.js.map`, and `standalone/cli.js.map` are no longer tracked; all caused unresolvable conflicts on rebase because git cannot merge the base64 mapping blobs
-- **Post-rebase/merge hooks** — `.githooks/post-rewrite` and `.githooks/post-merge` run `node esbuild.js` automatically so `cli.js` and other build artifacts stay in sync after any rebase or merge without manual intervention, once `core.hooksPath` points at `.githooks` (git config isn't committed — `pnpm install`'s `prepare` script now sets it; before that it had to be set by hand)
-- **`.claude/settings.json` gitignored** — per-developer Claude Code permissions config; was creating constant noise in `git status`
+- **`.map` files gitignored**: `media/dashboard.js.map`, `media/dashboard.css.map`, `media/sidebar.js.map`, and `standalone/cli.js.map` are no longer tracked; all caused unresolvable conflicts on rebase because git cannot merge the base64 mapping blobs
+- **Post-rebase/merge hooks**: `.githooks/post-rewrite` and `.githooks/post-merge` run `node esbuild.js` automatically so `cli.js` and other build artifacts stay in sync after any rebase or merge without manual intervention, once `core.hooksPath` points at `.githooks` (git config isn't committed; `pnpm install`'s `prepare` script now sets it; before that it had to be set by hand)
+- **`.claude/settings.json` gitignored**: per-developer Claude Code permissions config; was creating constant noise in `git status`
 
 ---
 
-## [0.4.1] — 2026-06-03
+## [0.4.1] (2026-06-03)
 
 ### Docs
 
-- **Help tab restructured** — dedicated sections for Sessions, Analytics, Alerts, Automation, and Export now mirror the app's tab layout; Insights and Loop Detection moved from standalone top-level sections into the Sessions section where they live in the app; Sessions section now clearly documents the five sub-tabs (Overview, Trace, Flow, Tools, Files) including that Insights lives inside Overview
-- **Log file ingestion mentioned in descriptions** — Help Overview paragraph, VS Code extension description, and walkthrough "Agents Are Ready" step now surface log file ingestion as a zero-config data source alongside OTEL traces
+- **Help tab restructured**: dedicated sections for Sessions, Analytics, Alerts, Automation, and Export now mirror the app's tab layout; Insights and Loop Detection moved from standalone top-level sections into the Sessions section where they live in the app; Sessions section now clearly documents the five sub-tabs (Overview, Trace, Flow, Tools, Files) including that Insights lives inside Overview
+- **Log file ingestion mentioned in descriptions**: Help Overview paragraph, VS Code extension description, and walkthrough "Agents Are Ready" step now surface log file ingestion as a zero-config data source alongside OTEL traces
 
 ---
 
-## [0.4.0] — 2026-06-02
+## [0.4.0] (2026-06-02)
 
 ### Added
 
-- **Source filter** — Sessions and Analytics tabs now have an OTEL / Log toggle to show only OpenTelemetry-traced sessions or only log-ingested sessions (or both)
-- **Session initiator badges** — each session row shows a `User`, `Agent`, or `API` badge indicating how the session was started; an Initiator filter in the Sessions tab lets you narrow to a specific origin
-- **Real-time log updates** — standalone server uses `fs.watch` to detect JSONL file changes and re-reads the full file immediately, so new turns appear without waiting for the 30-second poll
+- **Source filter**: Sessions and Analytics tabs now have an OTEL / Log toggle to show only OpenTelemetry-traced sessions or only log-ingested sessions (or both)
+- **Session initiator badges**: each session row shows a `User`, `Agent`, or `API` badge indicating how the session was started; an Initiator filter in the Sessions tab lets you narrow to a specific origin
+- **Real-time log updates**: standalone server uses `fs.watch` to detect JSONL file changes and re-reads the full file immediately, so new turns appear without waiting for the 30-second poll
 
 ### Fixed
 
-- **Standalone first-load blank page** — log sessions are now loaded synchronously before the first response so the Sessions tab is never empty on first open
-- **Standalone cache hit rate and token counts** — corrected calculation from log-ingested sessions; total tokens and cache hit rate now match VS Code sidebar values
-- **VS Code notification prefixes** — alert and automation notifications are now prefixed `Alert:` / `Automation:` instead of the longer `AgentLens Alert:` / `AgentLens Automation [label]:`
-- **Reset button placement** — Reset sits adjacent to the Source filter in the Sessions and Analytics toolbars, with a slightly larger hit area
+- **Standalone first-load blank page**: log sessions are now loaded synchronously before the first response so the Sessions tab is never empty on first open
+- **Standalone cache hit rate and token counts**: corrected calculation from log-ingested sessions; total tokens and cache hit rate now match VS Code sidebar values
+- **VS Code notification prefixes**: alert and automation notifications are now prefixed `Alert:` / `Automation:` instead of the longer `AgentLens Alert:` / `AgentLens Automation [label]:`
+- **Reset button placement**: Reset sits adjacent to the Source filter in the Sessions and Analytics toolbars, with a slightly larger hit area
 
 ### Docs
 
@@ -975,24 +975,24 @@ These ship only in the full edition; released core builds contain no TraceRoost 
 
 ---
 
-## [0.3.0] — 2026-06-02
+## [0.3.0] (2026-06-02)
 
 ### Added
 
-- **Local log file ingestion** — AgentLens now reads JSONL session files from disk for all three agents automatically, with no OTLP setup required. Files are scanned at startup (newest-first, in batches of 10 to avoid blocking) and polled every 30 seconds for new or updated files. Sessions from log files carry an OTEL/Log source badge in the Sessions table.
+- **Local log file ingestion**: AgentLens now reads JSONL session files from disk for all three agents automatically, with no OTLP setup required. Files are scanned at startup (newest-first, in batches of 10 to avoid blocking) and polled every 30 seconds for new or updated files. Sessions from log files carry an OTEL/Log source badge in the Sessions table.
   - Claude Code: `~/.claude/projects/**/*.jsonl` (env override: `CLAUDE_CONFIG_DIR`)
   - Codex: `~/.codex/sessions/**/*.jsonl` (env override: `CODEX_HOME`)
-  - Copilot CLI: `~/.copilot/session-state/<uuid>/events.jsonl` (written automatically — no env setup required)
+  - Copilot CLI: `~/.copilot/session-state/<uuid>/events.jsonl` (written automatically, no env setup required)
   - Disable via `agentLens.enableLogIngestion: false` in VS Code settings
-- **Standalone server — log ingestion + npx** — the standalone server now ingests local log files, auto-opens the browser on start, and is available as `npx agentlens` / `npx agentlens-dashboard` (pass `--no-open` to suppress browser launch)
-- **Cost table — M/K token display** — token counts in the Estimated Cost table now display in compact form (e.g. `1.2M` / `345K`) with a toggle to switch between compact and raw numbers; Model column shortened to show only the model name without the provider prefix
+- **Standalone server, log ingestion + npx**: the standalone server now ingests local log files, auto-opens the browser on start, and is available as `npx agentlens` / `npx agentlens-dashboard` (pass `--no-open` to suppress browser launch)
+- **Cost table, M/K token display**: token counts in the Estimated Cost table now display in compact form (e.g. `1.2M` / `345K`) with a toggle to switch between compact and raw numbers; Model column shortened to show only the model name without the provider prefix
 
 ### Fixed
 
-- **Analytics chart label overlap** — date and turn labels on all three charts now thin automatically to prevent collision at any zoom level or session count: `HistoryChart` (SVG bar chart, daily mode) uses a pixel-aware stride snapped to human-readable intervals; `CostBarChart` uses a minimum-gap guard on day boundary labels; `ContextGrowthChart` uses pixel-aware x-axis step calculation (minimum 32 px between label centres)
-- **Copilot log path** — Copilot sessions now read from `~/.copilot/session-state/` (the path written by Copilot CLI automatically); was incorrectly reading from `~/.copilot/otel/`
-- **In-progress vs. missing prompt** — sessions with a prompt that hasn't arrived yet show `…`; sessions that genuinely have no prompt (e.g. log-only Codex sessions) show `—`
-- **Copilot prompt extraction** — startup log scan now skips injected XML preamble blocks (`<current_datetime>`, `<system_reminder>`) when extracting the user request from Copilot `transformedContent` events
+- **Analytics chart label overlap**: date and turn labels on all three charts now thin automatically to prevent collision at any zoom level or session count: `HistoryChart` (SVG bar chart, daily mode) uses a pixel-aware stride snapped to human-readable intervals; `CostBarChart` uses a minimum-gap guard on day boundary labels; `ContextGrowthChart` uses pixel-aware x-axis step calculation (minimum 32 px between label centres)
+- **Copilot log path**: Copilot sessions now read from `~/.copilot/session-state/` (the path written by Copilot CLI automatically); was incorrectly reading from `~/.copilot/otel/`
+- **In-progress vs. missing prompt**: sessions with a prompt that hasn't arrived yet show `…`; sessions that genuinely have no prompt (e.g. log-only Codex sessions) show `—`
+- **Copilot prompt extraction**: startup log scan now skips injected XML preamble blocks (`<current_datetime>`, `<system_reminder>`) when extracting the user request from Copilot `transformedContent` events
 
 ### Docs
 
@@ -1001,48 +1001,48 @@ These ship only in the full edition; released core builds contain no TraceRoost 
 
 ---
 
-## [0.2.1] — 2026-06-01
+## [0.2.1] (2026-06-01)
 
 ### Added
 
-- **Analytics cost table — CSV download** — `↓ CSV` button above the Estimated Cost table exports `agentlens-cost.csv` with one row per agent per day (raw numeric token counts and 4-decimal cost) plus a grand total row; works in VS Code and standalone browser
+- **Analytics cost table, CSV download**: `↓ CSV` button above the Estimated Cost table exports `agentlens-cost.csv` with one row per agent per day (raw numeric token counts and 4-decimal cost) plus a grand total row; works in VS Code and standalone browser
 
 ### Fixed
 
-- **Automation notifications** — all three notification sites now consistently read `AgentLens Automation [label]`; was showing `AgentLens [label]` (missing "Automation") or `AgentLens Automation: label` (colon instead of brackets)
-- **Sidebar burn rate** — retains last known value after a session ends instead of reverting to "Waiting for data…"; resets when a new session starts
-- **Standalone sidebar** — removed Open Dashboard button (the dashboard is the main panel in standalone; VS Code sidebar keeps it)
-- **Sessions filter bar** — sort pills (Cost/Duration/Tokens) replaced with a Reset button at the right end; clears text filter, agent filter, time range, session limit, and sort back to defaults; only visible when at least one filter is non-default
-- **Analytics** — Token Usage Per Session section moved below Context Growth
+- **Automation notifications**: all three notification sites now consistently read `AgentLens Automation [label]`; was showing `AgentLens [label]` (missing "Automation") or `AgentLens Automation: label` (colon instead of brackets)
+- **Sidebar burn rate**: retains last known value after a session ends instead of reverting to "Waiting for data…"; resets when a new session starts
+- **Standalone sidebar**: removed Open Dashboard button (the dashboard is the main panel in standalone; VS Code sidebar keeps it)
+- **Sessions filter bar**: sort pills (Cost/Duration/Tokens) replaced with a Reset button at the right end; clears text filter, agent filter, time range, session limit, and sort back to defaults; only visible when at least one filter is non-default
+- **Analytics**: Token Usage Per Session section moved below Context Growth
 - Silent catch blocks in standalone server now log via `console.warn` instead of swallowing errors; unhandled promise on `writer.drain()` now has a `.catch()` handler; DB open failure logs the reason
 
-## [0.2.0] — 2026-06-01
+## [0.2.0] (2026-06-01)
 
 ### Added
 
-- **SQLite persistence** — four-phase database layer: schema (phase 1), write path persisting sessions after summarization (phase 2), read path replacing in-memory summarization with DB queries (phase 3), and analytics layer with historical queries, session search, time-range filtering, and storage management (phase 4)
-- **Sidebar reworked as real-time live session monitor** — replaces the previous static summary with a live-updating panel: status card (Active/Idle, agent, model, prompt), counters (Turns / Tools / Errors / Cache hit rate), context growth sparkline with play/pause controls, token bars scaling independently against historical average with avg values inline, estimated cost card, and burn rate card; "X sessions stored" footer; Clear All Data fully resets all top-card fields
-- **Sessions tab overhaul** — sortable by Cost, Duration, or Tokens via pills in the filter bar; filtered session count shown; Tools and Flow sub-tab labels show counts; expand-in-place row with five sub-tabs: Overview (stat tiles, burn rate, Insights), Trace (LLM and tool call waterfall), Flow (turn-to-tool graph), Tools (donut chart), Files (modified files with diffs)
-- **Analytics tab overhaul** — per-agent breakdown cards, Estimated Cost chart with daily total green overlay line and date labels drawn inline at day boundaries, Token Usage Per Session, Context Growth chart with session-cycling animation
-- **Standalone server sidebar parity** — token bars, estimated cost, burn rate, counters, sparkline, and all CSS classes now match the VS Code sidebar exactly; fixed crash from undefined `inProgressTraceIds` variables
-- **Demo replay: export-format support** — `pnpm run demo -- --file ./export_sessions_<timestamp>.json` now works; converts session summaries into synthetic OTEL spans (root + LLM call + tool call spans per session) with correct attribute keys for the summarizer
-- **Estimated cost per LLM span** — shown in Traces and Flow tabs alongside each LLM call
-- **Tool call detail in Traces tab** — arguments and results visible in expanded span rows
-- **Session ID in clipboard prompts** — Insights copy button includes `Session ID:` so AI can identify the session
-- **user_input timeline entry type** — Claude Code permission prompt interactions captured in the session timeline
-- **"X sessions stored" footer** — unfiltered session count shown in sidebar footer and Sessions tab footer
-- **Date labels inside Estimated Cost chart** — day boundary labels rendered inline matching Token Usage Per Session style
+- **SQLite persistence**: four-phase database layer: schema (phase 1), write path persisting sessions after summarization (phase 2), read path replacing in-memory summarization with DB queries (phase 3), and analytics layer with historical queries, session search, time-range filtering, and storage management (phase 4)
+- **Sidebar reworked as real-time live session monitor**: replaces the previous static summary with a live-updating panel: status card (Active/Idle, agent, model, prompt), counters (Turns / Tools / Errors / Cache hit rate), context growth sparkline with play/pause controls, token bars scaling independently against historical average with avg values inline, estimated cost card, and burn rate card; "X sessions stored" footer; Clear All Data fully resets all top-card fields
+- **Sessions tab overhaul**: sortable by Cost, Duration, or Tokens via pills in the filter bar; filtered session count shown; Tools and Flow sub-tab labels show counts; expand-in-place row with five sub-tabs: Overview (stat tiles, burn rate, Insights), Trace (LLM and tool call waterfall), Flow (turn-to-tool graph), Tools (donut chart), Files (modified files with diffs)
+- **Analytics tab overhaul**: per-agent breakdown cards, Estimated Cost chart with daily total green overlay line and date labels drawn inline at day boundaries, Token Usage Per Session, Context Growth chart with session-cycling animation
+- **Standalone server sidebar parity**: token bars, estimated cost, burn rate, counters, sparkline, and all CSS classes now match the VS Code sidebar exactly; fixed crash from undefined `inProgressTraceIds` variables
+- **Demo replay: export-format support**: `pnpm run demo -- --file ./export_sessions_<timestamp>.json` now works; converts session summaries into synthetic OTEL spans (root + LLM call + tool call spans per session) with correct attribute keys for the summarizer
+- **Estimated cost per LLM span**: shown in Traces and Flow tabs alongside each LLM call
+- **Tool call detail in Traces tab**: arguments and results visible in expanded span rows
+- **Session ID in clipboard prompts**: Insights copy button includes `Session ID:` so AI can identify the session
+- **user_input timeline entry type**: Claude Code permission prompt interactions captured in the session timeline
+- **"X sessions stored" footer**: unfiltered session count shown in sidebar footer and Sessions tab footer
+- **Date labels inside Estimated Cost chart**: day boundary labels rendered inline matching Token Usage Per Session style
 
 ### Fixed
 
-- Standalone sidebar tokens and estimated cost not rendering — `computeSidebarPayload` was missing `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheCreateTokens`, `costUsd`, `avgInputTokens`, `avgOutputTokens`
-- Context Growth animation frozen in play mode — `focusedSessionId` was overriding `activeIdx` unconditionally; animation index was resetting to 0 on every SSE update due to new array reference on each render
-- Sidebar Clear All Data not resetting top card — agent name, duration, prompt, and model now clear when `currentSession` is null
-- Sidebar active indicator firing on background Copilot calls — whitelisted to real agent span names only (`claude_code.*`, `invoke_agent*`, `codex.turn/session`); 45-second window
+- Standalone sidebar tokens and estimated cost not rendering: `computeSidebarPayload` was missing `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheCreateTokens`, `costUsd`, `avgInputTokens`, `avgOutputTokens`
+- Context Growth animation frozen in play mode: `focusedSessionId` was overriding `activeIdx` unconditionally; animation index was resetting to 0 on every SSE update due to new array reference on each render
+- Sidebar Clear All Data not resetting top card: agent name, duration, prompt, and model now clear when `currentSession` is null
+- Sidebar active indicator firing on background Copilot calls: whitelisted to real agent span names only (`claude_code.*`, `invoke_agent*`, `codex.turn/session`); 45-second window
 - Burn rate tied to `isActive` instead of 2-minute `startTime` cutoff
 - Sidebar estimated cost: cache tokens subtracted from `inputTokens` before rate calculation (matches Sessions table)
-- Help pill nav clipping on wrap — `flex-wrap:nowrap` + horizontal scroll
-- Demo replay crash on export files — `BigInt()` cannot parse ISO timestamp strings
+- Help pill nav clipping on wrap: `flex-wrap:nowrap` + horizontal scroll
+- Demo replay crash on export files: `BigInt()` cannot parse ISO timestamp strings
 - Status bar item now opens both sidebar and dashboard on click
 
 ### Changed
@@ -1063,17 +1063,17 @@ These ship only in the full edition; released core builds contain no TraceRoost 
 - Help tab Setup section: stale env vars removed; Copilot OTEL coverage corrected (cache read tokens are available; only cache write is absent)
 - ARCHITECTURE.md: fully rewritten covering the 4-phase SQLite persistence architecture with Mermaid diagrams
 
-## [0.1.5] — 2026-05-28
+## [0.1.5] (2026-05-28)
 
 ### Added
 
-- **Claude Code cost estimates** — the Cost tab now includes `claude_code` sessions alongside Copilot and Codex; uses Anthropic API token-based pricing (input, cache write, cache read, output) with per-model rates for all current Opus, Sonnet, and Haiku variants; no billing mode toggle needed (Claude has always been token-based)
-- **Codex cost estimates** — Cost tab extended to include Codex CLI sessions using OpenAI token-based pricing (input, cached input, output) with rates for all current and deprecated Codex models
-- **Primary tab bar + More ▾ overflow dropdown** — replaces the flat wrapping tab row with a fixed-height single row; six primary tabs always visible (Efficiency, Cost, Summaries, Recommendations, Export, Help); ten secondary tabs (Agents, Alerts, Automation, Errors, Files, Flow, Latency, Tokens, Tools, Traces) in an alphabetically-sorted dropdown; active secondary tab name shown in the button label
-- **Help tab — mode-aware Setup section** — configuration steps adapt to VS Code extension vs. standalone server context; Copilot CLI configuration added; Manual Configuration section with per-agent headings
-- **Help tab — glossary hyperlinks** — first-mention of each glossary term in body text links to its definition; VS Code webview link styling fixed
-- `pricing.ts` — Codex model rate table (all current and deprecated models including `codex-mini-latest`); Claude fast-mode rates corrected (`claude-opus-4-6-fast`, `claude-opus-4-7-fast` at $30/$150 per MTok); deprecated Claude models added for historical sessions
-- `PRICING_SOURCES.md` — Claude section fully populated: source URL, OTEL fields, formula, rate table with fast-mode and deprecated entries, known gaps (cache TTL ambiguity, fast-mode underestimation, Opus 4.7 tokenizer change)
+- **Claude Code cost estimates**: the Cost tab now includes `claude_code` sessions alongside Copilot and Codex; uses Anthropic API token-based pricing (input, cache write, cache read, output) with per-model rates for all current Opus, Sonnet, and Haiku variants; no billing mode toggle needed (Claude has always been token-based)
+- **Codex cost estimates**: Cost tab extended to include Codex CLI sessions using OpenAI token-based pricing (input, cached input, output) with rates for all current and deprecated Codex models
+- **Primary tab bar + More ▾ overflow dropdown**: replaces the flat wrapping tab row with a fixed-height single row; six primary tabs always visible (Efficiency, Cost, Summaries, Recommendations, Export, Help); ten secondary tabs (Agents, Alerts, Automation, Errors, Files, Flow, Latency, Tokens, Tools, Traces) in an alphabetically-sorted dropdown; active secondary tab name shown in the button label
+- **Help tab, mode-aware Setup section**: configuration steps adapt to VS Code extension vs. standalone server context; Copilot CLI configuration added; Manual Configuration section with per-agent headings
+- **Help tab, glossary hyperlinks**: first-mention of each glossary term in body text links to its definition; VS Code webview link styling fixed
+- `pricing.ts`: Codex model rate table (all current and deprecated models including `codex-mini-latest`); Claude fast-mode rates corrected (`claude-opus-4-6-fast`, `claude-opus-4-7-fast` at $30/$150 per MTok); deprecated Claude models added for historical sessions
+- `PRICING_SOURCES.md`: Claude section fully populated: source URL, OTEL fields, formula, rate table with fast-mode and deprecated entries, known gaps (cache TTL ambiguity, fast-mode underestimation, Opus 4.7 tokenizer change)
 
 ### Fixed
 
@@ -1086,41 +1086,41 @@ These ship only in the full edition; released core builds contain no TraceRoost 
 - Renamed "OpenAI Codex" → "Codex" throughout dashboard UI, Help tab, README, and configuration scripts
 - README restructured: Getting Started moved before Features; Standalone Docker split into Running and Configuring subheaders; Cost Estimation section expanded to cover all three agents; Manual Configuration section expanded to mirror Help tab content; `chmod +x` and PowerShell execution policy instructions added for configuration scripts; Additional Features section added at the bottom
 
-## [0.1.4] — 2026-05-27
+## [0.1.4] (2026-05-27)
 
 ### Added
 
-- **Cost tab** — estimates Copilot session cost with three billing model toggles: token-based AI Credits (Jun 2026+, default), request-based with multipliers (pre-Jun 2026), and annual-plan request-based (post-Jun 2026 for annual plan holders)
+- **Cost tab**: estimates Copilot session cost with three billing model toggles: token-based AI Credits (Jun 2026+, default), request-based with multipliers (pre-Jun 2026), and annual-plan request-based (post-Jun 2026 for annual plan holders)
 - Per-session cost bar chart; zero-cost sessions shown as a colored tick on the x-axis
 - Cross-session cost table with token breakdown, cost, and AI Credits columns; respects active session filter
 - Estimates-only disclaimer with last-updated date and anchor-linked Known Gaps section
-- `media/src/pricing.ts` — rate table for all Copilot models verified against GitHub pricing docs, including footnotes for included models (GPT-4.1, GPT-5 mini → $0 in token mode) and long-context surcharge notes
-- `PRICING_SOURCES.md` — authoritative source URLs and maintainer notes for all three Copilot billing models
+- `media/src/pricing.ts`: rate table for all Copilot models verified against GitHub pricing docs, including footnotes for included models (GPT-4.1, GPT-5 mini → $0 in token mode) and long-context surcharge notes
+- `PRICING_SOURCES.md`: authoritative source URLs and maintainer notes for all three Copilot billing models
 
 ### Fixed
 
-- README "Agent Telemetry Formats — Copilot" section incorrectly stated cache token data is unavailable; corrected to note cache read tokens are present via `gen_ai.usage.cache_read.input_tokens` and only cache write is absent
+- README "Agent Telemetry Formats: Copilot" section incorrectly stated cache token data is unavailable; corrected to note cache read tokens are present via `gen_ai.usage.cache_read.input_tokens` and only cache write is absent
 
 ### Changed
 
 - README: added Cost Estimation section, updated feature list, corrected dashboard tab count to 16
 
-## [0.1.3] — 2026-05-24
+## [0.1.3] (2026-05-24)
 
 ### Changed
 
-- README overhauled — restructured around a local/transparency theme; Getting Started split into VS Code Extension and Standalone (Docker) subsections with ephemeral and persistent Docker commands; Configuration reorganized with Manual Configuration first followed by Auto-configuration; Replaying Exported Spans promoted to its own top-level section; section headers simplified throughout
+- README overhauled: restructured around a local/transparency theme; Getting Started split into VS Code Extension and Standalone (Docker) subsections with ephemeral and persistent Docker commands; Configuration reorganized with Manual Configuration first followed by Auto-configuration; Replaying Exported Spans promoted to its own top-level section; section headers simplified throughout
 - Removed unused setting from VS Code extension settings contributions
 
-## [0.1.2] — 2026-05-22
+## [0.1.2] (2026-05-22)
 
 ### Added
 
-- **Export tab** — new dashboard tab (between Errors and Help) with Export Raw and Export Redacted buttons, 3-second confirmation state, and inline replay instructions
-- **Export Redacted** — `AgentLens: Export OTEL Data (Redacted)` command; prompt text, tool inputs/results, and PII fields (`user.*`, `enduser.*`, `organization.*`) replaced with `[redacted]`; files named `export_redacted_*`
-- **Replay from exported file** — `pnpm run demo -- --file <path>` replays any exported JSON (raw or redacted) directly into the dashboard; instant send by default, `--speed N` for paced replay; works with both plugin and standalone on port 4318
-- **Sidebar latest session card** — model, source, turns, tool calls, errors, and cache hit rate for the most recent session
-- **Sidebar expand/collapse** — ◄/► toggle to show or hide the AgentLens sidebar panel; dashboard opens automatically on first activation
+- **Export tab**: new dashboard tab (between Errors and Help) with Export Raw and Export Redacted buttons, 3-second confirmation state, and inline replay instructions
+- **Export Redacted**: `AgentLens: Export OTEL Data (Redacted)` command; prompt text, tool inputs/results, and PII fields (`user.*`, `enduser.*`, `organization.*`) replaced with `[redacted]`; files named `export_redacted_*`
+- **Replay from exported file**: `pnpm run demo -- --file <path>` replays any exported JSON (raw or redacted) directly into the dashboard; instant send by default, `--speed N` for paced replay; works with both plugin and standalone on port 4318
+- **Sidebar latest session card**: model, source, turns, tool calls, errors, and cache hit rate for the most recent session
+- **Sidebar expand/collapse**: ◄/► toggle to show or hide the AgentLens sidebar panel; dashboard opens automatically on first activation
 
 ### Changed
 
@@ -1129,30 +1129,30 @@ These ship only in the full edition; released core builds contain no TraceRoost 
 
 ### Fixed
 
-- Export `message` event listener was registered inside the tooltip `useEffect` without cleanup — moved to its own `useEffect` with proper removal on unmount
+- Export `message` event listener was registered inside the tooltip `useEffect` without cleanup; moved to its own `useEffect` with proper removal on unmount
 
-## [0.1.1] — 2026-05-22
+## [0.1.1] (2026-05-22)
 
 ### Fixed
 
 - Port conflict detection now distinguishes between another AgentLens VS Code window (silent fallback with cross-window sync), the AgentLens standalone server (error with specific message), and an unrelated process (error with instruction to change `agentLens.otlpPort`)
 - Plugin and standalone servers now expose fingerprint endpoints (`/agentlens/plugin` and `/agentlens/standalone`) so each can identify the other
 
-## [0.1.0] — 2026-05-21
+## [0.1.0] (2026-05-21)
 
 ### Added
 
-- Built-in OTLP/HTTP collector on `127.0.0.1:4318` — JSON-over-HTTP only (protobuf not required)
+- Built-in OTLP/HTTP collector on `127.0.0.1:4318`: JSON-over-HTTP only (protobuf not required)
 - Auto-configuration for GitHub Copilot, Claude Code, and Codex on activation
 - 15-tab dashboard: Efficiency, Recommendations, Alerts, Automation, Summaries, Traces, Files, Agents, Tokens, Latency, Flow, Tools, Errors, Export, Help
-- Loop and malfunction detection — Tool Call Deadlock, State Corruption Spiral, Hallucination Amplification Loop, Escalating Scope, Context Accumulation
-- Conversation grouping — Copilot and Codex sessions linked by their conversation thread ID
+- Loop and malfunction detection: Tool Call Deadlock, State Corruption Spiral, Hallucination Amplification Loop, Escalating Scope, Context Accumulation
+- Conversation grouping: Copilot and Codex sessions linked by their conversation thread ID
 - Per-session Conversation column in Efficiency tab
 - Standalone web server mode (`pnpm run standalone`) and Docker image (`agentlens/agentlens`)
-- Write Prompts File automation — writes triggered prompts to `agentlens-prompts-{agent}.md` in workspace or server directory
-- Automation recency guard — only sessions active within the last 2 minutes trigger automations
+- Write Prompts File automation: writes triggered prompts to `agentlens-prompts-{agent}.md` in workspace or server directory
+- Automation recency guard: only sessions active within the last 2 minutes trigger automations
 - Per-agent threshold profiles for Alerts and Automation tabs
-- Export tab — export raw or redacted span data as JSON directly from the dashboard; includes replay instructions
-- Export OTEL Data command — writes raw span data as JSON files (Command Palette: `AgentLens: Export OTEL Data`)
-- Export OTEL Data (Redacted) command — same export with prompt text, tool inputs/results, and PII fields replaced with `[redacted]` (Command Palette: `AgentLens: Export OTEL Data (Redacted)`)
+- Export tab: export raw or redacted span data as JSON directly from the dashboard; includes replay instructions
+- Export OTEL Data command: writes raw span data as JSON files (Command Palette: `AgentLens: Export OTEL Data`)
+- Export OTEL Data (Redacted) command: same export with prompt text, tool inputs/results, and PII fields replaced with `[redacted]` (Command Palette: `AgentLens: Export OTEL Data (Redacted)`)
 - Collector error banner in sidebar when OTLP port is already in use

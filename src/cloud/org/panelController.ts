@@ -130,7 +130,7 @@ export async function handleOrgMessage(msg: OrgMessage, deps: OrgPanelDeps): Pro
       // either way without needing every session on screen at once.
       const sessions = deps.recentSessions().slice(0, MAX_PAYLOAD_PREVIEW_SESSIONS)
       if (sessions.length === 0) {
-        deps.post({ type: 'orgPayloadPreview', previews: [{ text: 'No recorded session yet — run an agent session, then check back.', sessionLabel: 'none' }] })
+        deps.post({ type: 'orgPayloadPreview', previews: [{ text: 'No recorded session yet. Run an agent session, then check back.', sessionLabel: 'none' }] })
         return
       }
       const labels = sessions.map((s) => `${s.source} · ${new Date(s.startTime).toLocaleString()}`)

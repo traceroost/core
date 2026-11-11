@@ -151,7 +151,7 @@ const counts = {
 counts.shouldFail = counts.vulnerabilities.critical > 0 || counts.secrets > 0
 
 const lines = []
-lines.push(`# Security & dependency review${repo ? ` — ${repo}` : ''}`)
+lines.push(`# Security & dependency review${repo ? `: ${repo}` : ''}`)
 lines.push('')
 lines.push(`Generated ${new Date().toISOString()}${runUrl ? ` · [workflow run](${runUrl})` : ''}`)
 lines.push('')
@@ -177,24 +177,24 @@ function section(title, items, render) {
 }
 
 section('🔴 Critical & high dependency vulnerabilities', [...vulnsBySev.CRITICAL, ...vulnsBySev.HIGH], (v) =>
-  `**${v.severity}** \`${v.pkg}@${v.installed}\` — ${v.title} (${v.id})${v.fixed ? ` → fix: \`${v.fixed}\`` : ''} — \`${v.target}\``,
+  `**${v.severity}** \`${v.pkg}@${v.installed}\`: ${v.title} (${v.id})${v.fixed ? ` → fix: \`${v.fixed}\`` : ''} in \`${v.target}\``,
 )
 
-section('🟠 Secrets detected', secrets, (s) => `**${s.severity}** \`${s.rule}\` in \`${s.target}:${s.line ?? '?'}\` — ${s.title}`)
+section('🟠 Secrets detected', secrets, (s) => `**${s.severity}** \`${s.rule}\` in \`${s.target}:${s.line ?? '?'}\`: ${s.title}`)
 
 section(
   '🟡 Misconfigurations',
   [...misconfigBySev.CRITICAL, ...misconfigBySev.HIGH, ...misconfigBySev.MEDIUM],
-  (m) => `**${m.severity}** \`${m.id}\` — ${m.title} — \`${m.target}\``,
+  (m) => `**${m.severity}** \`${m.id}\`: ${m.title} in \`${m.target}\``,
 )
 
 section(
   '🔵 Code-level findings (SAST)',
   [...sastBySev.HIGH, ...sastBySev.MEDIUM],
-  (f) => `**${f.severity}** \`${f.rule}\` — ${f.message} — \`${f.target}:${f.line ?? '?'}\``,
+  (f) => `**${f.severity}** \`${f.rule}\`: ${f.message} in \`${f.target}:${f.line ?? '?'}\``,
 )
 
-section('⚪ License risk', licenseFindings, (l) => `\`${l.pkg}\` — ${l.license} — \`${l.target}\``)
+section('⚪ License risk', licenseFindings, (l) => `\`${l.pkg}\`: ${l.license} in \`${l.target}\``)
 
 if (outdatedList.length > 0) {
   lines.push(`## Dependencies to upgrade (${outdatedList.length})`)
@@ -206,7 +206,7 @@ if (outdatedList.length > 0) {
   }
   if (outdatedList.length > 50) {
     lines.push('')
-    lines.push(`_...and ${outdatedList.length - 50} more — see the workflow artifact for the full list._`)
+    lines.push(`_...and ${outdatedList.length - 50} more; see the workflow artifact for the full list._`)
   }
   lines.push('')
 }

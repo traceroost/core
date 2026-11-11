@@ -128,18 +128,18 @@ const windowsSigning = azureSigning ? 'azure' : certificateSigning ? 'certificat
 
 if (process.platform === 'win32') {
   console.log(windowsSigningOff
-    ? 'electron-builder.config: Windows signing switched off (TRACEROOST_WINDOWS_SIGNING=off) — unsigned; SmartScreen will warn on first run'
+    ? 'electron-builder.config: Windows signing switched off (TRACEROOST_WINDOWS_SIGNING=off); the build is unsigned, so SmartScreen will warn on first run'
     : windowsSigning === 'none'
-    ? 'electron-builder.config: no Windows signing credentials (WIN_CSC_LINK, or AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET) — unsigned; SmartScreen will warn on first run'
+    ? 'electron-builder.config: no Windows signing credentials (WIN_CSC_LINK, or AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET); the build is unsigned, so SmartScreen will warn on first run'
     : `electron-builder.config: Windows signing with ${windowsSigning === 'azure' ? `Azure Artifact Signing (${AZURE_SIGNING_PROFILE.codeSigningAccountName}/${AZURE_SIGNING_PROFILE.certificateProfileName})` : 'the WIN_CSC_LINK certificate'}`)
 }
 
 if (process.platform !== 'darwin') {
   // Linux, Windows (and any cross-build) need none of the Apple credentials below.
 } else if (!hasDeveloperId) {
-  console.log('electron-builder.config: no Developer ID in the environment (CSC_LINK / CSC_NAME) — ad-hoc signing; the result will not pass Gatekeeper when downloaded')
+  console.log('electron-builder.config: no Developer ID in the environment (CSC_LINK / CSC_NAME); falling back to ad-hoc signing, so the result will not pass Gatekeeper when downloaded')
 } else if (!hasNotaryCredentials) {
-  console.log('electron-builder.config: signing with a Developer ID but no notarization credentials are set — the app will be signed but not notarized')
+  console.log('electron-builder.config: signing with a Developer ID but no notarization credentials are set; the app will be signed but not notarized')
 }
 
 /** @type {import('electron-builder').Configuration} */
@@ -283,7 +283,7 @@ module.exports = {
     category: 'Development',
     synopsis: 'Local observability for coding agents',
     // Also the launcher's Comment, so it is kept to one line.
-    description: 'See what your coding agents did, what it cost, and what landed — recorded and shown on this machine.',
+    description: 'See what your coding agents did, what it cost, and what landed, all recorded and shown on this machine.',
     maintainer: 'TraceRoost <support@traceroost.com>',
     vendor: 'TraceRoost',
     // `${arch}` expands to each format's own name: amd64/arm64 for the .deb, x86_64/arm64 for the

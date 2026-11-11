@@ -86,7 +86,7 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
     + 'Or scope the task more narrowly so the agent can complete it without re-querying the same resource.',
 
   edit_revert_cycle:
-    'The agent is oscillating between two file states — a sign it is trying to reconcile conflicting constraints. '
+    'The agent is oscillating between two file states, a sign it is trying to reconcile conflicting constraints. '
     + 'Clarify success criteria upfront: provide the exact final state you want, not iterative instructions. '
     + 'If you are using "make it pass the tests", ensure the tests are deterministic and not themselves the source of the conflict.',
 
@@ -97,26 +97,26 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
     + 'If the error persists after 2 attempts, intervene manually rather than asking the agent to retry.',
 
   runaway_steps:
-    'The session used far more steps than expected for this type of task — a sign of unclear success criteria, escalating scope, or a loop. '
+    'The session used far more steps than expected for this type of task, a sign of unclear success criteria, escalating scope, or a loop. '
     + 'Break the task into smaller, explicitly scoped subtasks with clear completion conditions. '
     + 'Avoid open-ended instructions like "fix all the bugs" or "clean up the code" with no stopping condition.',
 
   token_runaway:
-    'The context sent to the model is growing rapidly while useful output is declining — the agent is accumulating context without making forward progress. '
+    'The context sent to the model is growing rapidly while useful output is declining: the agent is accumulating context without making forward progress. '
     + 'This pattern often accompanies tool-call loops or repeated failed fixes. '
     + 'Start a fresh session with a focused prompt, or explicitly tell the agent what it has already tried and what to do differently.',
 
   chronic_tool_failures:
-    'A high share of this session\'s tool calls failed — well above the ordinary rate of an occasional wrong path corrected along the way. '
+    'A high share of this session\'s tool calls failed, well above the ordinary rate of an occasional wrong path corrected along the way. '
     + 'Be explicit in your prompt about file locations, available commands, and the runtime/package manager in use. '
     + 'Verify paths and commands exist before asking the agent to use them.',
 
   context_flooding_risk:
     'One or more tool calls returned a very large result, which gets appended to context in full and crowds out everything else for the rest of the session. '
-    + 'Use narrower reads — specify line ranges instead of whole files, tighten search patterns, or pipe command output through something that limits it.',
+    + 'Use narrower reads: specify line ranges instead of whole files, tighten search patterns, or pipe command output through something that limits it.',
 
   hallucinated_import:
-    'An edit imports a package that isn\'t listed in the project\'s package.json or requirements.txt and isn\'t installed — '
+    'An edit imports a package that isn\'t listed in the project\'s package.json or requirements.txt and isn\'t installed; it is '
     + 'likely a made-up dependency that will fail at install or when the code runs. '
     + 'Verify the package actually exists and is spelled correctly before asking the agent to use it, or add it to package.json / requirements.txt yourself if it is intentional.',
 
@@ -125,22 +125,22 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
     + 'Ask the agent to re-run the check and confirm it passes before considering the task done, or review the failure yourself before accepting the change.',
 
   tool_call_cycle:
-    'The agent is oscillating between two or more distinct actions (e.g. run tests → read log → run tests → read log) rather than repeating one call — '
+    'The agent is oscillating between two or more distinct actions (e.g. run tests → read log → run tests → read log) rather than repeating one call, '
     + 'a sign it\'s reacting to the same feedback each time without changing approach. '
     + 'Interrupt and ask it to explain what changed between attempts, or supply the missing information yourself.',
 
   file_reread:
-    'The agent is rereading the same file repeatedly instead of retaining what it already read — often because a long session pushed the '
+    'The agent is rereading the same file repeatedly instead of retaining what it already read, often because a long session pushed the '
     + 'earlier read out of active context, or because it\'s double-checking work it should already trust. '
     + 'Ask it to summarize what it already knows about the file before reading it again, or split the session so the file stays in recent context.',
 
   cache_miss:
     'A model call saved a meaningful share of its context to the cache again instead of reusing the stored copy, at real dollar cost. '
-    + 'This usually means something near the start of the context changed — tool definitions, the system prompt, thinking/effort settings, or images. '
+    + 'This usually means something near the start of the context changed: tool definitions, the system prompt, thinking/effort settings, or images. '
     + 'Keep those stable across turns in the same session where possible.',
 
   ttl_expiry:
-    'Context was saved to the cache again after a pause long enough for the stored copy to expire — a timing effect, not a changed prompt. '
+    'Context was saved to the cache again after a pause long enough for the stored copy to expire, a timing effect, not a changed prompt. '
     + 'If turns in this session are naturally spaced out, the cache will not survive the gaps; there is no fix beyond accepting the extra cost or working in tighter bursts.',
 
   low_cache_hit_ratio:
@@ -152,7 +152,7 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
     + 'Review whether the task genuinely needed this much work, or whether a loop/retry pattern elsewhere in this signal list is driving the cost.',
 
   model_tier_mismatch:
-    'A premium-tier model ran a long stretch of read-only calls with no edits and short output — the kind of work a cheaper model typically handles just as well. '
+    'A premium-tier model ran a long stretch of read-only calls with no edits and short output, the kind of work a cheaper model typically handles just as well. '
     + 'Consider routing read/search-heavy turns to a smaller model and reserving the premium one for edits.',
 }
 
@@ -279,7 +279,7 @@ export const SIGNAL_FORMULAS: Record<
     ],
     caveat: 'Experimental: no real session has reached this threshold yet, so it isn’t tuned.',
     short: 'A tool returned so much text that it crowds the context.',
-    tip: 'Ask for narrower reads — line ranges, not whole files.',
+    tip: 'Ask for narrower reads: line ranges, not whole files.',
     prompt: 'A tool result was far too large to keep in context. From now on read files with a line range, use narrower search patterns, and pipe long command output through head or a filter.',
     dataSource: 'otel',
     dataSourceNote:
@@ -835,13 +835,13 @@ export function detectRunawaySteps(session: SessionSummaryCard, signals: LoopSig
     lastStep = i
     if (n === threshold + 1) {
       crossedAt = i
-      steps.push(signalStep(timeline, i, `step ${n} — first step past the ${threshold}-step budget for a ${complexity} task`))
+      steps.push(signalStep(timeline, i, `step ${n}: first step past the ${threshold}-step budget for a ${complexity} task`))
     } else if (n === threshold * 2) {
-      steps.push(signalStep(timeline, i, `step ${n} — twice the budget (critical)`))
+      steps.push(signalStep(timeline, i, `step ${n}: twice the budget (critical)`))
     }
   }
   if (crossedAt >= 0 && lastStep > crossedAt) {
-    steps.push(signalStep(timeline, lastStep, `step ${n} — the trace's last step`, 'context'))
+    steps.push(signalStep(timeline, lastStep, `step ${n}: the trace's last step`, 'context'))
   }
   const filesAffected = new Set([...session.filesRead, ...session.filesChanged, ...session.filesSearched]).size
 
@@ -1451,7 +1451,7 @@ export function detectBudgetOverrun(session: SessionSummaryCard, signals: LoopSi
     .sort((a, b) => b.usd - a.usd)
     .slice(0, 5)
   const steps = priciest.map(({ i, usd }) => signalStep(session.timeline, i,
-    `~$${usd.toFixed(2)} — ${Math.round((usd / costUsd) * 100)}% of the trace's cost`))
+    `~$${usd.toFixed(2)}, ${Math.round((usd / costUsd) * 100)}% of the trace's cost`))
 
   signals.push({
     type: 'budget_overrun',

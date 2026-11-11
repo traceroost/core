@@ -221,7 +221,7 @@ export async function inspectCollector(
     return {
       ok: false,
       reason: 'version-incompatible',
-      detail: `The collector on ${dataDir} is version ${identity.version}; this app is ${ourVersion}. Sharing a data directory between these is not supported — update whichever is older.`,
+      detail: `The collector on ${dataDir} is version ${identity.version}; this app is ${ourVersion}. Sharing a data directory between these is not supported; update whichever is older.`,
       identity,
     }
   }
@@ -235,7 +235,7 @@ export function describeVerdict(verdict: AttachVerdict): string {
     const who = identity.service ? 'background service' : `pid ${identity.pid}`
     const version = identity.version ?? 'unknown version'
     return verdict.needsConfirmation
-      ? `Found a running collector (${who}, ${version}) — confirm before attaching`
+      ? `Found a running collector (${who}, ${version}); confirm before attaching`
       : `Attached to the running collector (${who}, ${version}) on port ${identity.uiPort}`
   }
   return verdict.detail

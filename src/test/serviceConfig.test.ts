@@ -446,7 +446,7 @@ suite('serviceConfig', () => {
     test('reports a non-zero npm exit code', () => {
       assert.strictEqual(
         describeNpmFailure({ status: 1 }),
-        'npm exited with code 1 — see its output above',
+        'npm exited with code 1; see its output above',
       )
       // status 0 is still a "failure" only because execFileSync threw — but report it faithfully
       assert.ok(describeNpmFailure({ status: 0 }).includes('code 0'))

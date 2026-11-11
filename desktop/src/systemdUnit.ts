@@ -86,17 +86,17 @@ export function decideWhenDirIsFree(unit: UnitState | undefined, opts: {
       : { action: 'own', reason: `the background service is running but never claimed this data directory (is it configured with a different one?)` }
   }
   if (unit.active === 'failed') {
-    return { action: 'own', reason: 'the background service is installed but failed — see `systemctl --user status traceroost`' }
+    return { action: 'own', reason: 'the background service is installed but failed; see `systemctl --user status traceroost`' }
   }
   if (!isEnabled(unit)) return { action: 'own', reason: 'the background service is installed but not enabled' }
   if (opts.launchedAtLogin && opts.sinceStartMs < LOGIN_GRACE_MS) {
-    return { action: 'wait', reason: 'opened at login — giving the background service time to start' }
+    return { action: 'wait', reason: 'opened at login, giving the background service time to start' }
   }
   return {
     action: 'own',
     reason: opts.launchedAtLogin
       ? 'the background service is enabled but did not start within a minute of login'
-      : 'the background service is enabled but stopped — taking over the data directory',
+      : 'the background service is enabled but stopped, taking over the data directory',
   }
 }
 

@@ -4,17 +4,17 @@ Thank you for your interest in contributing.
 
 ## Project scope and license zones
 
-Most of this repo — the local agent, the dashboard, the log/OTEL ingestion, the free local
-attribution/turnover engine — is MIT-licensed and stays that way. Features that make TraceRoost
+Most of this repo (the local agent, the dashboard, the log/OTEL ingestion, the free local
+attribution/turnover engine) is MIT-licensed and stays that way. Features that make TraceRoost
 more useful for a single developer watching their own agent traces belong here, and PRs for them
 are welcome.
 
 `src/cloud/`, `src/test/cloud/`, `media/src/cloud/`, and `standalone/cloud/` are a different
 license zone: Business Source License 1.1, not MIT. That's the client side of the org/cloud
-feature — cross-machine trace aggregation, team roster/link, and the forwarding pipeline that
+feature: cross-machine trace aggregation, team roster/link, and the forwarding pipeline that
 funds the project's continued development. See [NOTICE.md](NOTICE.md) for the exact scope and
 [src/cloud/README.md](src/cloud/README.md) for why it's split out this way. It isn't a hedge
-against contributions — PRs there are welcome too — but new work in that zone ships under BSL,
+against contributions (PRs there are welcome too), but new work in that zone ships under BSL,
 not MIT, so if you're unsure which license your change would land under, open an issue first.
 
 Adding, removing or upgrading a dependency that ends up in a bundle changes what TraceRoost
@@ -41,13 +41,13 @@ pnpm install
 ```
 
 `pnpm install` also points git at the repo's hooks (`git config core.hooksPath .githooks`, via the
-`prepare` script — skipped in CI and outside a git checkout). The `post-merge` / `post-rewrite`
+`prepare` script; skipped in CI and outside a git checkout). The `post-merge` / `post-rewrite`
 hooks re-run `node esbuild.js` so `standalone/cli.js` and the other bundles stay in sync after a
 pull or rebase. Run that `git config` line yourself if you installed with `--ignore-scripts`.
 
 **Run in VS Code:** Press `F5` to open a VS Code Extension Development Host with TraceRoost loaded.
 
-**Run standalone:** `pnpm run local` — starts the OTLP collector on port `4318` and the dashboard UI on port `4315`.
+**Run standalone:** `pnpm run local` starts the OTLP collector on port `4318` and the dashboard UI on port `4315`.
 
 **Build:**
 
@@ -62,16 +62,16 @@ node esbuild.js        # Bundle — outputs to dist/ and media/
 
 ### Editions
 
-The same sources build two editions (README → Editions): **full** (the default — what `F5`,
+The same sources build two editions (README → Editions): **full** (the default: what `F5`,
 `pnpm run local`, `pnpm run package` and the unit tests use) and **core**, which contains no
 TraceRoost Cloud (org link + upload) code. The split is made at build time, not with a runtime flag:
 
 - Non-cloud code reaches `src/cloud/`, `media/src/cloud/` and `standalone/cloud/` only through
-  three seams — `src/cloudBridge.ts` (extension host + standalone server), `media/src/orgPanel.ts`
+  three seams: `src/cloudBridge.ts` (extension host + standalone server), `media/src/orgPanel.ts`
   (webview) and `standalone/cliCloud.ts` (CLI). Each has a full implementation inside a `cloud/`
   directory and an inert core stub beside it (`src/cloudBridge.core.ts`,
   `media/src/orgPanel.core.tsx`, `standalone/cliCloud.core.ts`). **Don't import from a `cloud/`
-  directory anywhere else** — add what you need to a seam (both implementations) instead.
+  directory anywhere else**; add what you need to a seam (both implementations) instead.
   `import type` is fine; it's erased. `pnpm run lint` flags a runtime import from a `cloud/`
   directory in `src/` or `media/src/` outside the seams.
 - `node esbuild.js --edition=core` resolves each seam to its stub, defines
@@ -80,8 +80,8 @@ TraceRoost Cloud (org link + upload) code. The split is made at build time, not 
   standalone route, Help-tab sections) is wrapped in a literal
   `process.env.TRACEROOST_EDITION !== 'core'` check so the core build drops it entirely.
 - `node scripts/check-edition.mjs core` then greps the five shipped bundles for Cloud markers
-  (cloud module paths, Cloud endpoints and hostnames — except the public "Make a suggestion"
-  and TraceRoost Cloud pricing pages, `media/src/suggest.ts` and `media/src/cloudInfo.ts` — queue/link identifiers) and checks the
+  (cloud module paths, Cloud endpoints and hostnames, except the public "Make a suggestion"
+  and TraceRoost Cloud pricing pages, `media/src/suggest.ts` and `media/src/cloudInfo.ts`, queue/link identifiers) and checks the
   packaged manifest; `check-edition.mjs full` checks the markers are still present in a full build.
 
 ```bash
@@ -94,7 +94,7 @@ pnpm run test:unit                         # tests run against the sources — s
 ```
 
 CI builds and checks both (`build-and-test` and `core-edition` in `.github/workflows/ci.yml`).
-Releases ship the full edition since v1.0.0 (they were core before) — see
+Releases ship the full edition since v1.0.0 (they were core before); see
 [runbooks/RELEASING.md](runbooks/RELEASING.md#editions).
 
 ## Continuous integration
@@ -102,23 +102,23 @@ Releases ship the full edition since v1.0.0 (they were core before) — see
 | Workflow | Runs on | What it covers |
 | --- | --- | --- |
 | `ci.yml` | every push/PR to `main`/`cloud`; Ubuntu + Windows | lint, types, unit tests, production build, edition checks, Playwright UX evaluations |
-| `windows-e2e.yml` | every push/PR to `main`/`cloud`, nightly, manual, on release; Windows x64 + ARM64, macOS, Ubuntu | the extension inside a real VS Code, the npm package installed globally and run (including `traceroost service` on Task Scheduler / launchd / systemd), both VSIXes installed into a fresh VS Code, and `scripts/configure-*.ps1` under PowerShell 7 and 5.1. Its `real-agents` job (nightly/manual/release only) drives the real Claude Code and Codex CLIs and needs the `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` repository secrets — it skips with a notice without them |
-| `desktop-macos.yml` | every PR touching `desktop/`, the collector, the dashboard or the build inputs; pushes to `main` touching `desktop/`; manual. Apple Silicon macOS | the macOS desktop app (`desktop/`): builds and packs the arm64 and x64 `.app`/DMG/zip, verifies each packed bundle (layout, versions, edition — core on pull requests, the release's edition when `desktop-release.yml` calls it — bundled Node), smoke-tests the arm64 app end to end, runs the staged-collector integration suite, and uploads the artifacts with `SHA256SUMS` and third-party notices for 14 days. Publishes nothing; ad-hoc signed until the signing secrets exist — see `desktop/README.md` → Signing and notarization |
-| `desktop-windows.yml` | every PR touching `desktop/`, the collector, the dashboard or the build inputs; pushes to `main` touching `desktop/`; manual. Windows x64 (`windows-latest`) and ARM64 (`windows-11-arm`), natively | the Windows desktop app: builds the NSIS installer and portable zip per architecture, verifies the unpacked app (layout, versions, edition — core on pull requests, the release's edition when `desktop-release.yml` calls it — bundled Node), runs the staged-collector suite, smoke-tests the packaged app (owned collector, dashboard, `--quit` with a flushed shutdown over the owner channel), then `desktop/scripts/check-nsis.mjs` (silent per-user install, smoke test of the installed app, reinstall over the running app, silent uninstall that keeps the data). On ARM64 that check takes ~20 minutes (the NSIS stub runs emulated), so a PR that doesn't touch `desktop/` or this workflow runs it on x64 only; pushes to `main`, manual runs and releases run it on both. Uploads the installers and zips with `SHA256SUMS` for 14 days. Unsigned while `TRACEROOST_WINDOWS_SIGNING=off` (signing paused since 2026-10-26) — see `desktop/README.md` → Windows and `runbooks/WINDOWS_SIGNING.md` |
-| `desktop-linux.yml` | every PR touching `desktop/`, the collector, the dashboard or the build inputs; pushes to `main` touching `desktop/`; manual. Native x64 and arm64 Ubuntu runners | the Linux desktop app: builds the .deb and AppImage per architecture, runs the staged-collector suite, then installs, upgrades, smoke-tests, removes and purges the .deb on the runner and in clean Ubuntu 22.04/24.04 and Debian 12 containers, and checks the AppImage refuses to start without a sandbox and runs sandboxed on the runner and on Fedora, openSUSE Tumbleweed and Arch. A PR that doesn't touch `desktop/` or this workflow runs the .deb and AppImage checks on the runner only; the distro containers run on `desktop/` PRs, pushes to `main`, manual runs and releases. Uploads the packages with `SHA256SUMS` for 14 days; publishes nothing — see `desktop/README.md` → Linux |
+| `windows-e2e.yml` | every push/PR to `main`/`cloud`, nightly, manual, on release; Windows x64 + ARM64, macOS, Ubuntu | the extension inside a real VS Code, the npm package installed globally and run (including `traceroost service` on Task Scheduler / launchd / systemd), both VSIXes installed into a fresh VS Code, and `scripts/configure-*.ps1` under PowerShell 7 and 5.1. Its `real-agents` job (nightly/manual/release only) drives the real Claude Code and Codex CLIs and needs the `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` repository secrets; it skips with a notice without them |
+| `desktop-macos.yml` | every PR touching `desktop/`, the collector, the dashboard or the build inputs; pushes to `main` touching `desktop/`; manual. Apple Silicon macOS | the macOS desktop app (`desktop/`): builds and packs the arm64 and x64 `.app`/DMG/zip, verifies each packed bundle (layout, versions, edition (core on pull requests, the release's edition when `desktop-release.yml` calls it), bundled Node), smoke-tests the arm64 app end to end, runs the staged-collector integration suite, and uploads the artifacts with `SHA256SUMS` and third-party notices for 14 days. Publishes nothing; ad-hoc signed until the signing secrets exist; see `desktop/README.md` → Signing and notarization |
+| `desktop-windows.yml` | every PR touching `desktop/`, the collector, the dashboard or the build inputs; pushes to `main` touching `desktop/`; manual. Windows x64 (`windows-latest`) and ARM64 (`windows-11-arm`), natively | the Windows desktop app: builds the NSIS installer and portable zip per architecture, verifies the unpacked app (layout, versions, edition (core on pull requests, the release's edition when `desktop-release.yml` calls it), bundled Node), runs the staged-collector suite, smoke-tests the packaged app (owned collector, dashboard, `--quit` with a flushed shutdown over the owner channel), then `desktop/scripts/check-nsis.mjs` (silent per-user install, smoke test of the installed app, reinstall over the running app, silent uninstall that keeps the data). On ARM64 that check takes ~20 minutes (the NSIS stub runs emulated), so a PR that doesn't touch `desktop/` or this workflow runs it on x64 only; pushes to `main`, manual runs and releases run it on both. Uploads the installers and zips with `SHA256SUMS` for 14 days. Unsigned while `TRACEROOST_WINDOWS_SIGNING=off` (signing paused since 2026-10-26); see `desktop/README.md` → Windows and `runbooks/WINDOWS_SIGNING.md` |
+| `desktop-linux.yml` | every PR touching `desktop/`, the collector, the dashboard or the build inputs; pushes to `main` touching `desktop/`; manual. Native x64 and arm64 Ubuntu runners | the Linux desktop app: builds the .deb and AppImage per architecture, runs the staged-collector suite, then installs, upgrades, smoke-tests, removes and purges the .deb on the runner and in clean Ubuntu 22.04/24.04 and Debian 12 containers, and checks the AppImage refuses to start without a sandbox and runs sandboxed on the runner and on Fedora, openSUSE Tumbleweed and Arch. A PR that doesn't touch `desktop/` or this workflow runs the .deb and AppImage checks on the runner only; the distro containers run on `desktop/` PRs, pushes to `main`, manual runs and releases. Uploads the packages with `SHA256SUMS` for 14 days; publishes nothing; see `desktop/README.md` → Linux |
 | `security-review.yml` | weekly (Monday 09:00 UTC) and manual | not a merge gate: Trivy (dependencies, secrets, misconfig, licenses), Semgrep and `pnpm outdated`, summarised by `scripts/security-review/report.mjs` into the job summary and an open `security-review` tracking issue; fails on critical findings |
-| `traffic.yml` | weekly (Monday 06:17 UTC) and manual | not a check: snapshots Insights → Traffic (views, clones, referrers, popular pages — GitHub keeps only 14 days) into CSVs on the `traffic-stats` branch via `scripts/traffic-snapshot.mjs`, so `main` gets no bot commits. Needs the `TRAFFIC_TOKEN` secret (fine-grained, *Administration: Read-only*; the Actions `GITHUB_TOKEN` can't read traffic) |
-| `otel-watch.yml` | weekly (Monday 06:41 UTC) and manual | not a check: watches where each agent documents or implements its OpenTelemetry output (`scripts/otel-watch.mjs` — Claude Code's monitoring docs and changelog, the Codex and Copilot Chat otel code paths, OpenCode's OTLP export, the Copilot CLI changelog) and reports what changed since the last run: docs are diffed line by line (changelogs only on telemetry-related lines), code paths list their new commits. Snapshots and reports go to the `otel-watch` branch (keep it: it is the watch's memory); the report is emailed to the owners on the first run, when something telemetry-related moved and when a source could not be checked, given the `OTEL_WATCH_SMTP_*` / `OTEL_WATCH_MAIL_*` secrets (SES SMTP works). What to do with a report: [runbooks/README.md](runbooks/README.md) → "Review an upstream OpenTelemetry change" |
-| `agent-release-watch.yml` | every 6 hours and manual | not a check: looks up each agent's latest release (`scripts/agent-watch.mjs` — npm for Claude Code, Codex, OpenCode and Copilot CLI; the Marketplace for Copilot Chat; Cursor's install script) against the versions it saw last (kept in the workflow cache). A new release opens or retitles that agent's `agent-release` tracking issue, dispatches `agent-capture.yml` pinned to the version, and mails the owners (`OTEL_WATCH_*` secrets). It never changes code. Run it by hand with `pretend_seen` (e.g. `{"codex":"0.160.0"}`) to exercise the path |
-| `agent-capture.yml` | nightly, manual, and dispatched by the release watch | runs each agent headless once (`tests/e2e/capture-agents.mjs`; Claude Code and OpenCode need `ANTHROPIC_API_KEY`, Codex `OPENAI_API_KEY`, Cursor CLI `CURSOR_API_KEY`, Copilot CLI `COPILOT_GITHUB_TOKEN` — each missing secret skips only its agent), redacts the logs into fixtures and diffs them against `src/test/fixtures/agents` (`tests/e2e/fingerprint-diff.mjs`): a record `known.ts` doesn't know, a missing required key or a changed value type fails it. Reports to the tracking issue and mails on a format change. What to do then: [runbooks/AGENT_FORMAT_BREAK.md](runbooks/AGENT_FORMAT_BREAK.md) |
+| `traffic.yml` | weekly (Monday 06:17 UTC) and manual | not a check: snapshots Insights → Traffic (views, clones, referrers, popular pages; GitHub keeps only 14 days) into CSVs on the `traffic-stats` branch via `scripts/traffic-snapshot.mjs`, so `main` gets no bot commits. Needs the `TRAFFIC_TOKEN` secret (fine-grained, *Administration: Read-only*; the Actions `GITHUB_TOKEN` can't read traffic) |
+| `otel-watch.yml` | weekly (Monday 06:41 UTC) and manual | not a check: watches where each agent documents or implements its OpenTelemetry output (`scripts/otel-watch.mjs`: Claude Code's monitoring docs and changelog, the Codex and Copilot Chat otel code paths, OpenCode's OTLP export, the Copilot CLI changelog) and reports what changed since the last run: docs are diffed line by line (changelogs only on telemetry-related lines), code paths list their new commits. Snapshots and reports go to the `otel-watch` branch (keep it: it is the watch's memory); the report is emailed to the owners on the first run, when something telemetry-related moved and when a source could not be checked, given the `OTEL_WATCH_SMTP_*` / `OTEL_WATCH_MAIL_*` secrets (SES SMTP works). What to do with a report: [runbooks/README.md](runbooks/README.md) → "Review an upstream OpenTelemetry change" |
+| `agent-release-watch.yml` | every 6 hours and manual | not a check: looks up each agent's latest release (`scripts/agent-watch.mjs`: npm for Claude Code, Codex, OpenCode and Copilot CLI; the Marketplace for Copilot Chat; Cursor's install script) against the versions it saw last (kept in the workflow cache). A new release opens or retitles that agent's `agent-release` tracking issue, dispatches `agent-capture.yml` pinned to the version, and mails the owners (`OTEL_WATCH_*` secrets). It never changes code. Run it by hand with `pretend_seen` (e.g. `{"codex":"0.160.0"}`) to exercise the path |
+| `agent-capture.yml` | nightly, manual, and dispatched by the release watch | runs each agent headless once (`tests/e2e/capture-agents.mjs`; Claude Code and OpenCode need `ANTHROPIC_API_KEY`, Codex `OPENAI_API_KEY`, Cursor CLI `CURSOR_API_KEY`, Copilot CLI `COPILOT_GITHUB_TOKEN`; each missing secret skips only its agent), redacts the logs into fixtures and diffs them against `src/test/fixtures/agents` (`tests/e2e/fingerprint-diff.mjs`): a record `known.ts` doesn't know, a missing required key or a changed value type fails it. Reports to the tracking issue and mails on a format change. What to do then: [runbooks/AGENT_FORMAT_BREAK.md](runbooks/AGENT_FORMAT_BREAK.md) |
 
-Publishing workflows — `release.yml` (with `docker.yml` and `desktop-release.yml`) on a `v*` tag,
-`release-styles.yml` on a `styles-v*` tag — are covered in
+Publishing workflows (`release.yml` (with `docker.yml` and `desktop-release.yml`) on a `v*` tag,
+`release-styles.yml` on a `styles-v*` tag) are covered in
 [runbooks/RELEASING.md](runbooks/RELEASING.md); `cla.yml` checks the contributor licence agreement
 on PRs.
 
 The end-to-end suites live in `tests/e2e/` (plain Node scripts) and `src/test/integration/`
-(`*.itest.ts`, run inside VS Code by `tests/e2e/vscode/run.mjs` — not part of `pnpm test` /
+(`*.itest.ts`, run inside VS Code by `tests/e2e/vscode/run.mjs`, not part of `pnpm test` /
 `test:unit`). Each runs locally too; see [runbooks/WINDOWS_VALIDATION.md](runbooks/WINDOWS_VALIDATION.md)
 for what each job proves and the commands.
 
@@ -132,31 +132,31 @@ for what each job proves and the commands.
 | `src/summarizers/` | Per-agent span → trace summarizers |
 | `src/otlpCollector.ts` | OTLP/HTTP ingestion for the VS Code extension |
 | `src/attribution/`, `src/turnover/` | Free, local commit-attribution and turnover engines (MIT) |
-| `src/repoKey.ts` | Repository-key derivation — the repo hash shown in the Traces table's Repo (ID) column, and the HMAC primitives the cloud client builds on (MIT) |
-| `standalone/local/` | Free, local CLI analysis — `find`, `trace`, `patterns`, `cohort`, `advise` (MIT) |
-| `src/cloud/`, `media/src/cloud/`, `standalone/cloud/` | Org/cloud client (link + upload) — BSL-licensed, see [NOTICE.md](NOTICE.md). Local code never imports from these directories |
+| `src/repoKey.ts` | Repository-key derivation: the repo hash shown in the Traces table's Repo (ID) column, and the HMAC primitives the cloud client builds on (MIT) |
+| `standalone/local/` | Free, local CLI analysis: `find`, `trace`, `patterns`, `cohort`, `advise` (MIT) |
+| `src/cloud/`, `media/src/cloud/`, `standalone/cloud/` | Org/cloud client (link + upload), BSL-licensed, see [NOTICE.md](NOTICE.md). Local code never imports from these directories |
 
 ## Branching and commit conventions
 
 **Branch naming:** `feat/<slug>` for new features, `fix/<slug>` for bug fixes. Branch from `main`; delete after merge.
 
-**Commit format:** [Conventional Commits](https://www.conventionalcommits.org/) — `type(scope): imperative subject`. Common types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`. Keep each commit a single logical unit.
+**Commit format:** [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): imperative subject`. Common types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`. Keep each commit a single logical unit.
 
 **Merging:** PRs are merged into `main` with a merge commit (no squash), so each PR's own commits stay in the history; `git log --first-parent main` reads one line per merged PR.
 
-**Changelog and releases:** a user-facing PR adds its bullets under `## [Unreleased]` in `CHANGELOG.md` (`### Added` / `### Fixed` / `### Changed`, bold lead-in, PR number in parens — see the existing entries). A change that only affects TraceRoost Cloud (the full edition) goes under `### TraceRoost Cloud (full edition only)` instead, at the end of the section: `scripts/prepare-edition.mjs core` removes that sub-heading's block from the changelog the core VSIX and npm package ship. **Never bump `version` in `package.json` in a feature PR.** The bump and the dated `## [X.Y.Z]` heading are written at release time by a release commit on `main`, which is then tagged `vX.Y.Z` — the release workflow (and the Docker workflow it calls) refuses a tag that doesn't match `package.json`'s version. The whole procedure is [`runbooks/RELEASING.md`](runbooks/RELEASING.md).
+**Changelog and releases:** a user-facing PR adds its bullets under `## [Unreleased]` in `CHANGELOG.md` (`### Added` / `### Fixed` / `### Changed`, bold lead-in, PR number in parens; see the existing entries). A change that only affects TraceRoost Cloud (the full edition) goes under `### TraceRoost Cloud (full edition only)` instead, at the end of the section: `scripts/prepare-edition.mjs core` removes that sub-heading's block from the changelog the core VSIX and npm package ship. **Never bump `version` in `package.json` in a feature PR.** The bump and the dated `## [X.Y.Z]` heading are written at release time by a release commit on `main`, which is then tagged `vX.Y.Z`. The release workflow (and the Docker workflow it calls) refuses a tag that doesn't match `package.json`'s version. The whole procedure is [`runbooks/RELEASING.md`](runbooks/RELEASING.md).
 
 ## Submitting a pull request
 
 1. Fork the repo and create a branch (`feat/<slug>` or `fix/<slug>`)
 2. Make your changes and verify `pnpm run check-types && pnpm run lint` pass
-3. If your change is user-facing, add a bullet under `## [Unreleased]` in `CHANGELOG.md` (don't bump the version — releases do that)
+3. If your change is user-facing, add a bullet under `## [Unreleased]` in `CHANGELOG.md` (don't bump the version; releases do that)
 4. Open a PR with a clear description of what changed and why; the PR title should follow Conventional Commits format
 
 Please keep PRs focused on a single change. Large refactors should be discussed in an issue first.
 
 **Contributor License Agreement:** a bot will ask you to sign the
-[CLA](.github/CLA.md) on your first pull request — a one-time comment, no account or
+[CLA](.github/CLA.md) on your first pull request: a one-time comment, no account or
 external service needed. PRs can't be merged until it's signed.
 
 ## Demo data and fixtures

@@ -114,8 +114,8 @@ export function writeResolvedPorts(ports: ResolvedPorts, baseHome?: string): voi
 export class PortScanExhaustedError extends Error {
   constructor(public readonly requestedPort: number, public readonly cap: number) {
     super(
-      `Port ${requestedPort} (and the next ${cap} ports after it) are all in use — ` +
-      `stop one of those processes or set a different port to use.`
+      `Port ${requestedPort} (and the next ${cap} ports after it) are all in use. ` +
+      `Stop one of those processes or set a different port to use.`
     )
     this.name = 'PortScanExhaustedError'
   }

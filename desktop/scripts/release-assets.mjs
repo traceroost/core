@@ -69,7 +69,7 @@ export function assemble({ inDir, outDir, version, platforms }) {
   const knownPlatforms = Object.keys(expected)
   const unknown = platforms.filter(p => !knownPlatforms.includes(p))
   if (unknown.length > 0) throw new Error(`release-assets: unknown platform ${unknown.join(', ')} (known: ${knownPlatforms.join(', ')})`)
-  if (platforms.length === 0) throw new Error('release-assets: --platforms names no platform — nothing to attach')
+  if (platforms.length === 0) throw new Error('release-assets: --platforms names no platform; nothing to attach')
   const sums = findChecksumFiles(inDir)
   if (sums.length === 0) throw new Error(`release-assets: no SHA256SUMS under ${inDir}`)
 

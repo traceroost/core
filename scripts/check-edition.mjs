@@ -126,7 +126,7 @@ const report = []
 for (const rel of BUNDLES) {
   const file = path.join(root, rel)
   if (!fs.existsSync(file)) {
-    console.error(`✘ ${rel} does not exist — build first: node esbuild.js --production --edition=${edition}`)
+    console.error(`✘ ${rel} does not exist. Build first: node esbuild.js --production --edition=${edition}`)
     failed = true
     continue
   }
@@ -150,7 +150,7 @@ if (edition === 'full') {
     const r = report.find(x => x.rel === rel)
     if (r && r.hits.length === 0) {
       failed = true
-      console.error(`✘ ${rel} has no Cloud markers at all in a full build — the marker list in scripts/check-edition.mjs has gone stale`)
+      console.error(`✘ ${rel} has no Cloud markers at all in a full build; the marker list in scripts/check-edition.mjs has gone stale`)
     }
   }
 }

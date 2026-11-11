@@ -300,7 +300,7 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
         title="Click a line to select that trace"
       />
       {!hasData && loading && <div class="empty-state" style="font-size:11px">Loading per-turn token data…</div>}
-      {!hasData && !loading && <div class="empty-state" style="font-size:11px">No per-turn token data for these traces. Context Growth requires traces with per-turn input token counts — available for OTel-sourced traces and Claude Code log traces.</div>}
+      {!hasData && !loading && <div class="empty-state" style="font-size:11px">No per-turn token data for these traces. Context Growth requires traces with per-turn input token counts, available for OTel-sourced traces and Claude Code log traces.</div>}
       {hasData && (
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px">
           <div style="display:flex;align-items:center;gap:6px">
@@ -533,7 +533,7 @@ export function OutcomeTrendChart({ bins, unit, hitMarkers = [] }: { bins: Trend
   const [hover, setHover] = useState<number | null>(null)
 
   if (bins.length === 0) {
-    return <div class="empty-state" style="font-size:11px">No traces with a resolved outcome yet — merged, committed, or uncommitted, per local git.</div>
+    return <div class="empty-state" style="font-size:11px">No traces with a resolved outcome yet (merged, committed, or uncommitted, per local git).</div>
   }
 
   const chartW = TREND_W - TREND_PAD.left - TREND_PAD.right
@@ -654,7 +654,7 @@ export function CodeChangesChart({ trend }: { trend: CodeChangeTrend }) {
     // Name only the agents without edit contents that this user actually runs.
     const noEdits = agentsInUse.value.filter(a => a === 'codex' || a === 'opencode' || a === 'cursor' || a === 'antigravity').map(getAgentSourceLabel)
     const why = noEdits.length > 0 ? ` and agents that don't log edit contents (${noEdits.join(', ')})` : ''
-    return <div class="empty-state" data-testid="code-changes-empty" style="font-size:11px">No traces in view recorded line counts — older traces{why} have none.</div>
+    return <div class="empty-state" data-testid="code-changes-empty" style="font-size:11px">No traces in view recorded line counts; older traces{why} have none.</div>
   }
 
   const chartW = TREND_W - CHANGE_PAD.left - CHANGE_PAD.right

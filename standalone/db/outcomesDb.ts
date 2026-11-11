@@ -60,7 +60,7 @@ export async function openOutcomesDb(dataDir: string, log: (msg: string) => void
         // Keep the unreadable file aside rather than letting the first save overwrite it — it holds
         // plan-limit readings, Claude join decisions and revisions that can't be re-derived.
         const aside = quarantineCorruptFile(dbPath)
-        log(`[TraceRoost] ${dbPath} could not be opened (${err instanceof Error ? err.message : String(err)})${aside ? ` — moved it to ${aside}` : ''}; starting a fresh outcomes cache.`)
+        log(`[TraceRoost] ${dbPath} could not be opened (${err instanceof Error ? err.message : String(err)})${aside ? ` (moved it to ${aside})` : ''}; starting a fresh outcomes cache.`)
         db = new SQL.Database()
       }
     } else {

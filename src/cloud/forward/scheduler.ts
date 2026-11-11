@@ -140,7 +140,7 @@ export function startForwardScheduler(opts: {
         }
       }
       if (res.remaining > 0 && iterations >= MAX_DRAIN_ITERATIONS_PER_RUN) {
-        opts.log?.(`[TraceRoost] Forwarding: paused after ${iterations} batches this run with ${res.remaining} still queued — resuming on the next tick`)
+        opts.log?.(`[TraceRoost] Forwarding: paused after ${iterations} batches this run with ${res.remaining} still queued; resuming on the next tick`)
       }
       if (res.stopped === 'membership-revoked') stop()
       // The credential is still here (a permanent refresh failure unlinks), so the refresh failed

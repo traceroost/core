@@ -2,8 +2,8 @@
 
 What to do when a published `vX.Y.Z` is broken. Publishing is effectively irreversible
 ([`RELEASING.md`](RELEASING.md), step 6): you cannot delete a version from npm after 72 hours, and
-you can never publish the same version number twice anywhere. So the plan is always the same —
-**stop new installs from picking up the bad version now, then ship a fixed `X.Y.(Z+1)`** — and the
+you can never publish the same version number twice anywhere. So the plan is always the same:
+**stop new installs from picking up the bad version now, then ship a fixed `X.Y.(Z+1)`**. And the
 only judgement is how much of the first half each channel needs.
 
 **Trigger:** a released version crashes on start, loses data, breaks agent configuration, leaks
@@ -39,7 +39,7 @@ npm deprecate traceroost@X.Y.Z "Broken: <one line>. Use <last-good> or later."
 
 `npx traceroost@latest` and the background service's update check both follow the `latest`
 dist-tag, so this stops new installs and update prompts at once. Unpublishing is possible only
-within 72 hours and only if nothing depends on it — prefer deprecate.
+within 72 hours and only if nothing depends on it; prefer deprecate.
 
 ## 3. Docker → re-point the moving tags
 
@@ -54,7 +54,7 @@ done
 ```
 
 (If the bad release opened a new minor, `X.Y` points only at the bad version: leave it, or delete
-that tag in the registry UI.) Leave `X.Y.Z` itself in place — someone may have pinned it.
+that tag in the registry UI.) Leave `X.Y.Z` itself in place; someone may have pinned it.
 
 ## 4. Homebrew → revert the formula
 
@@ -84,7 +84,7 @@ it merged, the next release's PR supersedes it; there is no faster path.
 Follow [`RELEASING.md`](RELEASING.md) with the next patch version. A revert of the bad commit is a
 fine fix. Once it's out and green on every channel, the `latest` tags above move forward on their
 own (npm, Docker, Homebrew, GitHub release); remove the pre-release mark from `vX.Y.Z` only if you
-want it listed again — usually leave it.
+want it listed again; usually leave it.
 
 ## 8. Tell people
 

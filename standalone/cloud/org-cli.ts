@@ -66,7 +66,7 @@ async function runLink(args: string[]): Promise<number> {
         },
         onBlocked: (message) => {
           console.log(`\n${message}`)
-          console.log('Still waiting — this same code links as soon as the org has a free machine slot (upgrade, or unlink another machine). Press Ctrl+C to stop.')
+          console.log('Still waiting. This same code links as soon as the org has a free machine slot (upgrade, or unlink another machine). Press Ctrl+C to stop.')
         },
       })
       console.log(`\n✓ Linked to ${result.orgName} as ${result.role}.`)
@@ -129,7 +129,7 @@ function runStatus(): number {
 async function runVerify(): Promise<number> {
   const creds = loadCredentials()
   if (!creds) {
-    console.log('Not linked — nothing to verify. Run `traceroost org link` to join an org.')
+    console.log('Not linked; nothing to verify. Run `traceroost org link` to join an org.')
     return 0
   }
 
@@ -153,7 +153,7 @@ async function runVerify(): Promise<number> {
 
   if (localCount === null) {
     console.log("Could not reach the local dashboard (is `traceroost` / the standalone server running?).")
-    console.log('Nothing to compare against — start it and run this again.')
+    console.log('Nothing to compare against. Start it and run this again.')
     return 1
   }
   if (!cloudStats) {
@@ -172,7 +172,7 @@ async function runVerify(): Promise<number> {
   }
   console.log(
     `\n${gap} trace${gap === 1 ? '' : 's'} local but not (yet) in cloud. If you were mid-session ` +
-      'just now, that alone can explain a small gap — an in-progress trace has nothing to send ' +
+      'just now, that alone can explain a small gap: an in-progress trace has nothing to send ' +
       'until it ends, and a just-finished OTel-only one needs a few idle minutes before it\'s ' +
       'eligible. If the gap stays the same size a few minutes from now, run `traceroost org ' +
       'status` and check the queue depth and last-trace time for what\'s actually stuck.',
@@ -188,7 +188,7 @@ async function runLeave(): Promise<number> {
   }
   console.log('✓ Unlinked. The local credential is deleted and this machine has stopped forwarding.')
   if (!result.serverRevoked) {
-    console.log('  (Could not reach the server to revoke the token — it will be revoked on its next contact, or a lead can revoke it from the roster.)')
+    console.log('  (Could not reach the server to revoke the token. It will be revoked on its next contact, or a lead can revoke it from the roster.)')
   }
   return 0
 }
@@ -203,7 +203,7 @@ export async function runOrgCli(args: string[]): Promise<number> {
     default:
       console.log('Usage: traceroost org <link [--device|--browser]|status|verify|leave>')
       console.log('  link    Join an org (opens a browser; over SSH or without a display it shows a')
-      console.log('          code to approve from any device instead — force either with --device/--browser)')
+      console.log('          code to approve from any device instead; force either with --device/--browser)')
       console.log('  status  Show this machine\'s Cloud state')
       console.log('  verify  Compare local trace count against what the server has')
       console.log('  leave   Unlink this machine (local-first, works offline)')

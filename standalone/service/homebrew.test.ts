@@ -94,7 +94,7 @@ suite('homebrew', () => {
   test('brew is found under the prefix, and its failures read plainly', () => {
     assert.strictEqual(brewExecutable('/opt/homebrew'), path.join('/opt/homebrew', 'bin', 'brew'))
     assert.strictEqual(describeBrewFailure({ code: 'ENOENT' }), 'brew was not found')
-    assert.strictEqual(describeBrewFailure({ status: 1 }), 'brew exited with code 1 — see its output above')
+    assert.strictEqual(describeBrewFailure({ status: 1 }), 'brew exited with code 1; see its output above')
   })
 
   test('finds an installed Homebrew copy through its opt link, for npx to hand off to', function () {

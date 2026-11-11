@@ -55,7 +55,7 @@ export function dominantLanguageNote(sessions: SuggestionSession[]): string {
   }
   const top = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]
   if (!top || top[1] / sessions.length < 0.6) return ''
-  return ` Most (${top[1]} of ${sessions.length}) are \`${top[0]}\` traces — naming that stack's build and test commands upfront helps.`
+  return ` Most (${top[1]} of ${sessions.length}) are \`${top[0]}\` traces. Naming that stack's build and test commands upfront helps.`
 }
 
 function makeId(prefix: string, key: string): string {
@@ -64,7 +64,7 @@ function makeId(prefix: string, key: string): string {
 
 function pct(n: number, total: number): number { return Math.round((n / total) * 100) }
 
-const INQUIRY_PREAMBLE = 'This is a question about my agent instruction file — please do not make any code changes, just advise on what text to add.\n\n'
+const INQUIRY_PREAMBLE = 'This is a question about my agent instruction file. Please do not make any code changes, just advise on what text to add.\n\n'
 
 function alreadyPresent(existingText: string, ...keyPhrases: string[]): boolean {
   const lower = existingText.toLowerCase()
@@ -97,7 +97,7 @@ export function getHotFileSuggestions(sessions: SuggestionSession[], existingTex
       category: 'context',
       title: `Add ${basename} to instruction file`,
       evidence: `Touched in ${ids.length} of ${sessions.length} traces (${pct(ids.length, sessions.length)}%). Each agent discovery adds ~2–3 turns.`,
-      suggestedText: `Always read \`${file}\` before editing ${subsystem} — it is frequently needed context.`,
+      suggestedText: `Always read \`${file}\` before editing ${subsystem}; it is frequently needed context.`,
       inquiryText: INQUIRY_PREAMBLE + `I've noticed that \`${basename}\` appears in ${pct(ids.length, sessions.length)}% of my agent traces, but the agent discovers it from scratch each time rather than reading it proactively. What would you recommend I add to my instruction file to ensure it's loaded at the start of relevant tasks?`,
       targetAgents: ['claude_code', 'codex', 'opencode', 'cursor', 'antigravity'],
       priority: ids.length / sessions.length >= 0.4 ? 'high' : 'medium',
@@ -135,8 +135,8 @@ export function getFrontLoadedDiscoverySuggestions(sessions: SuggestionSession[]
       category: 'context',
       title: `Load ${basename} before starting`,
       evidence: `Read without modification in ${ids.length} of ${sessions.length} traces (${pct(ids.length, sessions.length)}%). Mentioning it upfront eliminates agent discovery turns.`,
-      suggestedText: `Before starting any task, read \`${file}\` — it is consistently needed as reference and is never modified directly.`,
-      inquiryText: INQUIRY_PREAMBLE + `I've noticed that \`${basename}\` is read in ${pct(ids.length, sessions.length)}% of traces as reference material and is never directly modified — the agent rediscovers it from scratch each time. What would you recommend I add to my instruction file to ensure it's loaded before starting any task?`,
+      suggestedText: `Before starting any task, read \`${file}\`; it is consistently needed as reference and is never modified directly.`,
+      inquiryText: INQUIRY_PREAMBLE + `I've noticed that \`${basename}\` is read in ${pct(ids.length, sessions.length)}% of traces as reference material and is never directly modified, so the agent rediscovers it from scratch each time. What would you recommend I add to my instruction file to ensure it's loaded before starting any task?`,
       targetAgents: ['claude_code', 'codex', 'opencode', 'cursor', 'antigravity'],
       priority: 'high',
       evidenceSessions: ids,
@@ -149,7 +149,7 @@ const LOOP_TEXT: Record<string, string> = {
   exact_tool_repeat:
     'After reading a file, do not re-read it unless you have modified it. If a tool call produces no new information, stop and ask the user rather than retrying.',
   edit_revert_cycle:
-    'Before editing any file, state the exact final state you intend to produce. Do not oscillate between two states — if a second edit would revert a prior one, stop and ask for clarification.',
+    'Before editing any file, state the exact final state you intend to produce. Do not oscillate between two states. If a second edit would revert a prior one, stop and ask for clarification.',
   error_recurrence:
     'If the same error appears twice, do not attempt a third fix without pausing to verify that the package, function, or file path actually exists.',
   runaway_steps:
@@ -162,7 +162,7 @@ const LOOP_INQUIRY: Record<string, (count: number, total: number) => string> = {
   exact_tool_repeat: (count, total) =>
     `I've noticed that in ${count} of ${total} traces you re-read files you had already read without modifying them, triggering repeat tool calls. What instruction would you recommend I add to your instruction file to prevent unnecessary re-reads?`,
   edit_revert_cycle: (count, total) =>
-    `I've noticed that in ${count} of ${total} traces you made an edit and then reverted it — oscillating between states. What instruction would you recommend I add to your instruction file to prevent this kind of back-and-forth?`,
+    `I've noticed that in ${count} of ${total} traces you made an edit and then reverted it, oscillating between states. What instruction would you recommend I add to your instruction file to prevent this kind of back-and-forth?`,
   error_recurrence: (count, total) =>
     `I've noticed that in ${count} of ${total} traces you retried the same failing operation multiple times without verifying the root cause first. What instruction would you recommend I add to your instruction file to make you pause and verify before a third attempt?`,
   runaway_steps: (count, total) =>
@@ -239,11 +239,11 @@ export function getScopeSuggestions<S extends SuggestionSession>(sessions: S[], 
     evidence: `Traces with open-ended language run ${ratio}× avg ${unit} (${matching.length} of ${sessions.length} traces).`,
     suggestedText: [
       'Prompting guidance:',
-      '- Always name the specific file and function. Don\'t say "refactor" — say "refactor [function] in [file]".',
+      '- Always name the specific file and function. Don\'t say "refactor"; say "refactor [function] in [file]".',
       '- State the exact error message when reporting a bug, not just that something is broken.',
       '- One task at a time. Multi-part prompts ("fix X, then also do Y") should be split into separate traces.',
     ].join('\n'),
-    inquiryText: INQUIRY_PREAMBLE + `I've noticed that prompts using open-ended language like "refactor" or "fix the bug" run at ${ratio}× the average ${unit} compared to more scoped prompts — across ${matching.length} of ${sessions.length} traces. What guidance would you recommend I add to my instruction file to encourage more targeted, scoped prompts from users?`,
+    inquiryText: INQUIRY_PREAMBLE + `I've noticed that prompts using open-ended language like "refactor" or "fix the bug" run at ${ratio}× the average ${unit} compared to more scoped prompts, across ${matching.length} of ${sessions.length} traces. What guidance would you recommend I add to my instruction file to encourage more targeted, scoped prompts from users?`,
     targetAgents: ['claude_code', 'copilot', 'codex', 'opencode', 'cursor', 'antigravity'],
     priority: 'medium',
     evidenceSessions: matching.map(s => s.sessionId),
@@ -297,7 +297,7 @@ export function getToolDisciplineSuggestions(sessions: SuggestionSession[], exis
     title: 'Prefer file-read tool over terminal for inspection',
     evidence: `Terminal calls exceed file-read 3× in ${heavy.length} of ${sessions.length} traces (${pct(heavy.length, sessions.length)}%).`,
     suggestedText: 'Prefer the dedicated file-read tool over running shell commands to inspect files. Use the terminal only for operations that cannot be done with a dedicated tool. Do not use cat, head, or tail to read file contents.',
-    inquiryText: INQUIRY_PREAMBLE + `I've noticed that in ${heavy.length} of ${sessions.length} traces, Bash/terminal commands are used more than 3× as often as the file-reading tool to inspect file contents — cat, head, and similar shell commands instead of reading files directly. What instruction would you recommend I add to my instruction file to prevent this?`,
+    inquiryText: INQUIRY_PREAMBLE + `I've noticed that in ${heavy.length} of ${sessions.length} traces, Bash/terminal commands are used more than 3× as often as the file-reading tool to inspect file contents: cat, head, and similar shell commands instead of reading files directly. What instruction would you recommend I add to my instruction file to prevent this?`,
     targetAgents: ['claude_code', 'copilot', 'codex', 'opencode', 'cursor', 'antigravity'],
     priority: 'low',
     evidenceSessions: heavy.map(s => s.sessionId),

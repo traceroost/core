@@ -1,7 +1,7 @@
 # TraceRoost desktop shell (macOS, Linux, Windows)
 
 An Electron shell that runs the existing standalone collector and dashboard as a normal desktop
-app with a menu bar / tray icon — no terminal, no separately installed Node.
+app with a menu bar / tray icon: no terminal, no separately installed Node.
 
 **Linux** (a .deb and an AppImage, x64 and arm64) is built and released in CI; see
 [Linux](#linux). **Windows** (a one-click NSIS installer, x64 and
@@ -11,7 +11,7 @@ about macOS.
 **Status: the macOS app is built, tested, signed with a Developer ID, notarized and released.**
 The app builds as a `.app` and a DMG for arm64 and x64, verifies and smoke-tests itself,
 ships its third-party notices and checksums, and is built in CI on every change. Releases ship it
-notarized only — see [Signing and notarization](#signing-and-notarization) — and
+notarized only (see [Signing and notarization](#signing-and-notarization)), and
 [what is not done](#what-is-not-done-yet) lists the rest.
 
 Nothing here changes the npm, VSIX, Docker or Homebrew builds. It consumes their output.
@@ -26,16 +26,16 @@ pnpm start           # or: ./node_modules/.bin/electron .
 ```
 
 `pnpm run build` type-checks `src/` against the Electron types, bundles the main process to
-`out/main.js` with esbuild, runs [`scripts/stage-resources.mjs`](scripts/stage-resources.mjs) —
+`out/main.js` with esbuild, runs [`scripts/stage-resources.mjs`](scripts/stage-resources.mjs),
 which builds the collector at the repo root in the desktop edition (below; **core** unless told
-otherwise) and copies what the app ships into `resources/collector/` — and runs
+otherwise) and copies what the app ships into `resources/collector/`, and runs
 [`scripts/third-party-notices.mjs`](scripts/third-party-notices.mjs).
 
 ### Editions
 
 The desktop app follows the release edition like the VSIX, the npm package and the Docker image
 (`runbooks/RELEASING.md` → "Editions"): a core release ships the **core** app (no TraceRoost Cloud
-code at all), a full release the **full** one, whose collector carries the Cloud connector — the
+code at all), a full release the **full** one, whose collector carries the Cloud connector: the
 dashboard's Org panel and `/api/org`, from which the machine is linked to an org (the collector
 opens the sign-in page in the system browser itself and takes the OAuth callback on its own
 loopback port, exactly as `npx traceroost` does). Every build step reads the edition from
@@ -84,7 +84,7 @@ What goes into the `.app`:
 
 | Where in `TraceRoost.app/Contents/Resources` | What |
 | --- | --- |
-| `app.asar` | `out/main.js` and `package.json` — the main process, and nothing else |
+| `app.asar` | `out/main.js` and `package.json`: the main process, and nothing else |
 | `collector/` | the staged tree: `standalone/server.js`, `media/…`, `package.json`, `node_modules/sql.js/`, and in the full edition `schema/rollup.v1.json` |
 | `Assets.car`, `icon.icns` | the app icon, compiled by electron-builder (Xcode 26's `actool`) from `build/icon.icon`, an Icon Composer document [`scripts/make-icon-composer.mjs`](scripts/make-icon-composer.mjs) writes from `media/favicon.svg`. macOS 26 reads `Assets.car` (`CFBundleIconName`) and draws our own look for each icon style: teal tile with a dark bird, or in Dark a dark tile with a teal bird, instead of restyling an `.icns`-only icon on its own. Older macOS, Finder's About box and the DMG's volume icon use `icon.icns`. `build/icon.icns` ([`scripts/make-icons.mjs`](scripts/make-icons.mjs), `iconutil`) stays the committed tile the `.icon` mirrors |
 | `tray/` | the menu bar template icons |
@@ -94,7 +94,7 @@ What goes into the `.app`:
 
 Two things in that layout are easy to lose and are checked for. `collector/node_modules/sql.js`
 must be a real directory because the collector `require.resolve`s it at run time for its WASM, and
-electron-builder's blanket `!**/node_modules/**` exclusion on copied resources would drop it — so
+electron-builder's blanket `!**/node_modules/**` exclusion on copied resources would drop it, so
 it is copied by a separate entry from inside the package. And the tray icons cannot live in
 `build/`, because that is electron-builder's `buildResources` directory (the app icon source and
 the entitlements) and is kept out of the app by design; `main.ts` reads them from
@@ -110,8 +110,8 @@ this packaging produced a launchable app with no `sql.js` in it, which is why th
 exists.
 
 `pnpm run smoke` ([`scripts/smoke-packaged.mjs`](scripts/smoke-packaged.mjs)) then launches the
-built `.app` the way the Finder would — with `HOME` redirected, so the collector's agent
-auto-configuration cannot touch your real `~/.claude/settings.json` — and checks: the collector
+built `.app` the way the Finder would (with `HOME` redirected, so the collector's agent
+auto-configuration cannot touch your real `~/.claude/settings.json`) and checks: the collector
 claims the data dir with the configured ports and the shipped version, `/health`, the identity
 probe, the dashboard page and a real asset serve, `desktop.log` records owned mode, and a SIGTERM
 to the app (`traceroost-desktop --quit` on Windows) stops the collector over the [owner
@@ -127,7 +127,7 @@ ran a downloaded copy), it offers to move itself to Applications; **Move to Appl
 it there, ejects the disk image and opens the installed copy. An older copy that is running is
 quit first (it flushes its collector, as on any quit). **Not Now** runs it from the disk image this
 time and asks again on the next launch; ticking *Don't ask again* stops the question. Dragging it
-to the Applications link works too — the app just doesn't open by itself that way. The offer is
+to the Applications link works too; the app just doesn't open by itself that way. The offer is
 [`src/installLocation.ts`](src/installLocation.ts); the window's background, which says all this,
 is drawn by [`scripts/make-dmg-background.mjs`](scripts/make-dmg-background.mjs).
 
@@ -148,8 +148,8 @@ On first launch the app decides who owns the data directory (below), starts a co
 else does, and opens the dashboard. It uses the same `~/.traceroost` data directory and
 `~/.traceroost/config.json` (ports, data dir, bind host, token) as `npx traceroost` and the
 Homebrew service, so existing data appears as is. It creates `~/.traceroost/desktop.log`
-(owner-only, rotated at 5 MB with one generation kept) and, like every collector, asks once —
-in a dashboard banner, since it has no terminal — before setting up the coding agents on the
+(owner-only, rotated at 5 MB with one generation kept) and, like every collector, asks once
+(in a dashboard banner, since it has no terminal) before setting up the coding agents on the
 machine to send telemetry to it; the answer is shared with `npx traceroost` and the service.
 
 Requires macOS 12 or later (the app's declared minimum). CI launches it on macOS 15 and 26, on Apple silicon and on Intel (`Desktop (macOS)` → `package` and `smoke`); macOS 12–14 are not tested. Git is optional: without it, sessions are still recorded but commit
@@ -164,7 +164,7 @@ it, so the switch from the current unsigned CI artifact to a shippable one is a 
 | --- | --- |
 | nothing | **ad-hoc signed**, hardened runtime off, no notarization. Launches locally; refused by Gatekeeper when downloaded |
 | `CSC_NAME` naming a *Developer ID Application* identity in the keychain (without the `Developer ID Application: ` prefix; CI imports the `.p12` into a job keychain and passes its SHA-1 plus `CSC_KEYCHAIN`). Not `CSC_LINK`: electron-builder 26.15.3 fails to import a `.p12` that way | signed with that identity under the hardened runtime, with [`build/entitlements.mac.plist`](build/entitlements.mac.plist) |
-| …plus `APPLE_API_KEY` (path to an App Store Connect API `.p8`), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` — or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | …and notarized and stapled |
+| …plus `APPLE_API_KEY` (path to an App Store Connect API `.p8`), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | …and notarized and stapled |
 
 Ad-hoc is explicit rather than electron-builder's default (which is to skip signing entirely when
 no identity is found): Apple Silicon refuses to launch an unsigned binary whose bundle differs from
@@ -181,7 +181,7 @@ as a developer's machine does; with only half of them it fails. Creating them is
 
 `pnpm run rehearse:mac-signing` (after `pnpm run pack:host`) re-signs the packed app with a
 throwaway self-signed identity under the hardened runtime and the production entitlements, and
-runs the smoke test against it — the signed path, minus what only Apple's certificate can prove
+runs the smoke test against it: the signed path, minus what only Apple's certificate can prove
 (notarization, Gatekeeper, library validation). See the script's header. The membership itself is **US$99/year**
 ([Apple](https://developer.apple.com/programs/whats-included/)).
 
@@ -194,7 +194,7 @@ pnpm run pack:linux        # x64 + arm64: dist/TraceRoost-<v>-linux-{amd64,arm64
 pnpm run pack:linux:host   # this machine's architecture only
 ```
 
-Both build on Linux natively (what CI does) or cross-build from macOS — electron-builder fetches
+Both build on Linux natively (what CI does) or cross-build from macOS; electron-builder fetches
 the Linux Electron, fpm and the AppImage tools itself. A cross-build skips only afterPack's
 "run the packaged Electron as Node" check. Each format uses its own architecture names, as the
 download chooser lists them: `amd64`/`arm64` for the .deb, `x86_64`/`arm64` for the AppImage.
@@ -205,17 +205,17 @@ download chooser lists them: `amd64`/`arm64` for the .deb, `x86_64`/`arm64` for 
   `sudo apt install ./TraceRoost-<version>-linux-amd64.deb`. It installs to `/opt/TraceRoost`,
   links `/usr/bin/traceroost-desktop` (not `traceroost`, which is the npm/Homebrew CLI), adds a
   launcher entry and hicolor icons at every standard size, and depends only on distribution
-  packages — never on `nodejs`.
+  packages, never on `nodejs`.
 - **AppImage** (any mainstream x64 or arm64 distribution): `chmod +x TraceRoost-*.AppImage` and
   run it. No root and no install step. It uses the static AppImage runtime, so no `libfuse2` is
   needed (`fusermount` from fuse or fuse3 is, as for any AppImage; without FUSE at all,
   `./TraceRoost-*.AppImage --appimage-extract-and-run` works). On first run it *offers* to add
-  itself to the applications menu and does nothing unless you say yes — **TraceRoost → Show in
+  itself to the applications menu and does nothing unless you say yes. **TraceRoost → Show in
   Applications Menu** changes your answer later.
 
 Both use the same `~/.traceroost` data directory, `config.json` and `desktop.log` as every other
-TraceRoost (no move to XDG directories), so existing data appears as is. The app's own settings —
-answers to the questions below — are in `~/.config/TraceRoost/desktop-prefs.json`.
+TraceRoost (no move to XDG directories), so existing data appears as is. The app's own settings
+(answers to the questions below) are in `~/.config/TraceRoost/desktop-prefs.json`.
 
 ### The sandbox, and why the AppImage refuses to start on Ubuntu 23.10+
 
@@ -226,7 +226,7 @@ or a setuid-root `chrome-sandbox` helper:
 
 | System | .deb | AppImage |
 | --- | --- | --- |
-| Ubuntu 23.10+ (namespaces restricted by AppArmor) | the package installs `/etc/apparmor.d/traceroost-desktop`, granting `userns` to `/opt/TraceRoost/traceroost-desktop` only | **refuses to start** — it cannot install a profile |
+| Ubuntu 23.10+ (namespaces restricted by AppArmor) | the package installs `/etc/apparmor.d/traceroost-desktop`, granting `userns` to `/opt/TraceRoost/traceroost-desktop` only | **refuses to start**: it cannot install a profile |
 | namespaces available (Fedora, Arch, openSUSE, Debian, Ubuntu ≤ 23.04) | namespace sandbox | namespace sandbox |
 | namespaces disabled (`kernel.unprivileged_userns_clone=0`, some hardened kernels) | setuid `chrome-sandbox` | refuses to start (its mount is `nosuid`) |
 
@@ -253,7 +253,7 @@ cannot tell, it assumes there is no tray:
 | | tray | no tray |
 | --- | --- | --- |
 | close the window | hides it; collection continues behind the tray icon | asks: **Quit and Stop Collecting**, **Keep Running Minimised** or Cancel, with "Remember my choice". If nothing of ours is collecting (attached to another collector, or stopped), it just quits |
-| Launch at Login | starts with no window | starts with a minimised window — the only sign it is running |
+| Launch at Login | starts with no window | starts with a minimised window, the only sign it is running |
 | a collector needing confirmation, or a blocked start | shown in the tray menu | asked or explained in a dialog straight away |
 
 Wherever the tray is, the same controls are also in the window's **TraceRoost** menu (Start /
@@ -305,7 +305,7 @@ public key goes here and in the release notes when one is made.
 ### Uninstalling
 
 - **.deb**: `sudo apt remove traceroost-desktop` removes the app, `/usr/bin/traceroost-desktop`,
-  the launcher entry and the AppArmor profile. `apt purge` does the same — there is no
+  the launcher entry and the AppArmor profile. `apt purge` does the same; there is no
   system-wide configuration to purge.
 - **AppImage**: delete the file, and, if you added them, `~/.local/share/applications/traceroost-appimage.desktop`
   and `~/.local/share/icons/hicolor/512x512/apps/traceroost-appimage.png` (or untick **Show in
@@ -349,9 +349,9 @@ and unrestricted (must run), and on Fedora, openSUSE Tumbleweed and Arch.
 
 | | Result | Where |
 | --- | --- | --- |
-| .deb on Ubuntu 24.04, 22.04, Debian 12 — arm64 | 37/37 `check-deb.sh` checks | containers on an arm64 Ubuntu 24.04 kernel with the namespace restriction on, so the setuid-helper path ran (AppArmor cannot load a profile from inside a container) |
-| AppImage on Ubuntu 24.04, Fedora 42, openSUSE Tumbleweed — arm64 | refuses as designed: no collector, no renderer; dialog verified by screenshot | same kernel, restriction on |
-| x64 (both formats); AppImage running sandboxed; .deb with its AppArmor profile loaded; Arch | built, not run here | `desktop-linux.yml` — **not yet run** |
+| .deb on Ubuntu 24.04, 22.04, Debian 12, arm64 | 37/37 `check-deb.sh` checks | containers on an arm64 Ubuntu 24.04 kernel with the namespace restriction on, so the setuid-helper path ran (AppArmor cannot load a profile from inside a container) |
+| AppImage on Ubuntu 24.04, Fedora 42, openSUSE Tumbleweed, arm64 | refuses as designed: no collector, no renderer; dialog verified by screenshot | same kernel, restriction on |
+| x64 (both formats); AppImage running sandboxed; .deb with its AppArmor profile loaded; Arch | built, not run here | `desktop-linux.yml`, **not yet run** |
 | a real desktop session: tray on GNOME (Ubuntu and stock), KDE Plasma, XFCE; Wayland and X11; window restore and single-instance focus | **not run** | needs VMs with a desktop; the logic is unit-tested and the no-tray path ran under Xvfb |
 
 ## Windows
@@ -365,8 +365,8 @@ node scripts/check-nsis.mjs dist\TraceRoost-<v>-win-x64.exe   # install, run, up
 ```
 
 `pack:win` runs electron-builder once per architecture (given both at once, NSIS would build one
-installer carrying both apps). CI builds each natively — x64 on `windows-latest`, arm64 on
-`windows-11-arm` — so afterPack runs the packaged Electron as Node and the smoke test and installer
+installer carrying both apps). CI builds each natively (x64 on `windows-latest`, arm64 on
+`windows-11-arm`), so afterPack runs the packaged Electron as Node and the smoke test and installer
 checks run the real binaries. A cross-build from Linux works with Wine (electron-builder runs the
 NSIS stub under it to extract the uninstaller; 32-bit Wine is needed) and skips only the runtime
 check.
@@ -375,7 +375,7 @@ What the installed app looks like, beside the macOS table above:
 
 | In `%LOCALAPPDATA%\Programs\traceroost-desktop` | What |
 | --- | --- |
-| `traceroost-desktop.exe` | the app — not `traceroost.exe`, which is the npm CLI's name and may be on PATH beside it |
+| `traceroost-desktop.exe` | the app, not `traceroost.exe`, which is the npm CLI's name and may be on PATH beside it |
 | `resources\app.asar`, `resources\collector\`, `LICENSE`… | as on macOS |
 | `resources\tray\trayWindows.ico` | the notification-area icon: the glyph on its teal tile, 16–64 px, legible on dark and light taskbars |
 | `Uninstall traceroost-desktop.exe` | the uninstaller |
@@ -411,8 +411,8 @@ unsigned builds under their plain names and say so in the release notes (see [Re
 **Upgrading** is running a newer installer. It asks a running TraceRoost to quit first
 (`traceroost-desktop --quit`, from [`build/installer.nsh`](build/installer.nsh)), which stops its
 collector over the owner channel and waits for the flush, before it replaces any file.
-electron-builder's own fallback — `Stop-Process`, which is TerminateProcess and would lose unsaved
-spans — only runs if the app is still there 30 seconds later.
+electron-builder's own fallback (`Stop-Process`, which is TerminateProcess and would lose unsaved
+spans) only runs if the app is still there 30 seconds later.
 
 **The background service.** `traceroost service install` (npm) runs the collector as a Scheduled
 Task. The app never creates, changes or stops it: with the service running, the app attaches to it
@@ -453,14 +453,14 @@ gone, and `%APPDATA%\TraceRoost` for the app's own settings.
 [`desktop-windows.yml`](../.github/workflows/desktop-windows.yml), on x64 and arm64: afterPack's
 checks; the staged-collector suite on the runner's Electron (including the flushed stop over the
 owner channel); the packaged smoke test; and
-[`scripts/check-nsis.mjs`](scripts/check-nsis.mjs) — silent per-user install (files, Start Menu
+[`scripts/check-nsis.mjs`](scripts/check-nsis.mjs): silent per-user install (files, Start Menu
 shortcut, Uninstall entry, nothing under Program Files), the smoke test of the *installed* app,
 a reinstall over the running app that must quit it through `--quit` with its spans saved (not kill
 it), and a silent uninstall that removes the app, shortcut and entry and keeps the data directory.
 On the arm64 runner the installer (electron-builder's NSIS stub is x86, so it runs emulated) takes
 about four minutes for a fresh install; the arm64 payload is packed with the x86 BCJ 7z filter
 because the installer's 7-Zip plugin cannot decode the ARM64 filter current 7-Zip picks by default
-(it silently dropped every .exe and .dll — see `electron-builder.cjs`). Not covered by CI: a human
+(it silently dropped every .exe and .dll; see `electron-builder.cjs`). Not covered by CI: a human
 looking at the tray icon and menu on a real desktop, SmartScreen on a
 downloaded copy, log-off/shutdown with the app running, and a
 non-ASCII user profile path.
@@ -483,10 +483,10 @@ executes unmodified inside the app:
 | Staged path | Why it has to be exactly there |
 | --- | --- |
 | `standalone/server.js` | the collector; resolves everything below relative to its own `__dirname` |
-| `media/…` | `path.join(__dirname, '..', 'media')` — the dashboard it serves |
-| `package.json` | `readPackageManifest` — the version it reports, logs, and writes into its lock |
+| `media/…` | `path.join(__dirname, '..', 'media')`: the dashboard it serves |
+| `package.json` | `readPackageManifest`: the version it reports, logs, and writes into its lock |
 | `node_modules/sql.js/` | `require.resolve('sql.js')` and the `.wasm` beside it, for the outcomes cache |
-| `schema/rollup.v1.json` | full edition only — `src/cloud/forward/validate.ts` walks up from the bundle's directory for it before queuing any trace; without it the app links but never sends one, and the payload preview fails |
+| `schema/rollup.v1.json` | full edition only: `src/cloud/forward/validate.ts` walks up from the bundle's directory for it before queuing any trace; without it the app links but never sends one, and the payload preview fails |
 
 ### The runtime
 
@@ -503,7 +503,7 @@ against the packaged binary:
 cd desktop && pnpm run runtime-check   # prints the bundled Node version
 ```
 
-### Owned or attached — never both, never neither
+### Owned or attached: never both, never neither
 
 Two collectors on one data directory overwrite each other's `spans.json`; that is what
 [`standalone/dataDirLock.ts`](../standalone/dataDirLock.ts) exists to prevent, and the shell must
@@ -514,20 +514,20 @@ reaches one of five answers:
 | --- | --- | --- |
 | **own** | nothing holds the lock, or its holder is dead | spawns and supervises a collector; Quit stops and flushes it |
 | **attach** | a validated collector holds it | shows its dashboard; Start/Stop/Restart are **absent**; Quit leaves it running |
-| **confirm-attach** | a collector holds it but publishes no version | asks first — attaching is an explicit act, not a guess |
+| **confirm-attach** | a collector holds it but publishes no version | asks first; attaching is an explicit act, not a guess |
 | **wait** | a holder is mid-startup | re-runs the handshake shortly |
 | **blocked** | another host, a foreign process on the port, or an incompatible version | collects nothing and says exactly why |
 
 Attachment is judged from the writer's **own record** rather than anything self-reported over HTTP:
 the lock file (pid, host, start time, service flag, bound ports, version), that the pid is alive on
 this host, and an unauthenticated `/traceroost/standalone` probe on the port the lock names.
-`/health` is never used for it — it answers `{status:'ok'}` with no identity, so it cannot tell a
+`/health` is never used for it: it answers `{status:'ok'}` with no identity, so it cannot tell a
 TraceRoost collector from anything else returning 200.
 
 `version` in the lock is the one change this feature made outside `desktop/` (plus `--tree`/`--bundles`
 in `scripts/check-edition.mjs`, a quoted public-host exception there for the shell's link
 allowlist, and build/test wiring). It is optional, so a collector from an older release simply
-reports no version — which is why **confirm-attach** exists instead of a refusal.
+reports no version, which is why **confirm-attach** exists instead of a refusal.
 
 #### Running alongside, or instead of, the Homebrew or npx service
 
@@ -542,33 +542,33 @@ The app never installs, removes or rewrites a background service. `traceroost se
 - **Hand off from the app to the service**: Quit the app (its collector stops and releases the data
   dir), then `traceroost service install`. Reopen the app and it attaches.
 - **Hand off from the service to the app**: `traceroost service stop` (or `uninstall`, to also
-  remove the launchd job), then open the app — it finds the data dir free and starts its own
+  remove the launchd job), then open the app; it finds the data dir free and starts its own
   collector. The app refuses to do this step for you, by design: stopping a service the user set
   up separately is not this app's to do.
 - **Launch at Login** registers *this app* through the OS login item API. It never adds a launchd
-  collector, so enabling it alongside the service does not create a second writer — the app
+  collector, so enabling it alongside the service does not create a second writer; the app
   simply attaches at login.
 
 ### Stopping the collector: the owner channel
 
 The collector is stopped the same way on every OS: the app sends it one message,
 `{ type: 'traceroost:shutdown' }`, over the Node IPC channel it was spawned with, and the collector
-runs exactly what its SIGTERM handler runs — save `spans.json` and the outcomes cache, release the
+runs exactly what its SIGTERM handler runs: save `spans.json` and the outcomes cache, release the
 data-dir lock, exit 0 ([`standalone/ownerChannel.ts`](../standalone/ownerChannel.ts),
 [`src/collector.ts`](src/collector.ts)). The app waits up to 10 seconds for that, and only then
-kills it. This exists because Windows has no SIGTERM — `child.kill()` there is TerminateProcess,
-which runs no handler, and is why owned mode used to be refused on Windows — but one path everywhere
+kills it. This exists because Windows has no SIGTERM (`child.kill()` there is TerminateProcess,
+which runs no handler, and is why owned mode used to be refused on Windows), but one path everywhere
 is simpler than two, and SIGTERM and Ctrl-C still work on the collector exactly as before.
 
 Why a pipe and not an HTTP endpoint: the channel is a pipe the app creates and only its child
 inherits (a socketpair on macOS and Linux; on Windows a single-instance named pipe that is already
-connected when the child starts). There is nothing to connect to, so no web page — whatever its
-origin, whatever reaches 127.0.0.1 — and no other local user or process can send the request, and
+connected when the child starts). There is nothing to connect to, so no web page (whatever its
+origin, whatever reaches 127.0.0.1) and no other local user or process can send the request, and
 there is no token to keep away from the dashboard page. The collector opens the channel only when
 the app asks for it (`TRACEROOST_OWNER_CHANNEL=ipc`) *and* it really has one; `npx traceroost`, the
 background services and Docker have neither and are unchanged. Any other message is ignored.
 
-If the channel closes without a request — the app crashed, or was ended from Task Manager — the
+If the channel closes without a request (the app crashed, or was ended from Task Manager), the
 collector treats that as the request: it flushes and exits rather than outliving its owner with
 the data dir locked. On Windows, the app also asks for the flush when the session ends (log off,
 shut down), since Windows ends both processes then without a Quit.
@@ -576,14 +576,14 @@ shut down), since Windows ends both processes then without a Quit.
 ### What the renderer can do
 
 Nothing. The window is sandboxed, context-isolated, has no Node integration and **no preload
-script** — and that last one is the point: a preload is the only route IPC takes into a renderer,
+script**, and that last one is the point: a preload is the only route IPC takes into a renderer,
 so without one there is no channel for trace content to reach the main process through. The app's
 controls live in the tray, which is what makes that possible.
 
 The page displays prompts, tool calls and tool output captured from coding agents. That is
 untrusted input, so [`navigation.ts`](src/navigation.ts) decides every navigation by origin: the
 dashboard origin loads in-window, `https` to an allowlisted host goes to the system browser, and
-everything else — every other origin, and every non-`http` scheme, `file:` above all — is dropped.
+everything else (every other origin, and every non-`http` scheme, `file:` above all) is dropped.
 Permission requests are all refused, downloads and webviews are blocked, and nothing opens a second
 window.
 
@@ -593,9 +593,9 @@ Local-only, as the plan requires: no account, no network dependency, no analytic
 `crashReporter` is deliberately never started, so there is no upload path to misconfigure. The
 log (`<dataDir>/desktop.log`, owner-only, rotated at 5 MB with one generation kept) holds the
 collector's stdout and stays on the machine. Signing and notarization, when enabled, upload the
-app bundle to Apple — the code, never any data. The full edition's collector can link the machine to
+app bundle to Apple: the code, never any data. The full edition's collector can link the machine to
 a TraceRoost Cloud org, but only when the user does so from the Org panel; until then it makes no
-request to the Cloud at all (the same invariant as every full build — `src/cloud/org/config.ts`).
+request to the Cloud at all (the same invariant as every full build, `src/cloud/org/config.ts`).
 
 The shell registers **no launchd job**. "Launch at Login" registers *this app* through the OS login
 item API; the `traceroost service install` job is a separately managed thing the app attaches to,
@@ -609,7 +609,7 @@ never duplicates or rewrites.
 3. Drag `TraceRoost.app` to the Trash.
 
 Removing the app **keeps your data**: `~/.traceroost` (spans, config, the outcomes cache, the
-desktop log) is untouched, and so is any `traceroost service` you installed separately — it keeps
+desktop log) is untouched, and so is any `traceroost service` you installed separately; it keeps
 running, and `npx traceroost`, Homebrew and the VS Code extension keep working with the same data.
 Delete `~/.traceroost` yourself if you want the data gone; run `traceroost service uninstall` if
 you want the service gone. The app's own Electron state is in
@@ -619,7 +619,7 @@ simply fail to deliver, and `traceroost` (npx or Homebrew) reconfigures them on 
 
 ## Tests
 
-Desktop tests run with the rest of the repo's suite — `pnpm run test:unit` at the root — and are
+Desktop tests run with the rest of the repo's suite (`pnpm run test:unit` at the root) and are
 compiled by [`tsconfig.test.desktop.json`](../tsconfig.test.desktop.json). `desktop/src` is
 linted by the repo's `pnpm run lint`, with the same rules and the same cloud-import boundary as
 `src/`.
@@ -629,14 +629,14 @@ linted by the repo's `pnpm run lint`, with the same rules and the same cloud-imp
   handling, and the supervisor driven against a stub collector (readiness, graceful stop, crash
   restart, forced kill of a wedged child).
 - **Integration** (`src/stagedCollector.test.ts`): the real staged collector started by the real
-  supervisor on Electron's Node — ports, `/health`, the identity probe, the dashboard page and a
+  supervisor on Electron's Node: ports, `/health`, the identity probe, the dashboard page and a
   real asset, `sql.js` resolution with its WASM, version in the lock, and a graceful stop that
   releases the dir. **Skipped** (not failed) when `resources/collector` or the Electron binary is
   absent, so a checkout that has not run `pnpm run build` here needs no 300 MB download to run the
   repo's suite.
 - **Owner channel** ([`standalone/ownerChannel.test.ts`](../standalone/ownerChannel.test.ts)): only
   the exact shutdown message is honoured, only when asked for and with a real channel, once; and a
-  real child process flushes and exits 0 on the request and on the channel closing — on every OS
+  real child process flushes and exits 0 on the request and on the channel closing, on every OS
   in the repo's CI, Windows included.
 - **Packaged** (`pnpm run smoke`, above): the built app, launched and quit, with the flush proved;
   on Windows also `scripts/check-nsis.mjs` (install, upgrade over a running app, uninstall).
@@ -669,11 +669,11 @@ the repo's `package.json` version, which `package` has checked against the tag.
 | Platform | Attached to a release when |
 | --- | --- |
 | Linux (.deb, AppImage; x64, arm64) | always, once the build and install matrix pass |
-| macOS (DMG; arm64, x64) | the build is Developer ID signed and notarized — `desktop-macos.yml` checks with `stapler validate` and `spctl`. Never attached otherwise: without the Apple secrets a release leaves macOS out and its `desktop` job fails |
-| Windows (NSIS installer .exe; x64, arm64) | the build is Authenticode-signed (`WIN_CSC_LINK` or Azure Artifact Signing) — `desktop-windows.yml` checks every executable with `Get-AuthenticodeSignature`. Until then (or with `TRACEROOST_WINDOWS_SIGNING=off`) it is attached unsigned (below) |
+| macOS (DMG; arm64, x64) | the build is Developer ID signed and notarized; `desktop-macos.yml` checks with `stapler validate` and `spctl`. Never attached otherwise: without the Apple secrets a release leaves macOS out and its `desktop` job fails |
+| Windows (NSIS installer .exe; x64, arm64) | the build is Authenticode-signed (`WIN_CSC_LINK` or Azure Artifact Signing); `desktop-windows.yml` checks every executable with `Get-AuthenticodeSignature`. Until then (or with `TRACEROOST_WINDOWS_SIGNING=off`) it is attached unsigned (below) |
 
 **Unsigned Windows builds.** An unsigned Windows build is attached under its plain name, the same
-as a signed one — the same bytes CI tested, in the same SHA256SUMS, with attestations — and the
+as a signed one (the same bytes CI tested, in the same SHA256SUMS, with attestations), and the
 release notes get a section on opening it (SmartScreen: More info → Run anyway).
 
 Platforms are independent: if one platform's build fails, the others are still attached. The
@@ -706,13 +706,13 @@ macOS:
 
 Stage 4, not started:
 
-- **Automatic updates** — signed artifacts from a trusted manifest origin, coordinated collector
+- **Automatic updates**: signed artifacts from a trusted manifest origin, coordinated collector
   shutdown, recoverable interrupted installs, and a guard against opening migrated data with an
   older collector (a binary rollback is not a database rollback). Electron's macOS updater refuses
   unsigned apps, so the most that can be built before signing is a *notice* that a release exists.
   Desktop update notices must stay separate from the existing npm version check and honour the
   no-update-check preference.
-- **The packaged smoke matrix** — the smoke test above covers owned startup, serving and a clean
+- **The packaged smoke matrix**: the smoke test above covers owned startup, serving and a clean
   quit on arm64. Still to script: offline launch, port collisions, stale locks, crash recovery,
   login, sleep, update failure and Homebrew-service attachment; and all of it on an Intel Mac,
   which CI's Apple Silicon runner cannot do natively (the x64 build is produced but not launched).
@@ -721,7 +721,7 @@ Smaller, genuinely open items:
 
 - **The full edition, beyond CI.** A full desktop build is staged, packed, edition-checked and
   smoke-tested (`/api/org` unlinked, production-pinned), but linking a packaged app to a real org
-  end to end — the browser sign-in the collector opens, the loopback callback, the first upload —
+  end to end (the browser sign-in the collector opens, the loopback callback, the first upload)
   has not been run on any platform. Two Org-panel limits are the standalone dashboard's, not the
   shell's, and apply to `npx traceroost` too: `/api/org` replies once the action has finished, so
   "Use a device code" never shows its code while it waits, and the "Browser didn't open?" fallback
@@ -732,7 +732,7 @@ Smaller, genuinely open items:
   Signing account, profile and service-principal secrets exist, but signing is **paused** by the
   owner's choice since 2026-10-26 with `TRACEROOST_WINDOWS_SIGNING=off`, after Azure began
   answering `403 Forbidden`; releases attach the Windows builds unsigned until it is switched back
-  on — [`WINDOWS_SIGNING.md`](../runbooks/WINDOWS_SIGNING.md)), a human check of the tray icon, menu
+  on; see [`WINDOWS_SIGNING.md`](../runbooks/WINDOWS_SIGNING.md)), a human check of the tray icon, menu
   and close-to-tray on a real desktop, SmartScreen on a downloaded copy, the all-users install,
   log-off with the app running, automatic updates, and a Microsoft Store listing. winget is
   wired into releases but the first `microsoft/winget-pkgs` pull request has not been opened

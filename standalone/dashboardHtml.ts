@@ -367,7 +367,7 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
     function toMarkdown(sessions) {
       var parts = ['# TraceRoost Session Export', '', sessions.length + ' session' + (sessions.length === 1 ? '' : 's') + ', exported ' + new Date().toISOString(), ''];
       sessions.forEach(function(s) {
-        parts.push('## ' + (s.model || 'unknown model') + ' — ' + (s.startTime || 'unknown time'));
+        parts.push('## ' + (s.model || 'unknown model') + ' (' + (s.startTime || 'unknown time') + ')');
         parts.push('');
         parts.push('- **Session ID:** ' + s.sessionId);
         parts.push('- **Source:** ' + s.source + ' (' + (s.dataSource === 'log' ? 'log file' : 'OTEL') + ')');
@@ -474,7 +474,7 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
           copyBtn.style.color = '#56D364';
           setTimeout(function() { notif.remove(); }, 1500);
         }).catch(function() {
-          showToast('Could not copy — check browser clipboard permissions');
+          showToast('Could not copy. Check browser clipboard permissions');
         });
       };
       actions.appendChild(copyBtn);
@@ -555,7 +555,7 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
             navigator.clipboard.writeText(msg.prompt).then(function() {
               showToast('Prompt copied to clipboard');
             }).catch(function() {
-              showToast('Could not copy — check browser clipboard permissions');
+              showToast('Could not copy. Check browser clipboard permissions');
             });
           } else if (msg.type === 'exportSessionData' || msg.type === 'exportSessionDataRedacted') {
             var redact = msg.type === 'exportSessionDataRedacted';
@@ -777,7 +777,7 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
     var _pollTimer = null;
     function _startPolling() {
       if (_pollTimer) return;
-      console.warn('[TraceRoost] SSE unavailable — falling back to polling');
+      console.warn('[TraceRoost] SSE unavailable, falling back to polling');
       _pollTimer = setInterval(function() {
         fetch('/api/summary')
           .then(function(r) { return r.json(); })
@@ -831,7 +831,7 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
         <span style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--vscode-descriptionForeground);font-weight:600">Live &middot; Current Trace Activity</span>
       </div>
       <div style="flex:1;overflow-y:auto;padding:8px 8px 8px;font-family:var(--vscode-font-family);color:var(--vscode-foreground)">
-        <div id="sb-plan-meters" class="sb-plan-meters" style="display:none" title="Plan limits — open Analytics"></div>
+        <div id="sb-plan-meters" class="sb-plan-meters" style="display:none" title="Plan limits: open Analytics"></div>
         <!-- Status row -->
         <div class="sb-card" style="margin-bottom:6px">
           <div class="sb-row" style="margin-bottom:2px">

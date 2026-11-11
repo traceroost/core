@@ -175,7 +175,7 @@ export function ExportDialog() {
 
       <div id="export-content">
         <div class={'export-scope-box' + (empty ? ' export-scope-box-empty' : '')}>
-          {empty ? 'No traces match your current filters — nothing to export' : scopeLabel}
+          {empty ? 'No traces match your current filters, so there is nothing to export' : scopeLabel}
         </div>
 
         <fieldset class="export-kind">

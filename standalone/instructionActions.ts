@@ -74,7 +74,7 @@ export function loadInstructionState(file: string, log?: (msg: string) => void):
     // Torn by a crash mid-write (pre-atomic builds): keep it aside instead of letting the next
     // apply/dismiss overwrite the only record of what was applied where.
     const aside = quarantineCorruptFile(file)
-    log?.(`[TraceRoost] ${file} could not be parsed${aside ? ` — moved it to ${aside}` : ''}; starting with no applied/dismissed suggestions.`)
+    log?.(`[TraceRoost] ${file} could not be parsed${aside ? `; moved it to ${aside}` : ''}; starting with no applied/dismissed suggestions.`)
     return { applied: [], dismissed: [] }
   }
 }
@@ -154,7 +154,7 @@ export function handleInstructionMessage(msg: unknown, host: InstructionHost): I
     // `.git/hooks/*` file is code execution, and `../../.bashrc` is outside it altogether.
     const targetPath = instructionTargetPath(workspace, targetFile)
     if (!targetPath || typeof targetFile !== 'string' || !isStrictlyInside(workspace, targetFile)) {
-      return fail(400, `TraceRoost: Refusing to apply suggestion — ${String(targetFile)} is not an instruction file of this workspace.`)
+      return fail(400, `TraceRoost: Refusing to apply suggestion: ${String(targetFile)} is not an instruction file of this workspace.`)
     }
     try {
       appendSuggestion(targetPath, appliedText, id)
@@ -182,7 +182,7 @@ export function handleInstructionMessage(msg: unknown, host: InstructionHost): I
         { type: 'instructionApplied', id },
       ], workspace)
     } catch (err) {
-      return fail(500, `TraceRoost: Failed to apply suggestion — ${err}`)
+      return fail(500, `TraceRoost: Failed to apply suggestion: ${err}`)
     }
   }
 
@@ -203,7 +203,7 @@ export function handleInstructionMessage(msg: unknown, host: InstructionHost): I
     if (!applied) return ok([])
     // appliedTo was checked on the way in; check again rather than trust a hand-edited state file.
     if (!isStrictlyInside(workspace, applied.appliedTo)) {
-      return fail(400, `TraceRoost: Refusing to remove suggestion — ${applied.appliedTo} is outside the workspace.`)
+      return fail(400, `TraceRoost: Refusing to remove suggestion: ${applied.appliedTo} is outside the workspace.`)
     }
     if (!mayTouchProject(workspace)) return cloudStorageFolder()
     // The block can't be taken out of a file that isn't there (an unmounted drive, a moved repo);
@@ -212,7 +212,7 @@ export function handleInstructionMessage(msg: unknown, host: InstructionHost): I
     try {
       removeSuggestion(path.resolve(workspace, applied.appliedTo), id, applied.appliedText)
     } catch (err) {
-      return fail(500, `TraceRoost: Failed to remove suggestion — ${err}`)
+      return fail(500, `TraceRoost: Failed to remove suggestion: ${err}`)
     }
     state.applied = state.applied.filter(a => a !== applied)
     host.save(state)
