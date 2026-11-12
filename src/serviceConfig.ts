@@ -46,6 +46,11 @@ export interface ServiceConfig {
    *  makes macOS ask "wants to access files managed by …" (src/projectAccess.ts). Settings →
    *  Projects in cloud storage writes it. The VS Code extension ignores it. */
   readCloudStorageProjects?: boolean
+  /** True once this config.json has been through the one-time move off the old default dashboard
+   *  port (`resolveLegacyUiPort`): either the port was moved from 3000 to `DEFAULT_UI_PORT`, or it
+   *  was looked at and left alone. Also set when someone picks a port themselves (Settings →
+   *  Dashboard port, `service install --ui-port`), so a deliberate 3000 is never moved. */
+  legacyUiPortMigrated?: boolean
 }
 
 /** Default for `sessionRetentionDays` — matches the editor setting's default in package.json. */
@@ -54,9 +59,12 @@ export const DEFAULT_SESSION_RETENTION_DAYS = 90
 /** Default dashboard port. Not 3000: that is what Next.js, Rails, Express and most other dev
  *  servers take, and the service (or the desktop app) starts at login, so it would hold 3000
  *  before the developer's own server asked for it. 4315 sits beside the MCP (4316) and OTLP
- *  (4318) ports. Installs from before the change keep 3000 — first startup writes the whole
- *  config, port included, to config.json — so nobody's bookmarked address moves. */
+ *  (4318) ports. Installs from before the change saved 3000 in config.json (first startup writes
+ *  the whole config, port included); `resolveLegacyUiPort` moves those over once. */
 export const DEFAULT_UI_PORT = 4315
+
+/** The dashboard's default before `DEFAULT_UI_PORT`, saved in the config.json of older installs. */
+export const LEGACY_UI_PORT = 3000
 
 // `baseHome` defaults to the real home directory in production; tests pass a temp directory
 // so these never touch the developer's actual ~/.traceroost.
@@ -141,6 +149,52 @@ export function ensureInstallId(config: ServiceConfig, baseHome?: string): Servi
   return withId
 }
 
+// ── One-time move off the old default dashboard port ─────────────────────────
+//
+// An install from before DEFAULT_UI_PORT has `uiPort: 3000` in config.json, written there as the
+// default of its day, and would hold 3000 at every login for good. Nothing in the file says
+// whether that 3000 was the default or somebody's choice, so the move happens once per
+// config.json and records that it did (`legacyUiPortMigrated`): a 3000 chosen afterwards sticks.
+
+export interface LegacyUiPortContext {
+  /** Running in the Docker image, where the dashboard's port is the container's `-p` mapping. */
+  docker: boolean
+  /** UI_PORT / `--ui-port` decides the port for this run, so config.json's value isn't in use. */
+  uiFromEnv: boolean
+  /** The bind host is loopback. Beyond loopback a port change usually needs a firewall change
+   *  and breaks other machines' bookmarks, so those installs stay where they are. */
+  loopback: boolean
+}
+
+/** Decides the one-time move for `config`; pure. `moved` is true when the dashboard port went
+ *  from 3000 to DEFAULT_UI_PORT. Docker and a run whose port came from the environment are left
+ *  undecided (same object back), so the move waits for a start that config.json's port governs. */
+export function resolveLegacyUiPort(config: ServiceConfig, ctx: LegacyUiPortContext): { config: ServiceConfig; moved: boolean } {
+  if (config.legacyUiPortMigrated === true || ctx.docker || ctx.uiFromEnv) return { config, moved: false }
+  const moved = config.uiPort === LEGACY_UI_PORT
+    && ctx.loopback
+    && config.otlpPort !== DEFAULT_UI_PORT
+    && config.mcpPort !== DEFAULT_UI_PORT
+  return {
+    config: { ...config, uiPort: moved ? DEFAULT_UI_PORT : config.uiPort, legacyUiPortMigrated: true },
+    moved,
+  }
+}
+
+/** `resolveLegacyUiPort`, persisted. Called once at server startup, after `ensureAuthToken` /
+ *  `ensureInstallId`. If config.json can't be written the config comes back untouched, so the
+ *  running port and the file never disagree, and the next start tries again. */
+export function migrateLegacyUiPort(config: ServiceConfig, ctx: LegacyUiPortContext, baseHome?: string): { config: ServiceConfig; moved: boolean } {
+  const result = resolveLegacyUiPort(config, ctx)
+  if (result.config === config) return result
+  try {
+    writeServiceConfig(result.config, baseHome)
+  } catch {
+    return { config, moved: false }
+  }
+  return result
+}
+
 export function serviceLogPath(config: ServiceConfig): string {
   return path.join(config.dataDir, 'logs', 'service.log')
 }
@@ -217,7 +271,7 @@ export function readPackageManifest(fromDir: string): { name?: string; version?:
 
 // ── CLI flag parsing ─────────────────────────────────────────────────────────
 
-const FLAG_TO_KEY: Record<string, Exclude<keyof ServiceConfig, 'agentSetup' | 'readCloudStorageProjects'>> = {
+const FLAG_TO_KEY: Record<string, Exclude<keyof ServiceConfig, 'agentSetup' | 'readCloudStorageProjects' | 'legacyUiPortMigrated'>> = {
   '--ui-port':   'uiPort',
   '--otlp-port': 'otlpPort',
   '--mcp-port':  'mcpPort',

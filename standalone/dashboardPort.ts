@@ -2,8 +2,9 @@
  * Settings → Dashboard port: moving the standalone dashboard to another port while it runs.
  *
  * The dashboard is on 4315 by default (DEFAULT_UI_PORT in src/serviceConfig.ts); installs from
- * before that default kept 3000 in config.json. This is how a developer whose own dev server needs
- * the port moves TraceRoost off it without touching anything else: agents send to the OTLP port and
+ * before that default are moved there from 3000 once, at their next start (resolveLegacyUiPort).
+ * This is how a developer whose own dev server needs the port TraceRoost is on moves TraceRoost
+ * off it without touching anything else: agents send to the OTLP port and
  * use the MCP port, neither of which changes, so no agent config is rewritten.
  *
  * A move binds the new port *before* letting go of the old one and persists only once the bind
@@ -16,12 +17,16 @@
  * in src/serviceConfig.ts) — nothing about the service definition has to change.
  */
 import type * as http from 'http'
-import { DEFAULT_UI_PORT } from '../src/serviceConfig'
+import { DEFAULT_UI_PORT, LEGACY_UI_PORT } from '../src/serviceConfig'
 
 export const DEFAULT_DASHBOARD_PORT = DEFAULT_UI_PORT
 
-/** The dashboard's default before 4315, still saved in the config.json of older installs. */
-export const LEGACY_DASHBOARD_PORT = 3000
+/** The dashboard's default before 4315. Loopback installs are moved off it once; one bound
+ *  beyond loopback, or put back on it by choice, is still there. */
+export const LEGACY_DASHBOARD_PORT = LEGACY_UI_PORT
+
+/** What a start (or `service install`) says when it has just moved the dashboard off 3000. */
+export const LEGACY_PORT_MOVED_NOTICE = `The dashboard moved from port ${LEGACY_UI_PORT} to ${DEFAULT_UI_PORT}, the new default, so ${LEGACY_UI_PORT} is free for your own dev server. Bookmarks to the old address need updating. To choose another port: Settings → Dashboard port.`
 
 /** One line the CLI prints after the dashboard URL while the dashboard is on 3000 — the moment a
  *  developer is most likely to wonder how to get 3000 back for their own server. */
