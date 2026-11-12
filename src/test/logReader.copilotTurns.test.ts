@@ -57,6 +57,32 @@ suite('LogReader — Copilot Chat, one trace per request', () => {
     assert.strictEqual(card.sessionId, derivedTraceKey('copilot', 'chat-3', String(first)))
     assert.strictEqual(card.derived, true)
   })
+  test('a request records the files the chat edited and its tool calls, each call once', () => {
+    const filePath = path.join(tmpDir, 'chat-4.jsonl')
+    const t0 = 1_777_000_000_000
+    // The shapes Copilot Chat writes: response parts arrive in the request push and in later
+    // pushes to ['requests', N, 'response']; a tool call is written again as its state changes.
+    const fileUri = (p: string) => ({ $mid: 1, fsPath: p, external: `file://${p}`, path: p, scheme: 'file' })
+    const tool = (toolCallId: string, toolId: string, isComplete: boolean) => ({ kind: 'toolInvocationSerialized', toolCallId, toolId, isComplete })
+    const edit = (p: string) => ({ kind: 'textEditGroup', uri: fileUri(p), edits: [[{ text: 'x', range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 } }], []], done: true })
+    const responsePush = (idx: number, parts: unknown[]) => ({ kind: 2, k: ['requests', idx, 'response'], v: parts })
+    const first = requestsPush(t0, 'rename the helper', 10, 'request_a') as { v: Record<string, unknown>[] }
+    first.v[0]['response'] = [tool('call_1', 'copilot_readFile', false)]
+    writeJsonl(filePath, [
+      snapshot(t0),
+      first,
+      responsePush(0, [tool('call_1', 'copilot_readFile', true), tool('call_2', 'copilot_replaceString', false)]),
+      responsePush(0, [tool('call_2', 'copilot_replaceString', true), edit('/work/repo/src/a.ts'), { kind: 'codeblockUri', uri: fileUri('/work/repo/src/a.ts'), isEdit: true }]),
+      responsePush(0, [edit('/work/repo/src/a.ts'), edit('/work/repo/src/b.ts'), { kind: 'textEditGroup', uri: { scheme: 'untitled', path: 'Untitled-1' }, edits: [], done: true }]),
+      requestsPush(t0 + 60_000, 'thanks', 5, 'request_b'),
+    ])
+    const [a, b] = new LogReader().parseFile(filePath, 'copilot_vscode').map(r => r.card)
+    assert.deepStrictEqual(a.filesChanged, ['/work/repo/src/a.ts', '/work/repo/src/b.ts'])
+    assert.deepStrictEqual(a.toolCounts, { copilot_readFile: 1, copilot_replaceString: 1 })
+    assert.strictEqual(a.totalToolCalls, 2)
+    assert.deepStrictEqual(b.filesChanged, [])
+    assert.strictEqual(b.totalToolCalls, 0)
+  })
 })
 
 suite('LogReader — Copilot CLI, one trace per prompt', () => {
