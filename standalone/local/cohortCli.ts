@@ -1,5 +1,7 @@
 /**
- * `traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]` (AL 09).
+ * `traceroost churn --repo <hash|name> --merged <YYYY-MM> [--window 30|90]` (AL 09; `cohort` was
+ * its first name and still runs). "Churn" is the user-facing word for what the engine calls
+ * turnover, and a "cohort" is the month's merged commits: neither engine term is printed.
  *
  * The hand-off: the hosted service holds counts, not code, so "turnover is 31%, show me an
  * example" cannot be answered there — but it can be answered here, on a machine that has the
@@ -12,7 +14,8 @@
  */
 
 import { loadAllSessions } from './sessionLoader'
-import { resolveRepoArg, type RepoHashResolver } from './repoResolve'
+import { resolveRepoArg, repoHeaderLines, type RepoHashResolver } from './repoResolve'
+import { resolveOriginUrl } from '../../src/repoRemote'
 import { computeTurnover } from '../../src/turnover'
 import { toAttributionSessions } from '../../src/attribution/fromSessions'
 import { commandUsage, isCloudEdition } from '../cliArgs'
@@ -30,7 +33,7 @@ export async function runCohortCli(args: string[], resolveHash?: RepoHashResolve
   const window = (valueAfter(args, '--window') ?? '90').trim()
 
   if (!repoArg || !MONTH_RE.test(merged) || (window !== '30' && window !== '90')) {
-    console.log(`Usage: ${commandUsage('cohort', isCloudEdition())}`)
+    console.log(`Usage: ${commandUsage('churn', isCloudEdition())}`)
     return 1
   }
 
@@ -50,21 +53,21 @@ export async function runCohortCli(args: string[], resolveHash?: RepoHashResolve
 
   const result = report.results.find(r => r.cohortLabel === merged && r.windowDays === windowDays)
   if (!result) {
-    console.log(`No ${merged} cohort found in ${root}.`)
+    console.log(`No commits merged in ${merged} found in ${root}.`)
     return 1
   }
 
-  console.log(`\nRepository: ${root}`)
-  console.log(`Cohort:     ${merged}  ·  ${windowDays}-day window\n`)
+  console.log(`\n${repoHeaderLines(root, await resolveOriginUrl(root)).join('\n')}`)
+  console.log(`Merged in:         ${merged}  ·  ${windowDays}-day window\n`)
 
   if (result.kind === 'insufficient') {
     console.log(`Not measurable: ${result.reason}${result.measurableAtIso ? ` (available ${result.measurableAtIso.slice(0, 10)})` : ''}`)
     return 0
   }
 
-  console.log(`Turnover:   ${(result.turnoverRate * 100).toFixed(1)}%   (${result.aiLinesSurviving}/${result.aiLinesAuthored} AI lines still stand)`)
-  console.log(`Commits:    ${result.commitCount}, merged ${result.mergeRange.fromIso.slice(0, 10)}–${result.mergeRange.toIso.slice(0, 10)}`)
-  console.log(`Benchmark:  ${(result.benchmark.low * 100).toFixed(0)}–${(result.benchmark.high * 100).toFixed(0)}%: ${result.benchmark.verdict}\n`)
+  console.log(`Churn:             ${(result.turnoverRate * 100).toFixed(1)}%   (${result.aiLinesSurviving}/${result.aiLinesAuthored} AI lines still stand)`)
+  console.log(`Commits:           ${result.commitCount}, merged ${result.mergeRange.fromIso.slice(0, 10)}–${result.mergeRange.toIso.slice(0, 10)}`)
+  console.log(`Benchmark:         ${(result.benchmark.low * 100).toFixed(0)}–${(result.benchmark.high * 100).toFixed(0)}%: ${result.benchmark.verdict}\n`)
   console.log('The commits behind this number (resolved to real SHAs locally):')
   for (const sha of result.cohortShas.slice(0, 40)) console.log(`  ${sha}`)
   console.log('\nOpen the Outcomes tab in the editor for the file- and trace-level breakdown.')

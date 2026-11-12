@@ -13,11 +13,12 @@
  */
 
 import { loadSessionsForWorkspace, loadAllSessions } from './sessionLoader'
-import { resolveRepoArg, type RepoHashResolver } from './repoResolve'
+import { resolveRepoArg, repoHeaderLines, type RepoHashResolver } from './repoResolve'
 import { detectLoopSignals, PATTERN_NAMES, LOOP_SIGNAL_ACTIONS } from '../../src/loopDetector'
 import type { LoopSignalType } from '../../src/types'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 import { commandUsage, isCloudEdition } from '../cliArgs'
+import { resolveOriginUrl } from '../../src/repoRemote'
 
 function valueAfter(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag)
@@ -80,12 +81,13 @@ export async function runPatternsCli(args: string[], loaded?: SessionSummaryCard
   }
 
   const sessions = loadSessionsForWorkspace(root, allSessions)
+  const header = repoHeaderLines(root, await resolveOriginUrl(root)).join('\n')
   if (sessions.length === 0) {
-    console.log(`\nRepository: ${root}\nNo recorded traces for this repo on this machine yet.`)
+    console.log(`\n${header}\nNo recorded traces for this repo on this machine yet.`)
     return 0
   }
 
-  console.log(`\nRepository: ${root}`)
+  console.log(`\n${header}`)
   console.log(`${sessions.length} recorded trace${sessions.length === 1 ? '' : 's'} on this machine\n`)
 
   const files = topTouchedFiles(sessions)

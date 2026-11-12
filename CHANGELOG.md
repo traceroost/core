@@ -4,6 +4,11 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **`traceroost find <repo>` shows where the repository came from**: the output now has a `Repository path` line (the clone on this machine) and a `Repository origin` line (its `origin` git remote, with any saved credential removed), so the result can be matched to a repo without knowing the local folder. `traceroost patterns --repo` and `traceroost churn` print the same two lines
+- **`traceroost cohort` is now `traceroost churn`**, and its output says "Merged in" and "Churn" where it said "Cohort" and "Turnover". The number is the same: the share of a month's merged AI-written lines that were rewritten or removed within the window. `traceroost cohort` still runs
+
 ## [1.0.3] (2026-11-10)
 
 ### TraceRoost Cloud (full edition only)
