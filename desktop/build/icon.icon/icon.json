@@ -8,7 +8,7 @@
     {
       "appearance": "dark",
       "value": {
-        "solid": "extended-srgb:0.04314,0.05098,0.07059,1.00000"
+        "solid": "extended-srgb:0.05882,0.74902,0.65098,1.00000"
       }
     }
   ],
@@ -23,7 +23,7 @@
             },
             {
               "appearance": "dark",
-              "value": "bird-dark.svg"
+              "value": "bird-light.svg"
             }
           ],
           "name": "bird"

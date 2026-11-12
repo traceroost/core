@@ -7,8 +7,10 @@
  * bird for TraceRoost. An Icon Composer icon says what each appearance looks like instead:
  *
  *   light (and the base every appearance inherits)  teal fill, near-black bird — today's tile
- *   dark                                            near-black fill, teal bird
- *   tinted                                          left to macOS, from the base
+ *   dark                                            the same teal tile, stated explicitly — left to
+ *                                                   itself macOS darkens the fill (the owner found a
+ *                                                   near-black tile too far from the brand, 2026-11-10)
+ *   tinted / clear                                  left to macOS, from the bird
  *
  * electron-builder (mac.icon in electron-builder.cjs) compiles it with Xcode 26's `actool` into
  * the app's `Assets.car` (CFBundleIconName) plus the `icon.icns` older macOS and the DMG use, so a
@@ -58,7 +60,7 @@ function color(hex) {
 const doc = {
   'fill-specializations': [
     { value: { solid: color(TEAL) } },
-    { appearance: 'dark', value: { solid: color(INK) } },
+    { appearance: 'dark', value: { solid: color(TEAL) } },
   ],
   groups: [
     {
@@ -68,7 +70,7 @@ const doc = {
           glass: false,
           'image-name-specializations': [
             { value: 'bird-light.svg' },
-            { appearance: 'dark', value: 'bird-dark.svg' },
+            { appearance: 'dark', value: 'bird-light.svg' },
           ],
           name: 'bird',
         },
@@ -83,6 +85,5 @@ const doc = {
 fs.rmSync(out, { recursive: true, force: true })
 fs.mkdirSync(path.join(out, 'Assets'), { recursive: true })
 fs.writeFileSync(path.join(out, 'Assets', 'bird-light.svg'), bird(INK))
-fs.writeFileSync(path.join(out, 'Assets', 'bird-dark.svg'), bird(TEAL))
 fs.writeFileSync(path.join(out, 'icon.json'), JSON.stringify(doc, null, 2) + '\n')
-console.log(`icon.icon  light: ${TEAL} fill, ${INK} bird · dark: ${INK} fill, ${TEAL} bird`)
+console.log(`icon.icon  light and dark: ${TEAL} fill, ${INK} bird`)
