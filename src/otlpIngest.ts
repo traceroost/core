@@ -10,6 +10,8 @@ import { Span, SpanAttribute } from './types'
 import { objectItems } from './otlpParser'
 import { adapterHealth, type AdapterHealth } from './adapters/health'
 import type { Fingerprint } from './adapters/fingerprint'
+import { otlpAdapterOf } from './adapters/classify'
+import type { AdapterKey } from './adapters/types'
 
 /** Where parsed spans go — the extension's SessionStore, or the standalone server's span list. */
 export interface OtlpSpanSink {
@@ -54,19 +56,30 @@ export class OtlpIngest {
   private genAiResponseBuffer = new Map<string, string>()
   private readonly GEN_AI_BUFFER_MAX = 500
 
-  constructor(private readonly sink: OtlpSpanSink, private readonly health: AdapterHealth = adapterHealth()) {}
+  /** `onAgent` is told which agent each record came from (records no adapter claims are skipped):
+   *  the host uses it to notice an agent has started sending (src/agentRestart.ts). */
+  constructor(
+    private readonly sink: OtlpSpanSink,
+    private readonly health: AdapterHealth = adapterHealth(),
+    private readonly onAgent?: (adapter: AdapterKey) => void,
+  ) {}
 
   /** Counts one log record or span toward adapter health (adapters/health.ts) — by its name and
    *  resource service name/version only. Its fingerprint is the attribute key names and value
    *  types, taken only if the name turns out to be unknown. */
   private observe(name: string, attrs: SpanAttribute[], resourceAttrs: SpanAttribute[], kind: 'log' | 'span'): void {
     try {
-      this.health.observeOtlp({
+      const view = {
         name,
         serviceName: this.getAttrFrom(resourceAttrs, ['service.name']),
         serviceVersion: this.getAttrFrom(resourceAttrs, ['service.version']),
         genAiOperation: this.getAttrFrom(attrs, ['gen_ai.operation.name']),
-      }, kind, () => {
+      }
+      if (this.onAgent) {
+        const adapter = otlpAdapterOf(view)
+        if (adapter) this.onAgent(adapter)
+      }
+      this.health.observeOtlp(view, kind, () => {
         const out: Record<string, Fingerprint> = {}
         for (const a of attrs) {
           const key = /[\\/@:\s]/.test(a.key) || a.key.length > 64 ? '<key>' : a.key
