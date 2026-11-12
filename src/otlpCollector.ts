@@ -3,6 +3,7 @@ import * as vscode from 'vscode'
 import { SessionStore } from './sessionStore'
 import { isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType } from './httpSecurity'
 import { OtlpIngest } from './otlpIngest'
+import type { AdapterKey } from './adapters/types'
 
 const MAX_BODY_BYTES = 50 * 1024 * 1024 // 50 MB
 
@@ -15,9 +16,10 @@ export class OtlpCollector {
   constructor(
     private port: number,
     store: SessionStore,
-    private output: vscode.OutputChannel
+    private output: vscode.OutputChannel,
+    onAgent?: (adapter: AdapterKey) => void,
   ) {
-    this.ingest = new OtlpIngest(store)
+    this.ingest = new OtlpIngest(store, undefined, onAgent)
   }
 
   setIngestionEnabled(on: boolean) {

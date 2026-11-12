@@ -43,6 +43,7 @@ import { logLevel } from './logLevel'
 import { agentKeyLabel } from './adapters/registry'
 import { adapterHealth, persistAdapterHealth, restoreAdapterHealth } from './adapters/health'
 import { configureProjectAccess } from './projectAccess'
+import { AgentRestartTracker } from './agentRestart'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -104,6 +105,7 @@ function readLastWriteMs(storageUri: vscode.Uri): number {
 
 const SETUP_HELP_BUTTON = 'Open Setup Help'
 const SHOW_LOG_BUTTON = 'Show Log'
+const RELOAD_VSCODE_BUTTON = 'Reload VS Code'
 
 /** Opens the dashboard on Help → Setup (Manual Configuration lists every agent's settings). */
 function openSetupHelp(): void {
@@ -300,7 +302,11 @@ export async function activate(context: vscode.ExtensionContext) {
   // ── Collector ────────────────────────────────────────────────────────────────
   const traceRoostCfg = vscode.workspace.getConfiguration('traceRoost')
   const port = traceRoostCfg.get<number>('otlpPort', 4318)
-  collector = new OtlpCollector(port, store, outputChannel)
+  // Agents that still have to be restarted after agent setup changed their settings
+  // (src/agentRestart.ts): a banner in the dashboard until each one sends, or the user dismisses it.
+  const agentRestart = new AgentRestartTracker(() => DashboardPanel.pushAgentRestart())
+  DashboardPanel.agentRestart = agentRestart
+  collector = new OtlpCollector(port, store, outputChannel, adapter => agentRestart.noteOtlp(adapter))
   let collectorFailed = false
   // Set only when another TraceRoost-owned process (the standalone/background service, most
   // often) or an unrelated app holds the port — never for the benign case of another VS Code
@@ -387,6 +393,7 @@ export async function activate(context: vscode.ExtensionContext) {
       autoConfigureClaudeCode(port, mode),
       autoConfigureCodex(port, mode),
     ])
+    agentRestart.noteSetup(port, { copilot: copilotResult, claudeCode: claudeResult, codex: codexResult })
 
     // A failed auto-config points at the complete manual settings (Help → Setup) instead of a
     // partial snippet — each agent needs several keys (Claude Code: eight env vars; Codex: both
@@ -485,8 +492,13 @@ export async function activate(context: vscode.ExtensionContext) {
             ? `TraceRoost: the background service set up ${changed.join(', ')} to send traces to port ${owner.otlpPort}. Restart ${changed.length === 1 ? 'it' : 'them'} to start tracing.`
             : `TraceRoost: your agents are already set up to send traces to the background service (port ${owner.otlpPort}).`) +
           (failed.length > 0 ? ` Could not set up ${failed.join(', ')}. Show Log has the details.` : ''),
+          // Copilot picks its settings up on a window reload, which this window can do for the user.
+          ...(results.copilot?.changed ? [RELOAD_VSCODE_BUTTON] : []),
           ...(failed.length > 0 ? [SHOW_LOG_BUTTON] : []),
-        ).then(c => { if (c === SHOW_LOG_BUTTON) showLog() })
+        ).then(c => {
+          if (c === SHOW_LOG_BUTTON) showLog()
+          else if (c === RELOAD_VSCODE_BUTTON) void vscode.commands.executeCommand('workbench.action.reloadWindow')
+        })
         return
       }
       writeAgentSetupAnswer('yes')
@@ -545,6 +557,8 @@ export async function activate(context: vscode.ExtensionContext) {
     const results = await run(false)
     if (!results) { if (owner.owner === 'service') serviceManagesAgentSetup(owner.otlpPort); return undefined }
     if (owner.owner === 'extension') writeAgentSetupAnswer('no')
+    // Nothing left to restart for: the removal summary says what to restart instead.
+    agentRestart.dismiss()
     for (const r of results) {
       if (r.changed) log(`Remove agent setup${owner.owner === 'service' ? ' (background service)' : ''}: ${r.agent}: removed TraceRoost's settings from ${r.file}`)
       if (r.warning) log(`Remove agent setup: ${r.warning}`)
@@ -947,7 +961,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // window takes the database over from a closed owner that also held the port, it is free now.
   const retryCollector = async () => {
     if (collector || !collectorFailed || collectorConflict || !store) return
-    const retry = new OtlpCollector(port, store, outputChannel!)
+    const retry = new OtlpCollector(port, store, outputChannel!, adapter => agentRestart.noteOtlp(adapter))
     try {
       await retry.start()
       retry.setIngestionEnabled(vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableOtelIngestion', true))
@@ -1635,10 +1649,10 @@ async function notifySetupRequired(
   const updated = changed.map(c => `${c.agent} (${c.label})`).join(', ')
   const message = `TraceRoost: Set up ${updated}. ${parts.join(' ')}`
   const SHOW_CHANGES = 'Show Changes'
-  const actions = copilotChanged ? ['Reload VS Code', SHOW_CHANGES] : [SHOW_CHANGES]
+  const actions = copilotChanged ? [RELOAD_VSCODE_BUTTON, SHOW_CHANGES] : [SHOW_CHANGES]
 
   const action = await vscode.window.showInformationMessage(message, ...actions)
-  if (action === 'Reload VS Code') {
+  if (action === RELOAD_VSCODE_BUTTON) {
     vscode.commands.executeCommand('workbench.action.reloadWindow')
   } else if (action === SHOW_CHANGES) {
     for (const c of changed) {

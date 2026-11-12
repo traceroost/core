@@ -19,6 +19,7 @@ import { AGENT_SETUP_DECLINED, AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AG
 import * as readline from 'readline'
 import { classifyOtlpPayload } from '../src/otlpParser'
 import { OtlpIngest } from '../src/otlpIngest'
+import { AgentRestartTracker } from '../src/agentRestart'
 import { mergeCardsByKey } from '../src/claudeConversation'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, findClaudeTranscripts, type OpenCodeSqlFactory } from '../src/logReader'
@@ -138,6 +139,11 @@ const AUTOCONFIG_DISABLED = process.env.TRACEROOST_NO_AUTOCONFIG === '1'
 // port-owner probe resolves — see CollectorConflict in media/src/types.ts for the shared shape
 // this mirrors, and CollectorConflictBanner in App.tsx for how it's rendered.
 let collectorConflict: { owner: 'plugin' | 'foreign'; port: number; boundPort: number; agentsRepointed: boolean } | null = null
+
+// Agents whose settings agent setup just changed and that still have to be restarted to pick them
+// up (src/agentRestart.ts). Inlined into the page and broadcast over SSE; drives AgentRestartBanner
+// in App.tsx, whose dismiss button answers through POST /action { type: 'dismissAgentRestart' }.
+const agentRestart = new AgentRestartTracker(state => broadcastSse({ type: 'update', agentRestart: state }))
 
 // True while the user hasn't said whether TraceRoost may set up their coding agents
 // (src/agentSetupConsent.ts) and this server has no terminal to ask in — the background service,
@@ -968,7 +974,7 @@ const otlpIngest = new OtlpIngest({
     dataVersion++
     return true
   },
-})
+}, undefined, adapter => agentRestart.noteOtlp(adapter))
 
 function processTraces(payload: unknown, collectorPath = '/v1/traces'): { count: number; agent: string } {
   ingestAgent = 'unknown'
@@ -1444,6 +1450,7 @@ function getHtml(nonce: string): string {
     packageVersion: PACKAGE_VERSION,
     collectorConflictJson: JSON.stringify(collectorConflict),
     agentSetupPending,
+    agentRestartJson: JSON.stringify(agentRestart.state()),
     logIngestJson: JSON.stringify(logIngestProgress),
     sessionRev,
     sessionSummaryJson,
@@ -1869,8 +1876,14 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
             error: copilotResults.find(r => r.error)?.error,
           }
           noteAgentsRepointed()
+          agentRestart.noteSetup(resolvedPorts.otlp ?? OTLP_PORT, { claudeCode, codex, copilot })
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ claudeCode, codex, copilot }))
+          return
+        } else if (body.type === 'dismissAgentRestart') {
+          agentRestart.dismiss()
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true }))
           return
         } else if (body.type === 'removeAgentSetup') {
           // Remove agent setup (src/agentSetupRemoval.ts): `dryRun` lists what would go, for the
@@ -1891,6 +1904,8 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
             writeAgentSetupAnswer('no')
             if (agentSetupPending) { agentSetupPending = false; broadcastSse({ type: 'update', agentSetupPending }) }
             summary = describeRemoval(results)
+            // Nothing left to restart for: the removal summary says what to restart instead.
+            agentRestart.dismiss()
             for (const r of results) {
               if (r.warning) console.warn(`[TraceRoost] ${r.warning}`)
               if (r.error) console.warn(`[TraceRoost] Could not remove agent setup from ${r.file}: ${r.error}`)
@@ -2454,6 +2469,11 @@ async function runAgentSetup(port: number, mode: SetupMode): Promise<void> {
       autoConfigureCopilotStandalone(port, mode),
     ])
     for (const { level, text } of autoConfigLogLines(claudeResult, codexResult, copilotResults)) console[level](text)
+    agentRestart.noteSetup(port, {
+      claudeCode: claudeResult,
+      codex: codexResult,
+      copilot: { changed: copilotResults.some(r => r.changed) },
+    })
   } catch (e) {
     console.warn('[TraceRoost] Auto-configure error:', e)
   }
