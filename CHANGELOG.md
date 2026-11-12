@@ -10,6 +10,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **Copilot Chat traces read from logs show their changed files and tool calls**: the VS Code chat log reader recorded neither, so a Copilot Chat trace that arrived from logs alone had no changed files, no language and no git outcome. It now records the files the chat edited and each tool it called.
 - **Copilot CLI edits made with `apply_patch` count as file changes**: GPT-family models in Copilot CLI edit through `apply_patch`, which the log reader did not treat as an edit, so those traces showed no changed files and never got a git outcome. The files named in the patch are now recorded.
 
+### TraceRoost Cloud (full edition only)
+
+- **Open Team View opens the Team view**: the Org panel's button used to open the org's home page, which lands on Traces (or on the invite step for a one-person org). It now opens the Team tab directly
+
 ## [1.0.3] (2026-11-10)
 
 ### TraceRoost Cloud (full edition only)
