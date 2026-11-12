@@ -211,6 +211,22 @@ suite('gitOutcome', () => {
     assert.strictEqual(result!.files[path.join(repoDir, abandonedFile)], 'abandoned')
   })
 
+  test('a file that is gone does not hide the verdict of the files that remain', async () => {
+    const mergedFile = `merged${fileCounter}.txt`
+    writeFile(mergedFile, 'v1')
+    commitAll('initial', '2026-01-01T00:00:00Z')
+    writeFile(mergedFile, 'v2')
+    commitAll('session change', '2026-01-04T00:00:00Z')
+
+    // A scratch file the session wrote and then deleted: never tracked, not on disk.
+    const scratch = path.join(repoDir, `scratch${fileCounter}.tmp`)
+    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, mergedFile), scratch])
+    assert.ok(result)
+    assert.strictEqual(result!.overall, 'merged')
+    assert.strictEqual(result!.files[scratch], 'ambiguous')
+    assert.match(result!.reason, /^1\/2 file\(s\) committed and merged/)
+  })
+
   test('classifies a session spanning two repos with no shared workspace, grouping each file by its own repo', async () => {
     const file = `file${fileCounter}.txt`
     writeFile(file, 'v1')

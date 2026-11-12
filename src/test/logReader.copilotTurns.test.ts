@@ -84,4 +84,27 @@ suite('LogReader — Copilot CLI, one trace per prompt', () => {
     assert.deepStrictEqual(cards[0].filesChanged, ['/work/repo/a.ts'])
     assert.ok(cards.every(c => c.derived && c.workspace === '/work/repo'))
   })
+  test('apply_patch counts the files in its patch headers as changed (the arguments are the patch text)', () => {
+    const dir = path.join(tmpDir, 'b1c2d3e4-0000-4000-8000-000000000002')
+    const file = path.join(dir, 'events.jsonl')
+    // The shape Copilot CLI writes for GPT-family models: `arguments` is the raw patch string.
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: /work/repo/src/a.ts',
+      '@@',
+      '-const a = 1',
+      '+const a = 2',
+      '*** Add File: /work/repo/src/b.ts',
+      '+export const b = 1',
+      '*** End Patch',
+    ].join('\n')
+    writeJsonl(file, [
+      { type: 'session.start', id: 'ev-0', timestamp: '2026-05-01T10:00:00.000Z', data: { selectedModel: 'gpt-5.6-luna', context: { cwd: '/work/repo' } } },
+      { type: 'user.message', id: 'ev-1', timestamp: '2026-05-01T10:00:01.000Z', data: { transformedContent: 'bump a, add b' } },
+      { type: 'assistant.message', id: 'ev-2', timestamp: '2026-05-01T10:00:05.000Z', data: { outputTokens: 40, toolRequests: [{ name: 'apply_patch', arguments: patch }, { name: 'view', arguments: { path: '/work/repo/src/c.ts' } }] } },
+    ])
+    const card = new LogReader().parseFile(file, 'copilot')[0].card
+    assert.deepStrictEqual(card.filesChanged, ['/work/repo/src/a.ts', '/work/repo/src/b.ts'])
+    assert.strictEqual(card.filesChangedCount, 2)
+  })
 })
