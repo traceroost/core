@@ -9,7 +9,7 @@ import {
   childEnvForReexec, shouldBlockRepeatedBootstrap, REEXEC_GUARD_ENV,
   generateLaunchdPlist, generateSystemdUnit, generateWindowsWrapperScript,
   launchdLabel, SYSTEMD_UNIT_NAME, WINDOWS_TASK_NAME,
-  generateAuthToken, ensureAuthToken, readPackageManifest,
+  generateAuthToken, ensureAuthToken, readPackageManifest, resolveLegacyUiPort, migrateLegacyUiPort,
   describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure, npmInvocation,
   servicePidPath, writeServiceProcessRecord, readServiceProcessRecord, clearServiceProcessRecord, tasklistShowsImage,
   type ServiceProgram,
@@ -150,6 +150,88 @@ suite('serviceConfig', () => {
       fs.writeFileSync(configPath, '{}', { mode: 0o644 })
       ensureAuthToken(readServiceConfig(home), home)
       assert.strictEqual(fs.statSync(configPath).mode & 0o777, 0o600)
+    })
+  })
+
+  suite('resolveLegacyUiPort / migrateLegacyUiPort', () => {
+    const ctx = { docker: false, uiFromEnv: false, loopback: true }
+    const legacy = (home?: string) => ({ ...defaultServiceConfig(home), uiPort: 3000 })
+
+    test('moves a saved 3000 to 4315 and records that it did', () => {
+      const r = resolveLegacyUiPort(legacy('/home/u'), ctx)
+      assert.strictEqual(r.moved, true)
+      assert.strictEqual(r.config.uiPort, 4315)
+      assert.strictEqual(r.config.legacyUiPortMigrated, true)
+    })
+
+    test('a 3000 chosen after the move stays: the move happens once per config', () => {
+      const chosen = { ...legacy('/home/u'), legacyUiPortMigrated: true }
+      const r = resolveLegacyUiPort(chosen, ctx)
+      assert.strictEqual(r.moved, false)
+      assert.strictEqual(r.config, chosen)
+    })
+
+    test('any other port is left alone, and marked so a later 3000 is a choice', () => {
+      for (const uiPort of [4315, 3100]) {
+        const r = resolveLegacyUiPort({ ...defaultServiceConfig('/home/u'), uiPort }, ctx)
+        assert.strictEqual(r.moved, false)
+        assert.strictEqual(r.config.uiPort, uiPort)
+        assert.strictEqual(r.config.legacyUiPortMigrated, true)
+      }
+    })
+
+    test('a bind beyond loopback keeps 3000, decided for good', () => {
+      const r = resolveLegacyUiPort(legacy('/home/u'), { ...ctx, loopback: false })
+      assert.strictEqual(r.moved, false)
+      assert.strictEqual(r.config.uiPort, 3000)
+      assert.strictEqual(r.config.legacyUiPortMigrated, true)
+    })
+
+    test('Docker and a run whose port came from the environment are left undecided', () => {
+      for (const other of [{ docker: true }, { uiFromEnv: true }]) {
+        const config = legacy('/home/u')
+        const r = resolveLegacyUiPort(config, { ...ctx, ...other })
+        assert.strictEqual(r.moved, false)
+        assert.strictEqual(r.config, config)
+      }
+    })
+
+    test('does not move onto a port the OTLP or MCP server is configured for', () => {
+      for (const clash of [{ otlpPort: 4315 }, { mcpPort: 4315 }]) {
+        const r = resolveLegacyUiPort({ ...legacy('/home/u'), ...clash }, ctx)
+        assert.strictEqual(r.moved, false)
+        assert.strictEqual(r.config.uiPort, 3000)
+      }
+    })
+
+    test('persists the move, keeping the rest of config.json', () => {
+      const home = tmpHome()
+      const before = { ...legacy(home), authToken: 'tok', installId: 'id-1', sessionRetentionDays: 30 }
+      writeServiceConfig(before, home)
+      const r = migrateLegacyUiPort(readServiceConfig(home), ctx, home)
+      assert.strictEqual(r.moved, true)
+      assert.deepStrictEqual(readServiceConfig(home), { ...before, uiPort: 4315, legacyUiPortMigrated: true })
+      // The second start finds it done.
+      const again = migrateLegacyUiPort(readServiceConfig(home), ctx, home)
+      assert.strictEqual(again.moved, false)
+      assert.strictEqual(again.config.uiPort, 4315)
+    })
+
+    test('writes nothing when left undecided', () => {
+      const home = tmpHome()
+      const r = migrateLegacyUiPort(legacy(home), { ...ctx, uiFromEnv: true }, home)
+      assert.strictEqual(r.moved, false)
+      assert.strictEqual(fs.existsSync(serviceConfigPath(home)), false)
+    })
+
+    test('a config.json that cannot be written leaves the port where it was', () => {
+      const home = tmpHome()
+      // A file where the data directory should be makes the write fail on every platform.
+      fs.writeFileSync(path.join(home, '.traceroost'), '')
+      const config = legacy(home)
+      const r = migrateLegacyUiPort(config, ctx, home)
+      assert.strictEqual(r.moved, false)
+      assert.strictEqual(r.config, config)
     })
   })
 

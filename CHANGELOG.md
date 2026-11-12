@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Installs still on port 3000 move to 4315**: the dashboard's default became 4315 in an earlier release, but an install from before that kept the 3000 saved in `~/.traceroost/config.json` and went on holding the port most dev servers want. The next start of the desktop app, `npx traceroost` or the background service (or the next `traceroost service install`) now moves such an install to <http://localhost:4315>, once, and says so in its output and log. Bookmarks to `localhost:3000` need updating, and the theme, traces page size and agent thresholds, which the browser keeps per address, start from their defaults at the new one. Agents are unaffected: the OTLP (4318) and MCP (4316) ports don't change. Left on 3000: an install reachable beyond this machine (`--bind-host`), where a port change usually needs a firewall change too, and the Docker image, where 3000 is the port inside the container. To keep 3000, set it in Settings → Dashboard port or with `traceroost service install --ui-port 3000`; a port you choose is never moved
+
 ## [1.0.3] (2026-11-10)
 
 ### TraceRoost Cloud (full edition only)

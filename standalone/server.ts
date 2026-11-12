@@ -40,13 +40,13 @@ import { generateSuggestions } from '../src/instructionAdvisor'
 import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
-import { readServiceConfig, writeServiceConfig, configuredPorts, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest, writeServiceProcessRecord, clearServiceProcessRecord } from '../src/serviceConfig'
+import { readServiceConfig, writeServiceConfig, configuredPorts, ensureAuthToken, ensureInstallId, migrateLegacyUiPort, isRunningFromNpx, readPackageManifest, writeServiceProcessRecord, clearServiceProcessRecord } from '../src/serviceConfig'
 import { startVersionCheckLoop, getCachedVersionCheck, updateAdvice, npxCachedCopyNotice, type VersionCheckResult } from './versionCheck'
 import { sqlWasmDir } from './sqlWasm'
 import { detectHomebrewInstall } from './service/homebrew'
 import { tryAcquireDataDirLock, describeLockHolder, type DataDirLock } from './dataDirLock'
 import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, OTLP_GRPC_PORT, type ResolvedPorts } from '../src/portResolver'
-import { DEFAULT_DASHBOARD_PORT, TERMINAL_PORT_HINT, dashboardPortLock, dashboardPortLockReason, validateDashboardPort, moveDashboard, type DashboardPortState } from './dashboardPort'
+import { DEFAULT_DASHBOARD_PORT, LEGACY_PORT_MOVED_NOTICE, TERMINAL_PORT_HINT, dashboardPortLock, dashboardPortLockReason, validateDashboardPort, moveDashboard, type DashboardPortState } from './dashboardPort'
 // TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
 import { cloud, type TraceManifestSource } from '../src/cloudBridge'
 import { TRACE_STORE_REBUILT_MESSAGE } from '../src/database/traceStore'
@@ -96,7 +96,15 @@ if (!process.env.TRACEROOST_RELEASE_BUILD) loadDotenv({ quiet: true })
 // ad-hoc `npx`/`node standalone/server.js` run share one config story. Env vars still win when
 // set, matching this server's behavior before the config file existed. ensureAuthToken generates
 // and persists a bearer token the first time this runs with none set yet.
-const fileConfig = ensureInstallId(ensureAuthToken(readServiceConfig(undefined, m => console.warn(m))))
+const savedConfig = ensureInstallId(ensureAuthToken(readServiceConfig(undefined, m => console.warn(m))))
+// An install from before the 4315 default still has 3000 saved; move it over, once
+// (resolveLegacyUiPort in src/serviceConfig.ts says which installs are left alone).
+const legacyUiPort = migrateLegacyUiPort(savedConfig, {
+  docker: process.env.TRACEROOST_DOCKER === '1',
+  uiFromEnv: configuredPorts(process.env, savedConfig).uiFromEnv,
+  loopback: isLoopbackHost(process.env.BIND_HOST ?? savedConfig.bindHost),
+})
+const fileConfig = legacyUiPort.config
 // This process is the desktop app's collector, the background service, or an `npx traceroost`
 // run: on macOS it leaves projects in cloud storage (OneDrive, Dropbox, Google Drive, Box) alone
 // unless config.json says otherwise — see src/projectAccess.ts. Set before anything reads a
@@ -2244,7 +2252,8 @@ function dashboardPortState(): DashboardPortState {
 }
 
 function persistUiPort(port: number): void {
-  writeServiceConfig({ ...readServiceConfig(), uiPort: port })
+  // A port picked here is a choice, so the one-time move off 3000 never applies to it.
+  writeServiceConfig({ ...readServiceConfig(), uiPort: port, legacyUiPortMigrated: true })
   configuredUiPort = port
 }
 
@@ -2531,6 +2540,9 @@ async function startUiServer(): Promise<void> {
     ? url : redactTokenInUrl(url)
   console.log(`[TraceRoost] Dashboard      → ${printable}`)
   if (printable !== url) console.log('[TraceRoost]                  (token: `authToken` in ~/.traceroost/config.json, or `traceroost service status`)')
+  // Said wherever this start's output goes (terminal, service log, the desktop app's log): the old
+  // address now refuses connections, and this is the line that explains why.
+  if (legacyUiPort.moved) console.log(`[TraceRoost]                  (${LEGACY_PORT_MOVED_NOTICE})`)
   // Only in a terminal someone is reading, and not when they just picked the port with --ui-port.
   // The service, the desktop app's collector and Docker write to a log; none of them reads this.
   if (process.stdout.isTTY === true && process.env.TRACEROOST_SERVICE !== '1' && !startupPorts.uiFromEnv) {
