@@ -6,13 +6,13 @@ import * as path from 'path'
 import { isIPv6 } from 'net'
 import { execFileSync, spawn } from 'child_process'
 import {
-  parseServiceInstallFlags, describeKeptSettings, isRunningFromNpx, writeServiceConfig, readServiceConfig, serviceConfigPath,
+  parseServiceInstallFlags, describeKeptSettings, resolveLegacyUiPort, isRunningFromNpx, writeServiceConfig, readServiceConfig, serviceConfigPath,
   shouldBlockRepeatedBootstrap, childEnvForReexec, readPackageManifest,
   describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure, npmInvocation,
   type ServiceConfig, type ServiceProgram,
 } from '../../src/serviceConfig'
 import { readResolvedPorts } from '../../src/portResolver'
-import { servicePortHint } from '../dashboardPort'
+import { LEGACY_PORT_MOVED_NOTICE, servicePortHint } from '../dashboardPort'
 import { waitForServiceHealth } from './health'
 import { isLoopbackHost } from '../../src/httpSecurity'
 import { openInBrowser, shouldAutoOpen } from '../openBrowser'
@@ -410,7 +410,18 @@ export async function runServiceCli(args: string[]): Promise<number> {
       // Start from what's already in config.json — ports, data dir, bind host, retention, access
       // token, install id — so a reinstall or upgrade changes only what its flags name. With no
       // config.json yet, readServiceConfig returns the defaults.
-      const config = parseServiceInstallFlags(rest, readServiceConfig())
+      let config = parseServiceInstallFlags(rest, readServiceConfig())
+      // A config.json from before the 4315 default still says 3000: move it now, not when the
+      // service starts, so the health check below and the printed address use the port the
+      // service will really be on. `--ui-port` given here is a choice and is kept, 3000 included.
+      let movedOffLegacyPort = false
+      if (rest.includes('--ui-port')) {
+        config.legacyUiPortMigrated = true
+      } else {
+        const resolved = resolveLegacyUiPort(config, { docker: false, uiFromEnv: false, loopback: isLoopbackHost(config.bindHost) })
+        config = resolved.config
+        movedOffLegacyPort = resolved.moved
+      }
       // The agent-setup answer (src/agentSetupConsent.ts) is kept like everything else; still
       // unanswered and in a terminal, ask now — the service itself has no terminal and could
       // only ask in the dashboard.
@@ -420,6 +431,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
       if (safeIsInstalled(platformService)) {
         console.log('[TraceRoost] An existing background service was found; replacing it (your settings are kept; flags given here override them).')
       }
+      if (movedOffLegacyPort) { console.log(`[TraceRoost] ${LEGACY_PORT_MOVED_NOTICE}`) }
       const kept = describeKeptSettings(config, rest)
       if (kept.length > 0) { console.log(`[TraceRoost] Kept from ~/.traceroost/config.json: ${kept.join(', ')}.`) }
       // config.json has to be on disk before install() — the service's server reads it (and

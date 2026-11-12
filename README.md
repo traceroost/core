@@ -709,8 +709,11 @@ local credential, even offline. The credential is an owner-only (0600) file,
 ### Moving the dashboard to another port
 
 The standalone dashboard and the desktop app use port 4315 by default. Installs from before
-v0.22.0 used 3000 and keep it, and 3000 is also the default for Next.js, Rails, Express and many
-other dev servers. To move TraceRoost to another port:
+v0.22.0 used 3000, which is also the default for Next.js, Rails, Express and many other dev
+servers, so an upgrade moves them to 4315 once, the next time TraceRoost starts, and says so in
+its output and log. Two kinds of install stay on 3000: one reachable beyond this machine
+(`--bind-host`), and Docker, where 3000 is the port inside the container. If you put the dashboard
+back on 3000 afterwards, it stays there. To move TraceRoost to another port:
 
 - **Settings → Dashboard port** (gear icon in the dashboard): enter a port and click **Change**. The
   dashboard moves straight away, without a restart, and the page follows it with your preferences.
