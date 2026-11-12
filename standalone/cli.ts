@@ -86,7 +86,8 @@ async function main() {
     process.exitCode = await (await loadCloud()).runClusterCli(args.slice(1))
     return
   }
-  if (args[0] === 'cohort') {
+  // `cohort` is the command's former name, kept so an old pasted command still runs.
+  if (args[0] === 'churn' || args[0] === 'cohort') {
     const { runCohortCli } = await import('./local/cohortCli.js')
     process.exitCode = await runCohortCli(args.slice(1), (await loadCloud()).resolveRepoHash)
     return

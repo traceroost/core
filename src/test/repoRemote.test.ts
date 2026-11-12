@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
-import { resolveGithubUrl } from '../repoRemote'
+import { resolveGithubUrl, resolveOriginUrl, stripRemoteCredentials } from '../repoRemote'
 
 function git(cwd: string, args: string[]): void {
   execFileSync('git', args, { cwd, stdio: 'ignore' })
@@ -35,5 +35,29 @@ suite('repoRemote.resolveGithubUrl', () => {
     assert.strictEqual(await urlFor('/some/local/path.git'), null)
     assert.strictEqual(await urlFor(null), null)
     assert.strictEqual(await resolveGithubUrl(path.join(tmp, 'does-not-exist')), null)
+  })
+})
+
+suite('repoRemote.resolveOriginUrl', () => {
+  let tmp: string
+  setup(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'al-origin-')) })
+  teardown(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  test('returns the origin remote as git has it, for any host', async () => {
+    git(tmp, ['init', '-q'])
+    git(tmp, ['remote', 'add', 'origin', 'git@gitlab.com:owner/repo.git'])
+    assert.strictEqual(await resolveOriginUrl(tmp), 'git@gitlab.com:owner/repo.git')
+  })
+
+  test('null with no origin remote', async () => {
+    git(tmp, ['init', '-q'])
+    assert.strictEqual(await resolveOriginUrl(tmp), null)
+  })
+
+  test('never prints a credential saved in an https remote', () => {
+    assert.strictEqual(stripRemoteCredentials('https://me:ghp_secret@github.com/o/r.git'), 'https://github.com/o/r.git')
+    assert.strictEqual(stripRemoteCredentials('https://ghp_secret@dev.azure.com/o/r'), 'https://dev.azure.com/o/r')
+    assert.strictEqual(stripRemoteCredentials('git@github.com:o/r.git'), 'git@github.com:o/r.git')
+    assert.strictEqual(stripRemoteCredentials('ssh://git@github.com/o/r.git'), 'ssh://git@github.com/o/r.git')
   })
 })

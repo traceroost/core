@@ -795,7 +795,7 @@ pnpm run local
 TraceRoost is built in two editions from the same source:
 
 - **core:** everything in this README: the dashboard, log/OTel ingestion, the MCP server, the
-  Advisor, and the local CLI analysis (`find`, `trace`, `patterns`, `cohort`, `advise`). It
+  Advisor, and the local CLI analysis (`find`, `trace`, `patterns`, `churn`, `advise`). It
   contains **no** TraceRoost Cloud (org link + upload) code at all: not disabled, not built in.
   Released builds (VSIX, npm, Docker, the desktop app) were core through 0.21.0; since 1.0.0 they
   are full.

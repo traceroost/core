@@ -70,7 +70,7 @@ suite('cli usageText', () => {
         assert.match(commands[i + 1], /^ {6}\S/, `description under ${commands[i]}`)
       }
       const text = lines.join('\n')
-      for (const command of ['service', 'find', 'trace', 'patterns', 'advise', 'cohort', 'help']) {
+      for (const command of ['service', 'find', 'trace', 'patterns', 'advise', 'churn', 'help']) {
         assert.ok(commands.some(l => l.startsWith(`  traceroost ${command}`)), `${command} is listed`)
       }
       for (const flag of Object.keys(SERVER_FLAGS)) assert.ok(text.includes(flag), `${flag} documented`)

@@ -7,7 +7,7 @@
 /** One local subcommand's usage line (without the leading "Usage: "). `cloud` is false in the
  *  core edition, which leaves out the cloud-only parts (a cloud repo hash, `find --reporter`).
  *  The subcommands print this on bad arguments, so it always matches the top-level `--help`. */
-export function commandUsage(command: 'find' | 'patterns' | 'cohort', cloud: boolean): string {
+export function commandUsage(command: 'find' | 'patterns' | 'churn', cloud: boolean): string {
   switch (command) {
     case 'find':
       return cloud
@@ -15,10 +15,10 @@ export function commandUsage(command: 'find' | 'patterns' | 'cohort', cloud: boo
         : 'traceroost find <trace/session id | repo name>'
     case 'patterns':
       return cloud ? 'traceroost patterns --repo <hash|name>' : 'traceroost patterns --repo <name>'
-    case 'cohort':
+    case 'churn':
       return cloud
-        ? 'traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]'
-        : 'traceroost cohort --repo <name> --merged <YYYY-MM> [--window 30|90]'
+        ? 'traceroost churn --repo <hash|name> --merged <YYYY-MM> [--window 30|90]'
+        : 'traceroost churn --repo <name> --merged <YYYY-MM> [--window 30|90]'
   }
 }
 
@@ -52,8 +52,8 @@ function commandEntries(cloud: boolean): UsageEntry[] {
       description: "Print a repository's most-touched files and the loop/waste signals seen in its traces." },
     { usage: 'traceroost advise <--list|--apply <id>> [--repo <path>]',
       description: "List Advisor suggestions for a repository's instruction file, or append one (--apply)." },
-    { usage: commandUsage('cohort', cloud),
-      description: "Show how much AI-written code merged in a month still stands (turnover), and the commits behind it." },
+    { usage: commandUsage('churn', cloud),
+      description: "Show how much of the AI-written code merged in a month was later rewritten or removed (churn), and the commits behind it." },
     { usage: 'traceroost cluster --repo <hash> --id <id>', cloud: true,
       description: 'Match a Cloud "Repeat work" cluster against the traces recorded on this machine.' },
     { usage: 'traceroost org <link|status|verify|leave> [--device|--browser]', cloud: true,

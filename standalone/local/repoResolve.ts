@@ -33,3 +33,12 @@ export async function resolveRepoArg(
   if (cwdRoot && path.basename(cwdRoot).toLowerCase() === repoArg.toLowerCase()) return cwdRoot
   return null
 }
+
+/** The two lines that say which repository this is: where the clone sits on this machine, and the
+ *  `origin` remote it was cloned from (the URL to hand a teammate; the path is only local). */
+export function repoHeaderLines(root: string, origin: string | null): string[] {
+  return [
+    `Repository path:   ${root}`,
+    `Repository origin: ${origin ?? '(no origin remote)'}`,
+  ]
+}

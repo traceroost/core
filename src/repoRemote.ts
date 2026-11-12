@@ -48,3 +48,18 @@ export async function resolveGithubUrl(workspace: string): Promise<string | null
   if (!url) return null
   return normalizeGithubUrl(url)
 }
+
+/** Drops `user:token@` from an http(s) remote so a credential saved in the URL is never printed.
+ *  An ssh remote's `git@` is a login name, not a secret, and stays. */
+export function stripRemoteCredentials(url: string): string {
+  return url.replace(/^(https?:\/\/)[^/@]+@/i, '$1')
+}
+
+/** `workspace`'s `origin` remote as git has it (any host, any form), minus saved credentials, or
+ *  null with no origin, outside a git repo, or in a folder TraceRoost leaves alone. Local only:
+ *  printed by `traceroost find`, never sent anywhere. */
+export async function resolveOriginUrl(workspace: string): Promise<string | null> {
+  const out = await git(workspace, ['config', '--get', 'remote.origin.url'])
+  const url = out?.trim()
+  return url ? stripRemoteCredentials(url) : null
+}

@@ -1,5 +1,6 @@
 import * as assert from 'assert'
 import { topTouchedFiles, groupedSignals } from './patternsCli'
+import { repoHeaderLines } from './repoResolve'
 import type { SessionSummaryCard, TimelineEntry } from '../../src/summarizers/summarizerTypes'
 
 // detectLoopSignals's own detection accuracy is covered by src/test/loopDetector.test.ts — this
@@ -45,6 +46,19 @@ function errorEntry(message: string): TimelineEntry {
     isError: true, errorMessage: message, timestamp: '2024-01-01T00:00:01.000Z',
   }
 }
+
+suite('repoHeaderLines', () => {
+  test('prints the local path and the origin remote on aligned lines', () => {
+    assert.deepStrictEqual(repoHeaderLines('/work/app', 'git@github.com:acme/app.git'), [
+      'Repository path:   /work/app',
+      'Repository origin: git@github.com:acme/app.git',
+    ])
+  })
+
+  test('says so when the repository has no origin remote', () => {
+    assert.strictEqual(repoHeaderLines('/work/app', null)[1], 'Repository origin: (no origin remote)')
+  })
+})
 
 suite('topTouchedFiles', () => {
   test('counts a file once per read/changed/written occurrence, across sessions', () => {
