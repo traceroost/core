@@ -26,7 +26,12 @@ export class GitOutcomeRepository {
     const [storedCacheKey, overall, filesJson, reason] = rows[0].values[0] as [string, string, string, string]
     if (storedCacheKey !== cacheKey) return undefined
     try {
-      return { overall: overall as GitOutcome['overall'], files: JSON.parse(filesJson), reason }
+      const files = JSON.parse(filesJson) as GitOutcome['files']
+      // A row stored when 'ambiguous' outranked committed/merged (gitOutcome.ts's
+      // OUTCOME_PRIORITY): one missing file made the whole session ambiguous. Nothing about the
+      // repo has to move for that verdict to be wrong now, so the cache key can't catch it.
+      if (overall === 'ambiguous' && Object.values(files).some(v => v !== 'ambiguous')) return undefined
+      return { overall: overall as GitOutcome['overall'], files, reason }
     } catch {
       return undefined
     }

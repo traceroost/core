@@ -58,7 +58,7 @@ import * as os from 'os'
 import { fileURLToPath } from 'url'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from './summarizers/summarizerTypes'
 import { VSCODE_FAMILY_IDE_NAMES } from './vscodeFamilyIdes'
-import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification } from './summarizers/helpers'
+import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification, APPLY_PATCH_FILE_HEADER_RE } from './summarizers/helpers'
 import { stripDateSuffix } from './pricing'
 import { CodexLimitCollector, claudeLimitHit, dedupeHits, CLAUDE_SYNTHETIC_MODEL, type LimitReading, type LimitHit, type PlanStatus } from './planUsage/limitReadings'
 import { deriveSessionLanguage } from './language'
@@ -1377,10 +1377,17 @@ export class LogReader {
             cur.totalToolCalls++
             cur.toolCounts[name] = (cur.toolCounts[name] ?? 0) + 1
             // Track file paths from write/edit tools
-            const args = req['arguments'] as Record<string, unknown> | undefined
-            const fp = String(args?.['path'] ?? args?.['file_path'] ?? '')
-            if (fp && (name === 'edit' || name === 'write' || name === 'create')) {
-              cur.filesChanged.add(fp)
+            const rawArgs = req['arguments']
+            if (name === 'apply_patch') {
+              // GPT-family models edit through apply_patch, whose arguments are the patch text
+              // itself (a string), or an object carrying it; the files are in its headers.
+              for (const fp of applyPatchFilePaths(rawArgs)) cur.filesChanged.add(fp)
+            } else {
+              const args = rawArgs && typeof rawArgs === 'object' ? rawArgs as Record<string, unknown> : undefined
+              const fp = String(args?.['path'] ?? args?.['file_path'] ?? '')
+              if (fp && (name === 'edit' || name === 'write' || name === 'create')) {
+                cur.filesChanged.add(fp)
+              }
             }
           }
         }
@@ -3041,6 +3048,26 @@ export function antigravityToolFiles(name: string, args: Record<string, unknown>
  *   <system_reminder>...</system_reminder>
  * Returns the first non-empty line that isn't inside such a block.
  */
+/** Files named by an apply_patch call's headers (`*** Update|Add|Delete File: <path>`, `*** Move
+ *  to: <path>`). `rawArgs` is the patch text, or an object holding it under one of the keys the
+ *  agents use. Only real paths count, never the `*** Begin Patch` / `*** End Patch` markers. */
+export function applyPatchFilePaths(rawArgs: unknown): string[] {
+  let patch = ''
+  if (typeof rawArgs === 'string') patch = rawArgs
+  else if (rawArgs && typeof rawArgs === 'object') {
+    const a = rawArgs as Record<string, unknown>
+    const v = a['input'] ?? a['patch'] ?? a['command'] ?? a['patchText']
+    patch = Array.isArray(v) ? v.join('\n') : typeof v === 'string' ? v : ''
+  }
+  const out = new Set<string>()
+  for (const line of patch.split('\n')) {
+    const m = line.match(APPLY_PATCH_FILE_HEADER_RE)
+    const fp = m?.[1].trim()
+    if (fp && /[\\/]/.test(fp)) out.add(fp)
+  }
+  return [...out]
+}
+
 function _extractCopilotUserText(raw: string): string {
   // Split into lines, skip lines that are entirely part of injected XML blocks.
   const lines = raw.split('\n')
