@@ -58,7 +58,7 @@ import * as os from 'os'
 import { fileURLToPath } from 'url'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from './summarizers/summarizerTypes'
 import { VSCODE_FAMILY_IDE_NAMES } from './vscodeFamilyIdes'
-import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification } from './summarizers/helpers'
+import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification, APPLY_PATCH_FILE_HEADER_RE } from './summarizers/helpers'
 import { stripDateSuffix } from './pricing'
 import { CodexLimitCollector, claudeLimitHit, dedupeHits, CLAUDE_SYNTHETIC_MODEL, type LimitReading, type LimitHit, type PlanStatus } from './planUsage/limitReadings'
 import { deriveSessionLanguage } from './language'
@@ -1377,10 +1377,17 @@ export class LogReader {
             cur.totalToolCalls++
             cur.toolCounts[name] = (cur.toolCounts[name] ?? 0) + 1
             // Track file paths from write/edit tools
-            const args = req['arguments'] as Record<string, unknown> | undefined
-            const fp = String(args?.['path'] ?? args?.['file_path'] ?? '')
-            if (fp && (name === 'edit' || name === 'write' || name === 'create')) {
-              cur.filesChanged.add(fp)
+            const rawArgs = req['arguments']
+            if (name === 'apply_patch') {
+              // GPT-family models edit through apply_patch, whose arguments are the patch text
+              // itself (a string), or an object carrying it; the files are in its headers.
+              for (const fp of applyPatchFilePaths(rawArgs)) cur.filesChanged.add(fp)
+            } else {
+              const args = rawArgs && typeof rawArgs === 'object' ? rawArgs as Record<string, unknown> : undefined
+              const fp = String(args?.['path'] ?? args?.['file_path'] ?? '')
+              if (fp && (name === 'edit' || name === 'write' || name === 'create')) {
+                cur.filesChanged.add(fp)
+              }
             }
           }
         }
@@ -1501,12 +1508,34 @@ export class LogReader {
     interface Req {
       requestId: string; ts?: number; text: string; rendered: string; modelId: string
       completion?: number; prompt?: number; elapsedMs?: number
+      /** toolCallId → toolId. A call is written again each time its state changes, so it is
+       *  counted by id, not by occurrence. */
+      tools: Map<string, string>
+      filesChanged: Set<string>
     }
     const reqs: Req[] = []
     let sessionCreatedMs = 0
     let model = ''
     const parsed = lines.map(parseLogLine)
     this._observe(filePath, 'copilot_vscode', () => parsed)
+    // A request's response parts: in the request object when it is pushed, and in later pushes to
+    // ['requests', N, 'response'].
+    const absorbResponse = (req: Req, parts: unknown) => {
+      if (!Array.isArray(parts)) return
+      for (const part of parts) {
+        if (!part || typeof part !== 'object') continue
+        const p = part as Record<string, unknown>
+        if (p['kind'] === 'toolInvocationSerialized') {
+          const toolId = typeof p['toolId'] === 'string' && p['toolId'] ? p['toolId'] : 'unknown'
+          const callId = typeof p['toolCallId'] === 'string' && p['toolCallId'] ? p['toolCallId'] : `#${req.tools.size}`
+          req.tools.set(callId, toolId)
+        } else if (p['kind'] === 'textEditGroup' || p['kind'] === 'notebookEditGroup') {
+          // The edit the chat applied to a file, whichever tool made it.
+          const fp = vscodeFileUriPath(p['uri'])
+          if (fp) req.filesChanged.add(fp)
+        }
+      }
+    }
     parsed.forEach(e => {
       if (e === undefined) return
       const entry = e as Record<string, unknown>
@@ -1538,8 +1567,16 @@ export class LogReader {
             rendered: '',
             modelId: typeof r?.['modelId'] === 'string' ? (r['modelId'] as string).replace(/^copilot\//, '') : '',
             completion: typeof r?.['completionTokens'] === 'number' ? r['completionTokens'] : undefined,
+            tools: new Map(),
+            filesChanged: new Set(),
           })
+          absorbResponse(reqs[reqs.length - 1], r?.['response'])
         }
+      }
+
+      if (kind === 2 && Array.isArray(k) && k.length === 3 && k[0] === 'requests' && typeof k[1] === 'number' && k[2] === 'response') {
+        const req = reqs[k[1]]
+        if (req) absorbResponse(req, v)
       }
 
       // kind=1 sets on a specific request key (Format A/C, or late-arriving streaming final value)
@@ -1579,6 +1616,8 @@ export class LogReader {
       const key = req.requestId ? traceKey('copilot', req.requestId) : derivedTraceKey('copilot', baseSessionId, String(startMs))
       const startTs = new Date(startMs).toISOString()
       const endTs = new Date(startMs + Math.max(0, req.elapsedMs ?? 0)).toISOString()
+      const toolCounts: Record<string, number> = {}
+      for (const toolId of req.tools.values()) toolCounts[toolId] = (toolCounts[toolId] ?? 0) + 1
       const card = _buildCard(key, 'copilot', req.modelId || model || 'copilot', startTs, endTs, {
         totalInput: req.prompt ?? 0,
         totalOutput: req.completion ?? 0,
@@ -1586,10 +1625,10 @@ export class LogReader {
         totalCacheCreate: 0,
         peakContextPerTurn: 0,
         turns: req.completion !== undefined ? 1 : 0,
-        totalToolCalls: 0,
-        toolCounts: {},
+        totalToolCalls: req.tools.size,
+        toolCounts,
         filesRead: new Set(),
-        filesChanged: new Set(),
+        filesChanged: req.filesChanged,
         filesWritten: new Set(),
         filesSearched: new Set(),
         userRequest: (req.text || req.rendered).slice(0, 500),
@@ -1662,13 +1701,18 @@ export class LogReader {
       }
       let totalToolCalls = 0
       const toolCounts: Record<string, number> = {}
+      const filesChanged = new Set<string>()
       const response = req['response']
       if (Array.isArray(response)) {
         for (const entry of response as Array<Record<string, unknown>>) {
+          if (!entry || typeof entry !== 'object') continue
           if (entry['kind'] === 'toolInvocationSerialized') {
             totalToolCalls++
             const toolId = String(entry['toolId'] ?? 'unknown')
             toolCounts[toolId] = (toolCounts[toolId] ?? 0) + 1
+          } else if (entry['kind'] === 'textEditGroup' || entry['kind'] === 'notebookEditGroup') {
+            const fp = vscodeFileUriPath(entry['uri'])
+            if (fp) filesChanged.add(fp)
           }
         }
       }
@@ -1687,7 +1731,7 @@ export class LogReader {
         turns: 1,
         totalToolCalls,
         toolCounts,
-        filesRead: new Set(), filesChanged: new Set(), filesWritten: new Set(), filesSearched: new Set(),
+        filesRead: new Set(), filesChanged, filesWritten: new Set(), filesSearched: new Set(),
         userRequest: userRequest.slice(0, 500),
         timeline: [], initiator: 'user',
       }, workspace)
@@ -3041,6 +3085,36 @@ export function antigravityToolFiles(name: string, args: Record<string, unknown>
  *   <system_reminder>...</system_reminder>
  * Returns the first non-empty line that isn't inside such a block.
  */
+/** The filesystem path of a serialized VS Code `file:` URI (`{ scheme, fsPath, path }`), or ''
+ *  for anything else (an untitled buffer, a remote or virtual document). */
+function vscodeFileUriPath(uri: unknown): string {
+  if (!uri || typeof uri !== 'object') return ''
+  const u = uri as Record<string, unknown>
+  if (u['scheme'] !== 'file') return ''
+  const fp = u['fsPath'] ?? u['path']
+  return typeof fp === 'string' ? fp : ''
+}
+
+/** Files named by an apply_patch call's headers (`*** Update|Add|Delete File: <path>`, `*** Move
+ *  to: <path>`). `rawArgs` is the patch text, or an object holding it under one of the keys the
+ *  agents use. Only real paths count, never the `*** Begin Patch` / `*** End Patch` markers. */
+export function applyPatchFilePaths(rawArgs: unknown): string[] {
+  let patch = ''
+  if (typeof rawArgs === 'string') patch = rawArgs
+  else if (rawArgs && typeof rawArgs === 'object') {
+    const a = rawArgs as Record<string, unknown>
+    const v = a['input'] ?? a['patch'] ?? a['command'] ?? a['patchText']
+    patch = Array.isArray(v) ? v.join('\n') : typeof v === 'string' ? v : ''
+  }
+  const out = new Set<string>()
+  for (const line of patch.split('\n')) {
+    const m = line.match(APPLY_PATCH_FILE_HEADER_RE)
+    const fp = m?.[1].trim()
+    if (fp && /[\\/]/.test(fp)) out.add(fp)
+  }
+  return [...out]
+}
+
 function _extractCopilotUserText(raw: string): string {
   // Split into lines, skip lines that are entirely part of injected XML blocks.
   const lines = raw.split('\n')

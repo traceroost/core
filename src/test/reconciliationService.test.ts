@@ -89,6 +89,26 @@ suite('reconciliationService', () => {
     assert.strictEqual(second.changed, false)
   })
 
+  test('recomputes a cached ambiguous verdict that came from one missing file among real ones', async () => {
+    const db = await openInMemoryDb()
+    const service = new ReconciliationService(db)
+    const file = `file${fileCounter}.txt`
+    writeFile(file, 'v1')
+    commitAll('initial', '2026-01-01T00:00:00Z')
+    const abs = path.join(repoDir, file)
+    const scratch = path.join(repoDir, 'scratch.tmp') // written and deleted by the session
+    const input = { sessionId: 's1', workspace: repoDir, filesChanged: [abs, scratch], endTime: LONG_AGO }
+
+    const first = await service.reconcile(input)
+    assert.strictEqual(first.outcome?.overall, 'merged')
+
+    // The row as an older version stored it, when 'ambiguous' outranked 'merged'. Nothing in the
+    // repo moves, so the cache key still matches.
+    db.run(`UPDATE git_outcome SET overall = 'ambiguous' WHERE session_id = 's1'`)
+    const again = await service.reconcile(input)
+    assert.strictEqual(again.outcome?.overall, 'merged')
+  })
+
   test('bumps the revision when an uncommitted edit changes the working-tree outcome', async () => {
     const db = await openInMemoryDb()
     const service = new ReconciliationService(db)

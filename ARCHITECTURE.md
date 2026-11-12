@@ -227,7 +227,7 @@ VS Code writes one JSONL per session where each line is an operation on the sess
 | `1` | Set: `k` is key path, `v` is new value (e.g. `["requests", N, "completionTokens"]`) |
 | `2` | Push: `k` is key path, `v` is array of items to append |
 
-New turn: `kind=2` with `k=["requests"]` (exactly one element). Response sub-arrays (`k=["requests", N, "response"]`) are ignored. `completionTokens` arrives via kind=1 (streaming final) and optionally embedded in the kind=2 request push object (Format B); kind=1 always wins.
+New turn: `kind=2` with `k=["requests"]` (exactly one element). Response parts arrive in the request push object and in later pushes to `k=["requests", N, "response"]`: a `toolInvocationSerialized` part is a tool call (written again as its state changes, so counted once per `toolCallId`), and a `textEditGroup` / `notebookEditGroup` part names a file the chat edited (`uri.fsPath`, `file:` URIs only). `completionTokens` arrives via kind=1 (streaming final) and optionally embedded in the kind=2 request push object (Format B); kind=1 always wins.
 
 ### Copilot Chat: snapshot format (`.json`)
 
@@ -305,9 +305,9 @@ flowchart TD
 | Output tokens | ✓ | ✓ | ✓ | ✓ (`completionTokens` per turn) | ✗ not stored | ✓ | ✗ not stored anywhere on disk | ✓ with the DB (thinking included) |
 | Cache read / write tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ | ✗ not stored anywhere on disk | read ✓ with the DB; write ✗ |
 | User request text | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (last user message) | ✓ | ✓ |
-| Tool calls (names) | ✓ | ✓ | ✓ | ✗ | ✗ (presence only) | ✓ | ✓ | ✓ |
+| Tool calls (names) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Tool call inputs / outputs | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✓ (input only; no output/result recorded) | ✓ (input only) |
-| File paths from tools | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ | ✓ |
+| File paths from tools | ✓ | ✓ | ✓ | changed files only (`textEditGroup`) | changed files only (`textEditGroup`) | ✓ | ✓ | ✓ |
 | TTFT, per-tool timing | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Streaming speed, loop signals | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ (per-tool error data needed for `error_recurrence`/`chronic_tool_failures` doesn't exist) | ✗ (no per-tool error data) |
 | Full turn timeline | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (LLM + tool entries) | ✓ (LLM + tool entries) | ✓ (LLM + tool entries) |
@@ -346,7 +346,7 @@ Every card gets `language` / `languageSecondary` and `filesChangedCount` / `line
 
 - **Language** (`src/language.ts`, byte-identical copy at `media/src/language.ts`, parity-tested in `src/test/language.test.ts`): a fixed allowlist (`typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `dart` `shell` `sql` `html` `css` `other` `none`), derived from the extensions of the session's distinct `filesRead` + `filesChanged` paths. Each distinct file counts once; non-code files (docs, JSON/YAML/TOML, lockfiles, config, dotfiles, images, text, CSV) and unknown extensions are excluded; a small explicit `OTHER_CODE_EXTENSIONS` set counts as `other`; Vue/Svelte components (`COMPONENT_EXTENSIONS`) count as `typescript` when the session touched any TypeScript file, else `javascript` (paths only, so `lang="ts"` is never read). Primary is the most common, secondary the runner-up (never `none`, may be `other`); ties break by count, then changed-over-read, then allowlist order.
 - **Change size** (`src/editStats.ts`): `filesChangedCount` is the distinct `filesChanged` count (every file, code or not); lines come from the timeline's `editDetails`: old→new strings are line-diffed (common prefix/suffix trimmed, LCS on the middle), `apply_patch` hunks (parsed once in `summarizers/helpers.ts`'s `parseApplyPatchEditDetails`, for Copilot and Codex) count their `-`/`+` lines, a content-only write counts every line as added. Agent-authored edits, not git stats (`src/attribution/` is the git side). Undefined lines mean the source records no edit contents (OpenCode, Cursor, Codex/Copilot logs).
-- Both are stored in `sessions` (`language`, `language_secondary`, `files_changed_count`, `lines_added`, `lines_removed`). Language and change-size cells read from Codex and Copilot Chat logs, which record no file paths, are `none` / unknown.
+- Both are stored in `sessions` (`language`, `language_secondary`, `files_changed_count`, `lines_added`, `lines_removed`). Language and change-size cells read from Codex logs, which record no file paths, are `none` / unknown. Copilot Chat logs give the changed files (so a file count and a git outcome) but no line counts.
 
 ### Bypasses SessionStore / SpanSummarizer
 

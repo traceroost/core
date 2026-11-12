@@ -8,6 +8,12 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 - **Installs still on port 3000 move to 4315**: the dashboard's default became 4315 in an earlier release, but an install from before that kept the 3000 saved in `~/.traceroost/config.json` and went on holding the port most dev servers want. The next start of the desktop app, `npx traceroost` or the background service (or the next `traceroost service install`) now moves such an install to <http://localhost:4315>, once, and says so in its output and log. Bookmarks to `localhost:3000` need updating, and the theme, traces page size and agent thresholds, which the browser keeps per address, start from their defaults at the new one. Agents are unaffected: the OTLP (4318) and MCP (4316) ports don't change. Left on 3000: an install reachable beyond this machine (`--bind-host`), where a port change usually needs a firewall change too, and the Docker image, where 3000 is the port inside the container. To keep 3000, set it in Settings → Dashboard port or with `traceroost service install --ui-port 3000`; a port you choose is never moved
 
+### Fixed
+
+- **A trace no longer loses its git outcome because of one file that is gone**: when a session edited several files and one of them was later deleted, renamed or was only ever a scratch file, the whole trace read as having no outcome, even with every other file merged. The missing file is now set aside and the trace takes its outcome from the files git can still see (Merged, Committed or Uncommitted). Traces already marked this way are rechecked the next time their outcome is read.
+- **Copilot Chat traces read from logs show their changed files and tool calls**: the VS Code chat log reader recorded neither, so a Copilot Chat trace that arrived from logs alone had no changed files, no language and no git outcome. It now records the files the chat edited and each tool it called.
+- **Copilot CLI edits made with `apply_patch` count as file changes**: GPT-family models in Copilot CLI edit through `apply_patch`, which the log reader did not treat as an edit, so those traces showed no changed files and never got a git outcome. The files named in the patch are now recorded.
+
 ## [1.0.3] (2026-11-10)
 
 ### TraceRoost Cloud (full edition only)

@@ -8,7 +8,9 @@ name: Desktop (Windows)
 #             versions, edition, bundled Node), SHA256SUMS; the staged-collector integration
 #             suite on the runner's own Electron; the packaged smoke test (owned collector,
 #             /health, dashboard, then `traceroost-desktop --quit` → the collector is stopped over
-#             the owner channel and a span sent just before is flushed to disk); then
+#             the owner channel and a span sent just before is flushed to disk);
+#             scripts/check-system-ca.mjs (the packaged collector trusts a company root that is
+#             only in the Windows certificate store, as on a network that inspects HTTPS); then
 #             scripts/check-nsis.mjs: silent per-user install, the smoke test on the *installed* app,
 #             a reinstall over the running app (which must quit it cooperatively, not kill it), and
 #             a silent uninstall that keeps the user's data.
@@ -217,6 +219,14 @@ jobs:
       - name: Smoke test the packaged app
         working-directory: desktop
         run: pnpm run smoke
+
+      # The HTTPS-inspection case (Zscaler and the like): a throwaway root goes into the machine's
+      # Root store, and the packaged binary, run as Node the way the app runs its collector, must
+      # fetch from a server only that root vouches for, and must refuse it with NODE_USE_SYSTEM_CA=0.
+      # The root is removed again either way. openssl is Git for Windows', on the bash PATH.
+      - name: The packaged collector trusts a root from the Windows certificate store
+        working-directory: desktop
+        run: node scripts/check-system-ca.mjs
 
       - name: Install, run, upgrade over the running app, uninstall
         if: steps.scope.outputs.installer == 'true'
