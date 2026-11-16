@@ -4,42 +4,42 @@
     "claude-code-monitoring-docs": {
       "kind": "page",
       "status": 200,
-      "sha": "ab0a29f6bfc4f97373e1d69a98a5b3aa4e15d61c6dcfc9858134376a5311a418",
-      "checkedAt": "2026-11-09T16:48:05.666Z"
+      "sha": "1afa1fcc5d924cc6a60909126db878885db8c3a091a851da772377e5110dd045",
+      "checkedAt": "2026-11-16T16:20:27.231Z"
     },
     "claude-code-changelog": {
       "kind": "page",
       "status": 200,
-      "sha": "964e1bcc32fddb7a644000edc94b1d817497f9848ebc8d6b66b873fee4e275b2",
-      "checkedAt": "2026-11-09T16:48:05.790Z"
+      "sha": "bbec68e7d60f6060a7d5d325c23cdeda282e5d6d6ed6281b0bac170eb383374b",
+      "checkedAt": "2026-11-16T16:20:27.585Z"
     },
     "codex-otel-crate": {
       "kind": "repo",
-      "checkedAt": "2026-11-09T16:48:06.893Z",
-      "lastCommit": "5226f2fb4bcbc4aa3ec1863b6ba0bd2c4ddb0486",
-      "lastCommitAt": "2026-11-07T22:38:11Z"
+      "checkedAt": "2026-11-16T16:20:28.855Z",
+      "lastCommit": "de83e7674a69b9ae18544dd1fbf53f31bfe8c640",
+      "lastCommitAt": "2026-11-14T01:21:54Z"
     },
     "codex-otel-readme": {
       "kind": "page",
       "status": 200,
-      "sha": "5857f575bf4e097e69a25478f4807ea4937fe7d28ef73d261738f37eaca483a3",
-      "checkedAt": "2026-11-09T16:48:07.006Z"
+      "sha": "c79c5c05df9049d8d10d36e6c5f579146c34c825ebc231032a6ced325bf83fb6",
+      "checkedAt": "2026-11-16T16:20:28.995Z"
     },
     "copilot-chat-otel": {
       "kind": "repo",
-      "checkedAt": "2026-11-09T16:48:07.914Z",
+      "checkedAt": "2026-11-16T16:20:29.933Z",
       "lastCommit": "ae752d97feced36a92695b2997ad9f69c00afad6",
       "lastCommitAt": "2026-03-31T04:59:30Z"
     },
     "copilot-cli-changelog": {
       "kind": "page",
       "status": 200,
-      "sha": "ec769a2498a4c009c43140dbbce94179250abf9e6dedf6269be4ee400e08edcd",
-      "checkedAt": "2026-11-09T16:48:08.164Z"
+      "sha": "faeba2d75bf0549cd1e27670c868fb69e06e694d27d705abd65bfc0f139eee58",
+      "checkedAt": "2026-11-16T16:20:30.174Z"
     },
     "opencode-observability": {
       "kind": "repo",
-      "checkedAt": "2026-11-09T16:48:08.694Z",
+      "checkedAt": "2026-11-16T16:20:30.954Z",
       "lastCommit": "1aae67e853babebcd2211f6e5cd3cebad3d6080c",
       "lastCommitAt": "2026-10-09T08:36:06Z"
     }
@@ -67,6 +67,12 @@
       "at": "2026-11-09T16:48:08.698Z",
       "changed": true,
       "noteworthy": 4,
+      "errors": 0
+    },
+    {
+      "at": "2026-11-16T16:20:30.958Z",
+      "changed": true,
+      "noteworthy": 5,
       "errors": 0
     }
   ]
