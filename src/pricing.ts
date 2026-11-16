@@ -1,6 +1,6 @@
 // Pricing data for extension-host cost computation (cost_usd stored in sessions table).
 // Rate table is kept in sync with media/src/pricing.ts — update both when rates change.
-// PRICING_LAST_UPDATED: 2026-11-09
+// PRICING_LAST_UPDATED: 2026-11-16
 
 export interface ModelRates {
   inputPerMTok: number
@@ -80,9 +80,13 @@ const RATES: Record<string, ModelRates> = {
   // listed on the source page (unlike the rest of the 5.6 family).
   'gpt-5.6-cyber':      { inputPerMTok: 12.50, cacheReadPerMTok: 1.25,   cacheWritePerMTok: 15.625, outputPerMTok: 75.00, contextWindowTokens: 0 },
   // gpt-6-cyber: added 2026-11-08 — new on OpenAI's API pricing page (Cyber table), the GPT-6 successor to
-  // gpt-5.6-cyber. Short-context only; no long-context tier listed on the source page, same as 5.6-cyber.
-  // Context window not stated, left at 0 (unknown).
-  'gpt-6-cyber':        { inputPerMTok: 20.00, cacheReadPerMTok: 2.00,   cacheWritePerMTok: 25.00, outputPerMTok: 100.00, contextWindowTokens: 0 },
+  // gpt-5.6-cyber. Long-context tier added 2026-11-16: the page now lists a long-context row (>272K input
+  // tokens) at $40.00/$4.00/$150.00 (2x input/cache-read, 1.5x output). That row gives no cache-write rate
+  // ("-"), so cacheWriteAboveThresholdPerMTok is deliberately unset and a long call's cache writes stay at
+  // the short $25.00 rather than a guessed 2x. Context window not stated, left at 0 (unknown).
+  'gpt-6-cyber':        { inputPerMTok: 20.00, cacheReadPerMTok: 2.00,   cacheWritePerMTok: 25.00, outputPerMTok: 100.00, contextWindowTokens: 0,
+                          longContextThresholdTokens: 272_000,
+                          inputAboveThresholdPerMTok: 40.00, cacheReadAboveThresholdPerMTok: 4.00, outputAboveThresholdPerMTok: 150.00 },
   // gpt-6-astra: added 2026-09-15 — new flagship, confirmed on Copilot's model pricing page, OpenAI's own API
   // pricing page, and the Codex CLI credits page (250/25/1250 credits ÷25 = $10.00/$1.00/$50.00). Same tiered
   // shape as the 5.6 family: cache-write at 1.25x input, long-context surcharge above 272K (2x input/cache/
@@ -119,11 +123,13 @@ const RATES: Record<string, ModelRates> = {
                           inputAboveThresholdPerMTok: 2.00, cacheReadAboveThresholdPerMTok: 0.10, cacheWriteAboveThresholdPerMTok: 2.50, outputAboveThresholdPerMTok: 7.50 },
   // daybreak-blue, daybreak-red: added 2026-11-08 — codenamed models listed only on the Codex CLI credits page
   // (100/10/500 and 312.5/31.25/1875 credits ÷25 = $4.00/$0.40/$20.00 and $12.50/$1.25/$75.00). Neither is on
-  // OpenAI's API pricing page or Copilot's, so the slugs are guessed from the display names and the cache-write
-  // rates are derived at the family's usual 1.25x input rather than read off a table. Their rates match
+  // OpenAI's API pricing page or Copilot's, so the slugs are guessed from the display names. Their rates match
   // gpt-5.6-sol and gpt-5.6-cyber exactly, so they may be stealth aliases of those — see PRICING_SOURCES.md.
-  'daybreak-blue':      { inputPerMTok: 4.00,  cacheReadPerMTok: 0.40,   cacheWritePerMTok: 5.00, outputPerMTok: 20.00, contextWindowTokens: 0 },
-  'daybreak-red':       { inputPerMTok: 12.50, cacheReadPerMTok: 1.25,   cacheWritePerMTok: 15.625, outputPerMTok: 75.00, contextWindowTokens: 0 },
+  // Cache write corrected 2026-11-16 to 0 (was derived at the family's 1.25x input): the Codex credits page,
+  // their only source, states "Codex credit billing has no separate cache-write charge", and with no API
+  // listing these models are only ever billed in Codex credits.
+  'daybreak-blue':      { inputPerMTok: 4.00,  cacheReadPerMTok: 0.40,   cacheWritePerMTok: 0, outputPerMTok: 20.00, contextWindowTokens: 0 },
+  'daybreak-red':       { inputPerMTok: 12.50, cacheReadPerMTok: 1.25,   cacheWritePerMTok: 0, outputPerMTok: 75.00, contextWindowTokens: 0 },
   // gpt-rosalind-research: added 2026-11-09 — now on the Codex CLI credits page (125/12.5/625 credits ÷25), so
   // reachable through Codex, and OpenAI's API page lists the same $5.00/$0.50/$25.00. Neither page gives a
   // cache-write rate or a long-context tier, so none is modeled. Context window not stated, left at 0 (unknown).
@@ -268,6 +274,13 @@ const RATES: Record<string, ModelRates> = {
   // 2026-12-01**; it is the one rate in the table with a known, first-party expiry inside a month.
   // (Copilot's page and OpenCode Zen both show the $2.00 figure too, Zen labeling it "50% off".)
   'gemini-4-argon':  { inputPerMTok: 2.00, cacheReadPerMTok: 0.10,  cacheWritePerMTok: 0, outputPerMTok: 10.00, contextWindowTokens: 0 },
+  // gemini-4-carbon: added 2026-11-16 — new on Google's own pricing page (model id as listed there) and on
+  // Copilot's. Same schedule as gemini-4-argon: $2.00/$0.10/$10.00 through 2026-11-30, then $4.00/$0.20/$20.00
+  // from 2026-12-01, so **this row must be doubled on or after 2026-12-01** too. Implicit caching only.
+  'gemini-4-carbon': { inputPerMTok: 2.00, cacheReadPerMTok: 0.10,  cacheWritePerMTok: 0, outputPerMTok: 10.00, contextWindowTokens: 0 },
+  // gemini-4-hydrogen: added 2026-11-16 — new on Google's page and Copilot's at $1.50/$0.075/$7.50, no dated
+  // change and no prompt-length tier. Implicit caching only. Context window left at 0 (unknown).
+  'gemini-4-hydrogen': { inputPerMTok: 1.50, cacheReadPerMTok: 0.075, cacheWritePerMTok: 0, outputPerMTok: 7.50, contextWindowTokens: 0 },
   // ── Fine-tuned ─────────────────────────────────────────────────────────────
   // raptor-mini: no longer an included/$0 model as of the 2026-07-19 Copilot pricing page — now billed at standard rates.
   'raptor-mini': { inputPerMTok: 0.25, cacheReadPerMTok: 0.025, cacheWritePerMTok: 0, outputPerMTok:  2.00,  contextWindowTokens: 0 },
@@ -319,6 +332,9 @@ const RATES: Record<string, ModelRates> = {
   // longcat-2.5-free: added 2026-11-09 — slug confirmed from the Zen page's model ID column. Likely the GA
   // successor of longcat-2.5-preview-free (kept above, $0 either way).
   'longcat-2.5-free':            { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  // minimax-m3.1-flash-free, hy4-flash-free: added 2026-11-16 — slugs confirmed from the Zen page's model ID column.
+  'minimax-m3.1-flash-free':     { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  'hy4-flash-free':              { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
 }
 
 // Exported so callers that build a model ID by appending their own suffix (e.g.

@@ -4,7 +4,14 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Pricing for new models**: Gemini 4 Carbon and Gemini 4 Hydrogen, and the MiniMax M3.1 Flash Free and Hy4 Flash Free OpenCode Zen models. Traces on these showed `~$?` until now. Gemini 4 Carbon is at its current promotional rate, which Google doubles on December 1, 2026; the Pricing page notes this
+
 ### Fixed
+
+- **GPT-6 Cyber calls with a prompt over 272K tokens are priced at OpenAI's long-context rate**: OpenAI now publishes a long-context price for GPT-6 Cyber ($40 input, $4 cached input, $150 output per million tokens), and such calls were costed at the standard rate, half the input price. Traces with those calls now show the higher, correct cost
+- **Daybreak Blue and Daybreak Red no longer charge for cache writes**: these Codex models are billed only in Codex credits, and Codex credit billing has no cache-write charge, but TraceRoost priced cache writes at 1.25x the input rate. Traces on them now show a slightly lower, correct cost
 
 - **The winget package can be submitted again**: 1.1.0's winget manifest was not valid YAML (a description with a colon in it was written unquoted), so no winget update was opened for that release. The description is now quoted, and a test checks every generated manifest for the same mistake
 
