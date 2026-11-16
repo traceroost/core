@@ -49,6 +49,26 @@ suite('winget-manifests — the winget package for a desktop release', () => {
     assert.match(read('TraceRoost.TraceRoost.locale.en-US.yaml'), /^Publisher: TraceRoost$/m)
   })
 
+  // v1.1.0's winget submission failed on exactly this: an unquoted ShortDescription with ": " in
+  // it ("agents: traces") is not valid YAML ("mapping values are not allowed in this context").
+  test('no unquoted value contains ": " or " #", which YAML reads as a nested key or a comment', () => {
+    asset(`TraceRoost-${V}-win-x64.exe`)
+    asset(`TraceRoost-${V}-win-arm64.exe`)
+    for (const edition of ['core', 'full']) {
+      assert.strictEqual(run('--edition', edition).status, 0)
+      for (const file of fs.readdirSync(path.join(out, ...DIR))) {
+        let inBlock = false
+        for (const line of read(file).split('\n')) {
+          if (inBlock && /^\s+\S/.test(line)) continue   // a block scalar's body is literal text
+          inBlock = /^[^#]*:\s*[|>][+-]?\s*$/.test(line)
+          const m = line.match(/^\s*(?:- )?[A-Za-z]+: (.+)$/)
+          if (!m || /^['"]/.test(m[1])) continue
+          assert.doesNotMatch(m[1], /: | #/, `${file} (${edition}): ${line}`)
+        }
+      }
+    }
+  })
+
   test('a signed installer is preferred over a preview of the same architecture', () => {
     asset(`TraceRoost-${V}-win-x64.exe`)
     asset(`TraceRoost-${V}-win-x64-preview.exe`)

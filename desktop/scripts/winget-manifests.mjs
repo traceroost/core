@@ -95,7 +95,7 @@ PackageName: TraceRoost
 PackageUrl: https://traceroost.com
 ${edition === 'full'
     ? `License: MIT AND BUSL-1.1\nLicenseUrl: https://github.com/${REPO}/blob/v${version}/NOTICE.md\n`
-    : `License: MIT\nLicenseUrl: https://github.com/${REPO}/blob/v${version}/LICENSE\n`}ShortDescription: Local monitoring for AI coding agents: traces, cost and stuck-agent signals.
+    : `License: MIT\nLicenseUrl: https://github.com/${REPO}/blob/v${version}/LICENSE\n`}ShortDescription: 'Local monitoring for AI coding agents: traces, cost and stuck-agent signals.'
 Description: |-
   TraceRoost records what your coding agents (Claude Code, Codex, GitHub Copilot) did, what it cost
   and what landed, and shows it in a dashboard on this machine. The desktop app runs the collector
