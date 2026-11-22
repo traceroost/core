@@ -10,7 +10,7 @@
 
 ![TraceRoost dashboard showing OTel traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.174b35955f27.gif)
 
-Local monitoring and observability for agentic AI coding tools. See what's actually happening inside each run. TraceRoost keeps your traces on your machine and uploads nothing unless you link it to TraceRoost Cloud.
+Local monitoring and observability for agentic AI coding tools. See what's actually happening inside each run. TraceRoost keeps your traces on your machine and uploads nothing unless you link it to [TraceRoost Cloud](#for-teams-traceroost-cloud).
 
 TraceRoost supports **Claude Code, Codex, GitHub Copilot, OpenCode, Cursor CLI, and Antigravity CLI** (best effort). It receives **OpenTelemetry traces** from Claude Code, Codex, and GitHub Copilot in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically (including OpenCode's **SQLite database**, Cursor CLI's transcript files and Antigravity's transcripts and per-conversation databases) as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTel takes precedence when available.
 
@@ -18,6 +18,10 @@ Two things it does that a usage dashboard doesn't:
 
 - **Catches agents that are stuck.** Sixteen named signals (repeated tool calls, oscillating edits, recurring errors, runaway scope, hallucinated dependencies, unverified test runs, avoidable cache misses, and more), each with a correction prompt you can paste straight into the session. [See the full list →](#recommendations--signals)
 - **Tells you what to fix in your instructions file.** The Advisor reads across traces and suggests concrete additions to your CLAUDE.md or AGENTS.md, including hot files the agent rediscovers from scratch on every run. [More →](#features)
+
+### For teams: TraceRoost Cloud
+
+Each developer links their TraceRoost to a shared org on [TraceRoost Cloud](https://traceroost.com), and you see the whole team in one place: what your coding agents cost by developer, agent, model and repo, which of that work actually ships, and the Advisor across everyone's traces. **Free for up to 3 developers, every feature, no card**; more developers are a paid seat each ([pricing](https://traceroost.com/pricing)). Linked machines send per-trace counts, timings and hashed IDs, never your code, prompts or file names ([exactly what's sent](https://traceroost.com/privacy)). To link, click the cloud icon in the dashboard's top bar.
 
 **Quick start: pick one.**
 
