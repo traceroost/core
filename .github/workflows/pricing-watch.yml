@@ -1,15 +1,23 @@
 name: Pricing · watch
 
 # Weekly: have any of the vendor pricing pages moved? Runs the refresh procedure in
-# PRICING_SOURCES.md ("How to refresh this file") headlessly with Claude Code, and opens a *draft*
-# pull request with whatever it found. That file is the authority on the sources and the rules —
+# PRICING_SOURCES.md ("How to refresh this file") headlessly with Claude Code, and pushes a branch
+# with whatever it found, for a maintainer to open as a draft pull request. That file is the authority on the sources and the rules —
 # this workflow deliberately holds no rate tables, no URL list and no normalization rules of its
 # own, so a change to the procedure takes effect here without touching this file.
 #
-# Unlike agent-release-watch.yml, which only ever opens an issue, this one does commit — so every
-# PR it opens is a draft, is labeled `pricing-auto`, and is never auto-merged. Review it like any
-# other pricing PR: the point of the draft is that the judgement calls (is a rate promotional? is a
+# Unlike agent-release-watch.yml, which only ever opens an issue, this one does commit: it pushes a
+# `pricing/auto-refresh-<date>` branch, then opens an issue (labeled `pricing-auto`) carrying the report
+# and a one-click link to open the pull request. A maintainer opens that PR, as a draft, and it is never
+# auto-merged. Review it like any other pricing PR: the judgement calls (is a rate promotional? is a
 # guessed model slug right? should a new tier be modeled?) still get a human.
+#
+# Why an issue and not the PR itself: the repo keeps "Allow GitHub Actions to create and approve pull
+# requests" off (it would also let GITHUB_TOKEN approve PRs against main's required review), so
+# `gh pr create` fails here (it did, 2026-11-09 and 2026-11-16). And a PR opened with GITHUB_TOKEN
+# triggers no workflows, so CI and the required cla-check would never run on it anyway. A PR a person
+# opens from the pushed branch gets both. The commit message carries the report, so GitHub pre-fills the
+# PR body from it, ending in "Closes #<issue>".
 #
 # Cost: runs in the public repo, so GitHub Actions minutes are free. The Claude Code run is a few
 # cents of ANTHROPIC_API_KEY usage a week — the same secret agent-capture.yml uses.
@@ -25,13 +33,14 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Report the diff in the run summary only — no branch, no pull request
+        description: Report the diff in the run summary only, no branch, no issue
         type: boolean
         default: false
 
 permissions:
   contents: write
-  pull-requests: write
+  issues: write
+  pull-requests: read
 
 concurrency:
   group: pricing-watch
@@ -52,19 +61,23 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      # One open auto-PR at a time. A second would be built on a stale rate table and the two would
-      # conflict on every date line in PRICING_SOURCES.md.
-      - name: Skip if an auto pricing PR is already open
+      # One open refresh at a time: an open `pricing-auto` issue (or a PR a maintainer opened from it).
+      # A second would be built on a stale rate table and the two would conflict on every date line in
+      # PRICING_SOURCES.md. Close the issue (merging its PR does) to let the next run go ahead.
+      - name: Skip if an auto pricing refresh is already open
         id: existing
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          open=$(gh pr list --label pricing-auto --state open --json number --jq 'length')
+          issues=$(gh issue list --label pricing-auto --state open --json number --jq 'length')
+          prs=$(gh pr list --state open --json labels,headRefName \
+            --jq '[.[] | select((.headRefName | startswith("pricing/auto-refresh-")) or any(.labels[]; .name == "pricing-auto"))] | length')
+          open=$((issues + prs))
           echo "count=$open" >> "$GITHUB_OUTPUT"
           if [ "$open" != "0" ]; then
-            gh pr list --label pricing-auto --state open \
+            gh issue list --label pricing-auto --state open \
               --json number,title,url --jq '.[] | "#\(.number) \(.title) \(.url)"' >> "$GITHUB_STEP_SUMMARY"
-            echo "::notice title=pricing watch::An auto pricing PR is already open — review or close it first."
+            echo "::notice title=pricing watch::An auto pricing refresh is already open. Review or close it first."
           fi
 
       # pnpm, never npm or yarn — a second lockfile in this repo is a real problem.
@@ -111,6 +124,11 @@ jobs:
 
           Then run: pnpm run check-types, pnpm run lint, pnpm run test:unit. Fix anything you broke.
 
+          This is an unattended CI run. Leave your edits uncommitted in the working tree: don't create
+          a branch, commit or push, because the workflow does all of that after you finish. Skip any
+          CLAUDE.md step that needs a tool this run doesn't have (the TraceRoost MCP tools), and don't
+          mention either point in the report.
+
           Finally write /tmp/pricing-report.md for the pull request body:
           - A "## What changed" section: every rate added, changed or re-confirmed, each with the
             source that establishes it.
@@ -127,14 +145,14 @@ jobs:
             --allowedTools 'Read,Edit,Write,Grep,Glob,WebFetch,Bash(pnpm run check-types),Bash(pnpm run lint),Bash(pnpm run test:unit),Bash(git diff:*),Bash(git status:*)' \
             --permission-mode acceptEdits
 
-      - name: Open a draft pull request
+      - name: Push a branch and open an issue
         if: steps.existing.outputs.count == '0'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           if [ ! -s /tmp/pricing-report.md ]; then
-            echo "::warning title=pricing watch::The run produced no report — treating as no change."
+            echo "::warning title=pricing watch::The run produced no report. Treating as no change."
             exit 0
           fi
           cat /tmp/pricing-report.md >> "$GITHUB_STEP_SUMMARY"
@@ -144,27 +162,52 @@ jobs:
             exit 0
           fi
           if [ "$DRY_RUN" = "true" ]; then
-            echo "### Dry run — no branch, no pull request" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Dry run: no branch, no issue" >> "$GITHUB_STEP_SUMMARY"
             git --no-pager diff --stat >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
           today=$(date -u +%Y-%m-%d)
           branch="pricing/auto-refresh-$today"
+          repo_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          compare="$repo_url/compare/main...$branch?expand=1&labels=pricing-auto"
+
+          # The issue first, so the commit (and so the pre-filled PR body) can close it.
+          issue_url=$(gh issue create --label pricing-auto \
+            --title "Refresh model pricing ($today)" \
+            --body "Pricing · watch is pushing \`$branch\`. Details follow once it is up.")
+          issue=${issue_url##*/}
+          echo "$issue_url" > /tmp/pricing-issue-url.txt
+
           git config user.name  'traceroost-bot'
           git config user.email 'bot@traceroost.com'
           git checkout -b "$branch"
           # Only ever the pricing files: a pricing PR is a pricing PR and nothing more
           # (PRICING_SOURCES.md's own rule), and this keeps a stray edit out of the commit.
           git add PRICING_SOURCES.md src/pricing.ts media/src/pricing.ts CHANGELOG.md
-          git commit -m "Refresh model pricing ($today)" \
-                     -m "Opened by Pricing · watch. Draft — the judgement calls in the pull request body still need a human."
+          {
+            echo "Refresh model pricing ($today)"
+            echo
+            echo "Opened by Pricing · watch. Open the pull request as a draft: the judgement calls below still need a human."
+            echo
+            cat /tmp/pricing-report.md
+            echo
+            echo "Closes #$issue"
+          } > /tmp/pricing-commit.txt
+          git commit -F /tmp/pricing-commit.txt
           git push --set-upstream origin "$branch"
+          echo "$branch" > /tmp/pricing-branch.txt
+          echo "$compare" > /tmp/pricing-compare-url.txt
 
-          gh pr create --draft --label pricing-auto \
-            --title "Refresh model pricing ($today)" \
-            --body-file /tmp/pricing-report.md > /tmp/pricing-pr-url.txt
-          cat /tmp/pricing-pr-url.txt >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "Pricing · watch pushed \`$branch\`. **[Open the pull request]($compare)** (choose *Create draft pull request*); its body is pre-filled from the commit and closes this issue on merge."
+            echo
+            echo "Close this issue without merging to discard the refresh; the next weekly run starts over from \`main\`."
+            echo
+            cat /tmp/pricing-report.md
+          } > /tmp/pricing-issue.md
+          gh issue edit "$issue" --body-file /tmp/pricing-issue.md
+          { echo; echo "Issue: $issue_url"; echo "Open the pull request: $compare"; } >> "$GITHUB_STEP_SUMMARY"
 
       # GitHub's own email for a scheduled run goes to whoever last edited the cron line or re-enabled
       # the workflow — attribution, not a fixed address — so it is not something to rely on for "the
@@ -192,23 +235,30 @@ jobs:
           }
           const read = (p) => { try { return fs.readFileSync(p, 'utf8').trim() } catch { return '' } }
           const report = read('/tmp/pricing-report.md')
-          const prUrl = read('/tmp/pricing-pr-url.txt')
+          const issueUrl = read('/tmp/pricing-issue-url.txt')
+          const branch = read('/tmp/pricing-branch.txt')
+          const compareUrl = read('/tmp/pricing-compare-url.txt')
           const failed = process.env.JOB_STATUS !== 'success'
           const today = new Date().toISOString().slice(0, 10)
 
           let subject, body
-          if (failed) {
+          if (failed && branch) {
+            subject = `Pricing watch failed after pushing (${today})`
+            body = `The refresh was committed and pushed to ${branch}, but a later step failed.\n\n`
+                 + `Open the pull request: ${compareUrl}\n${issueUrl ? `Issue: ${issueUrl}\n` : ''}\nRun: ${process.env.RUN_URL}\n`
+          } else if (failed) {
             subject = `Pricing watch failed (${today})`
-            body = `The weekly pricing refresh did not finish. Nothing was committed.\n\n${process.env.RUN_URL}\n`
+            body = `The weekly pricing refresh did not finish. Nothing was committed.\n\n`
+                 + `${issueUrl ? `An issue was opened before the failure; close it: ${issueUrl}\n\n` : ''}${process.env.RUN_URL}\n`
           } else if (!report || report === 'NO CHANGES') {
             // Nothing to say. Staying quiet is the point: a weekly "no change" email trains you to
             // ignore the one that matters.
-            console.log('No pricing drift — no mail sent.')
+            console.log('No pricing drift: no mail sent.')
             process.exit(0)
           } else {
-            subject = prUrl ? `Pricing drift — draft PR opened (${today})` : `Pricing drift found (${today})`
-            body = `${prUrl ? `Draft pull request: ${prUrl}\n\n` : 'No pull request was opened (dry run).\n\n'}`
-                 + `It is a draft on purpose: the "Judgement calls for review" section below needs a human.\n\n`
+            subject = compareUrl ? `Pricing drift: open the pull request (${today})` : `Pricing drift found (${today})`
+            body = `${compareUrl ? `Open the pull request (as a draft): ${compareUrl}\nIssue: ${issueUrl}\n\n` : 'No branch was pushed (dry run).\n\n'}`
+                 + `The "Judgement calls for review" section below needs a human.\n\n`
                  + `${report}\n\nRun: ${process.env.RUN_URL}\n`
           }
           await sendMail({ ...mail, subject, text: body })
