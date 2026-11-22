@@ -174,6 +174,27 @@ export function answerAgentSetupYes(home) {
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ agentSetup: 'yes' }, null, 2) + '\n')
 }
 
+const ANSI = /\x1b\[[0-9;]*m/g
+/** Provider messages that mean an agent's request never reached a model. */
+const PROVIDER_REFUSAL = /credit balance is too low|insufficient[_ ]quota|exceeded your current quota|invalid (?:x-)?api[ -]?key|authentication[_ ]error|api key is invalid/i
+
+/**
+ * Why a headless agent run failed, when the model provider refused the request (no credit, a
+ * revoked key): Claude Code's `--output-format json` result (`is_error`, message in `result`), else
+ * the first line of output that reads like one. Undefined for any other failure, so a real format
+ * break or crash is never explained away as a billing problem.
+ */
+export function providerRefusal(stdout = '', stderr = '') {
+  for (const line of String(stdout).trim().split('\n').reverse()) {
+    try {
+      const r = JSON.parse(line)
+      if (r && r.is_error === true && typeof r.result === 'string' && PROVIDER_REFUSAL.test(r.result)) return r.result.trim()
+    } catch { /* not the JSON result line */ }
+  }
+  const hit = `${stderr}\n${stdout}`.replace(ANSI, '').split('\n').find(l => PROVIDER_REFUSAL.test(l) && l.length < 400)
+  return hit?.replace(/^\s*Error:\s*/, '').trim()
+}
+
 export function rmrf(p) {
   try { fs.rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) } catch { /* best effort */ }
 }
