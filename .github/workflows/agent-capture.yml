@@ -88,7 +88,17 @@ jobs:
           if want copilot  && [ -n "$COPILOT_GITHUB_TOKEN" ]; then pkgs+=("@github/copilot$(pin copilot)"); fi
           if [ ${#pkgs[@]} -gt 0 ]; then npm install -g "${pkgs[@]}"; fi
           if want cursor && [ -n "$CURSOR_API_KEY" ]; then
-            curl -fsSL https://cursor.com/install | bash
+            # Cursor publishes no checksum for its installer, so don't pipe it into a shell: save it,
+            # and run it only if every URL it would fetch is on Cursor's own download host.
+            installer="$RUNNER_TEMP/cursor-install.sh"
+            curl -fsSL https://cursor.com/install -o "$installer"
+            if ! grep -q 'https://downloads\.cursor\.com/' "$installer" \
+              || grep -oE 'https?://[^"'"'"' )]+' "$installer" | grep -qvE '^https://downloads\.cursor\.com/'; then
+              echo "::error::Cursor's install script fetches from somewhere other than downloads.cursor.com; not running it."
+              grep -oE 'https?://[^"'"'"' )]+' "$installer" | sort -u
+              exit 1
+            fi
+            bash "$installer"
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           fi
 
