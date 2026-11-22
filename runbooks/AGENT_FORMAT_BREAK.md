@@ -21,7 +21,9 @@ Any of these:
 An issue retitled **check by hand** (Copilot Chat in VS Code, which has no headless mode, or an
 agent listed in the repo variable `AGENT_CAPTURE_SKIP`, such as `cursor` when there is no key for
 it) or **not captured (its secret is not set)** means nothing was checked automatically: do step 1
-by hand. An agent in `AGENT_CAPTURE_SKIP` doesn't mail on its own release.
+by hand. An agent in `AGENT_CAPTURE_SKIP` doesn't mail on its own release, isn't captured by the
+nightly Agent capture, and (for `claude` and `codex`) is left out of the E2E workflow's real-agent
+run. Remove it from the variable to turn it back on.
 
 ## 1. Reproduce: get a capture of the new version
 

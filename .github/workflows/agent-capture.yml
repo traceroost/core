@@ -60,6 +60,8 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
       COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+      # Agents turned off here (e.g. `cursor,claude,opencode`): not installed, not run.
+      AGENT_CAPTURE_SKIP: ${{ vars.AGENT_CAPTURE_SKIP }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -79,7 +81,7 @@ jobs:
 
       - name: Install the agent CLIs
         run: |
-          want() { [ "$AGENT" = all ] || [ "$AGENT" = "$1" ]; }
+          want() { { [ "$AGENT" = all ] || [ "$AGENT" = "$1" ]; } && ! printf '%s' ",$AGENT_CAPTURE_SKIP," | tr ' ' ',' | grep -qi ",$1,"; }
           pin() { if [ "$AGENT" = "$1" ] && [ -n "$VERSION" ]; then printf '@%s' "$VERSION"; fi; }
           pkgs=()
           if want claude   && [ -n "$ANTHROPIC_API_KEY" ];    then pkgs+=("@anthropic-ai/claude-code$(pin claude)"); fi

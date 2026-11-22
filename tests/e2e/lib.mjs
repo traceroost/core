@@ -174,6 +174,14 @@ export function answerAgentSetupYes(home) {
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ agentSetup: 'yes' }, null, 2) + '\n')
 }
 
+/** Agents the owners turned off in CI: the repo variable AGENT_CAPTURE_SKIP (comma- or
+ *  space-separated, e.g. `cursor,claude,opencode`), passed in by the workflow. The capture and the
+ *  real-agent E2E skip them with a notice, and scripts/agent-watch.mjs's captureSkipList reads the
+ *  same variable for release mail. Editing the variable turns them back on; no code change. */
+export function skippedAgents(env = process.env) {
+  return new Set(String(env.AGENT_CAPTURE_SKIP ?? '').split(/[\s,]+/).filter(Boolean).map(s => s.toLowerCase()))
+}
+
 export function rmrf(p) {
   try { fs.rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) } catch { /* best effort */ }
 }
