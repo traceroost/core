@@ -69,7 +69,10 @@ suite('Real agents → TraceRoost (end to end)', () => {
     ext = found
     if (!ext.isActive) await ext.activate()
     dbPath = path.join(globalStorageDir(cfg, ext), 'traceroost.db')
-    // Auto-config must have pointed both agents at this window's collector before they start.
+    // Both agents must point at this window's collector before they start. run.mjs records the
+    // yes to agent setup, and activation after a yes only keeps an existing endpoint current
+    // (SetupMode 'maintain'), so press Set Up Agents, as extension.itest.ts does.
+    await vscode.commands.executeCommand('traceRoost.setUpAgents')
     const endpoint = `http://localhost:${cfg.otlpPort}`
     await waitFor('auto-config of ~/.claude/settings.json', () =>
       (JSON.parse(fs.readFileSync(path.join(cfg.home, '.claude', 'settings.json'), 'utf8')) as { env?: Record<string, string> }).env?.OTEL_EXPORTER_OTLP_ENDPOINT === endpoint, 30_000)

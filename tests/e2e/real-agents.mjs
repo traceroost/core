@@ -143,7 +143,10 @@ async function standaloneStage() {
         // OTEL arrives within seconds; the transcript is picked up by the next log scan.
         await waitFor(`${agent}: OTEL and transcript both ingested`, async () => {
           const spansSeen = (await getJson(`${base}/api/summary`))?.sessions?.some(s => s.source === source && s.dataSource === 'otel' && samePath(s.workspace, repo))
-          const transcript = fs.readdirSync(t.home, { recursive: true }).some(f => String(f).endsWith('.jsonl') && String(f).includes(agent === 'claude' ? '.claude' : '.codex'))
+          // Only the agent's own log folder: on Windows the temp home also holds AppData, where a
+          // recursive walk of the whole home hits INetCache\Content.IE5 and throws EPERM.
+          const logDir = agent === 'claude' ? path.join(t.home, '.claude', 'projects') : path.join(t.home, '.codex', 'sessions')
+          const transcript = fs.existsSync(logDir) && fs.readdirSync(logDir, { recursive: true }).some(f => String(f).endsWith('.jsonl'))
           return spansSeen && transcript
         }, { timeoutMs: 120_000, intervalMs: 3000 })
         await sleep(40_000) // at least one more log scan, so a duplicate transcript card would be listed by now
