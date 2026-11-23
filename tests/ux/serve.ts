@@ -37,7 +37,7 @@ async function main() {
     standalone.indexOf('  </style>'),
   )
 
-  const html = `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TraceRoost UX evaluation</title><style>${theme}</style><link rel="stylesheet" href="/dashboard.css"></head><body><div id="sa-main"><div id="app"></div></div><script>
+  const html = `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TraceRoost UX evaluation</title><style>${theme}</style><link rel="stylesheet" href="/dashboard.css"></head><body><div id="sa-wrap"><div id="sa-main"><div id="app"></div></div></div><script>
 window.__STANDALONE__ = true; window.__VERSION__ = 'UX fixture';
 window.__posted = [];
 window.acquireVsCodeApi = () => ({ getState: () => ({}), setState: () => {}, postMessage: msg => {

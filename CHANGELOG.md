@@ -15,6 +15,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 ### Changed
 
 - **The desktop app's window opens at a size that fits, and remembers yours.** It used to open at 1280×860 every time, which left an empty band under the Traces table and could run behind the Dock or taskbar on a smaller screen. It now opens at 1280×770 (a full page of traces and its pager), shrunk to fit any screen too small for that, and centred on the display the pointer is on. After that it reopens at the size and position you left it, maximised if it was. A window last seen on a monitor that is no longer attached, or larger than the screen after a resolution change, is moved and shrunk back onto the screen
+- **The Traces table fills the window.** A new page size, **Fit**, is now the default: it shows as many traces as fit between the table's header and its pager, so a page ends at the bottom of the window with no empty band under it and nothing to scroll, and it re-fits when you resize the window. The fixed sizes (20 to 500 per page) are still in the menu beside the pager and in Settings, and a size you picked before is kept
 
 ## [1.1.1] (2026-11-22)
 

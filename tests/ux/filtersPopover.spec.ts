@@ -8,6 +8,8 @@ import { sessions } from './fixtures'
  */
 
 async function load(page: Page) {
+  // Its row counts assume 20 per page; the default (Fit) depends on the viewport.
+  await page.addInitScript(() => localStorage.setItem('traceroost-sessions-page-size', '20'))
   await page.goto('/')
   await page.locator('#sessions-content').waitFor()
   await page.evaluate((sessions) => window.postMessage({ type: 'update', sessionSummary: { sessions } }, '*'), sessions)

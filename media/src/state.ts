@@ -457,30 +457,71 @@ export function setThemePreference(pref: ThemePreference): void {
 
 // Rendering every matching trace as its own live component with no cap is what made the table
 // unusable on a long history — fine at hundreds, unbounded past that, and the one time
-// range ("All") most likely to be selected had no cap at all. 20 is picked as a reasonable
-// default — enough to browse recent activity on one page without constant clicking, small enough
-// to keep the DOM light — not a measured number, same honesty standard as every other threshold
-// in this project; adjustable in Settings for anyone who wants it larger.
+// range ("All") most likely to be selected had no cap at all, so the table is paged.
+//
+// The default, "Fit", is as many rows as fit between the table's header and its pager in the
+// space the tab has (measured by Sessions.tsx), so a page fills the window exactly: no empty band
+// under the table and no scrolling to reach the pager. A fixed 20 left a gap in a tall window (the
+// desktop app's in particular) and a scrollbar in a short one. The fixed sizes stay for anyone who
+// wants a set number per page, and a stored choice from before "Fit" existed is kept.
 export const SESSIONS_PAGE_SIZE_OPTIONS = [20, 50, 100, 250, 500] as const
-const DEFAULT_SESSIONS_PAGE_SIZE = 20
+export type SessionsPageSizeChoice = number | 'fit'
+const DEFAULT_SESSIONS_PAGE_SIZE: SessionsPageSizeChoice = 'fit'
 const SESSIONS_PAGE_SIZE_STORAGE_KEY = 'traceroost-sessions-page-size'
+/** Fit never shows fewer than this, so a short VS Code panel still shows a useful page (it scrolls). */
+export const MIN_FIT_ROWS = 5
+/** Rows assumed until the table has been measured once. */
+const UNMEASURED_FIT_ROWS = 20
 
-function readStoredSessionsPageSize(): number {
+export function parseSessionsPageSizeChoice(raw: string | null | undefined): SessionsPageSizeChoice | undefined {
+  if (raw === 'fit') return 'fit'
+  const v = Number(raw)
+  return SESSIONS_PAGE_SIZE_OPTIONS.includes(v as typeof SESSIONS_PAGE_SIZE_OPTIONS[number]) ? v : undefined
+}
+
+function readStoredSessionsPageSize(): SessionsPageSizeChoice {
   try {
-    const v = Number(localStorage.getItem(SESSIONS_PAGE_SIZE_STORAGE_KEY))
-    if (SESSIONS_PAGE_SIZE_OPTIONS.includes(v as typeof SESSIONS_PAGE_SIZE_OPTIONS[number])) return v
+    return parseSessionsPageSizeChoice(localStorage.getItem(SESSIONS_PAGE_SIZE_STORAGE_KEY)) ?? DEFAULT_SESSIONS_PAGE_SIZE
   } catch { /* localStorage unavailable — fall back to the default every load */ }
   return DEFAULT_SESSIONS_PAGE_SIZE
 }
 
-export const sessionsPageSize = signal<number>(readStoredSessionsPageSize())
+/** What the user picked: a fixed number, or 'fit'. */
+export const sessionsPageSizeChoice = signal<SessionsPageSizeChoice>(readStoredSessionsPageSize())
+/** How many rows fit right now; only used while the choice is 'fit'. Set by Sessions.tsx. */
+export const fitPageSize = signal<number>(UNMEASURED_FIT_ROWS)
+/** The page size in effect. */
+export const sessionsPageSize = computed(() => {
+  const choice = sessionsPageSizeChoice.value
+  return choice === 'fit' ? fitPageSize.value : choice
+})
 
-export function setSessionsPageSize(size: number): void {
-  sessionsPageSize.value = size
+export function setSessionsPageSize(choice: SessionsPageSizeChoice): void {
+  sessionsPageSizeChoice.value = choice
   sessionsPage.value = 0  // changing page size mid-browse would otherwise land on a confusing offset
   try {
-    localStorage.setItem(SESSIONS_PAGE_SIZE_STORAGE_KEY, String(size))
+    localStorage.setItem(SESSIONS_PAGE_SIZE_STORAGE_KEY, String(choice))
   } catch { /* localStorage unavailable — preference just won't survive a reload */ }
+}
+
+/**
+ * How many rows of `rowHeight` fit in `available` pixels, never fewer than MIN_FIT_ROWS.
+ * Undefined when there is nothing sensible to measure yet (no row rendered, a hidden tab).
+ */
+export function rowsThatFit(available: number, rowHeight: number): number | undefined {
+  if (!(rowHeight > 0) || !Number.isFinite(available)) return undefined
+  return Math.max(MIN_FIT_ROWS, Math.floor(available / rowHeight))
+}
+
+/**
+ * Record a new fitted page size. A resize keeps the user looking at the same traces: the page
+ * becomes the one holding the first row they could see, rather than jumping back to page 1.
+ */
+export function setFitPageSize(rows: number): void {
+  const old = fitPageSize.value
+  if (rows === old) return
+  if (sessionsPageSizeChoice.value === 'fit') sessionsPage.value = Math.floor((sessionsPage.value * old) / rows)
+  fitPageSize.value = rows
 }
 
 // Current page, 0-indexed. Deliberately not persisted — always start back at the most recent
