@@ -22,7 +22,7 @@
  *    owned mode possible on Windows, where `kill` is TerminateProcess.
  */
 
-import { app, dialog, Menu, powerMonitor, shell } from 'electron'
+import { app, dialog, Menu, powerMonitor, screen, shell } from 'electron'
 import { execFile } from 'child_process'
 import * as os from 'os'
 import * as path from 'path'
@@ -38,6 +38,7 @@ import { assertRuntimeSupportsCollector, resolveCollectorResources } from './res
 import { createTray, menuTemplate, type TrayController, type TrayHandlers } from './tray'
 import { buildMenuModel, collectionProblem } from './trayMenu'
 import { createDashboardWindow } from './window'
+import { initialWindowBounds } from './windowBounds'
 import { autostartDir, LAUNCHED_AT_LOGIN_ARG, launchCommand, LinuxAutostart } from './autostart'
 import { inspectLauncherEntry, launcherPaths, renderLauncherEntry, shouldOfferLauncher } from './appImageLauncher'
 import { closeQuestion, decideCloseAction, decideStartupWindow } from './closeBehavior'
@@ -383,6 +384,13 @@ function openWindowFor(uiPort: number): void {
     onCloseRequested: () => { void handleCloseRequested() },
     iconPath: isLinux ? path.join(trayAssetDir, 'iconLinux.png') : undefined,
     startMinimized,
+    bounds: initialWindowBounds(
+      prefs.read().window,
+      screen.getAllDisplays().map(d => d.workArea),
+      // A first window opens on the display the pointer is on, as a new app window does.
+      screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea,
+    ),
+    onBoundsChanged: state => prefs.update({ window: state }),
   })
   startMinimized = false
   win.on('closed', () => { win = undefined; windowOrigin = undefined })

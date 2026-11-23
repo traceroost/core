@@ -11,6 +11,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { type RememberedCloseChoice } from './closeBehavior'
+import { parseSavedWindowState, type SavedWindowState } from './windowBounds'
 
 export interface DesktopPrefs {
   /** Linux with no tray: what closing the window does once the user said "remember". */
@@ -19,6 +20,8 @@ export interface DesktopPrefs {
   appImageLauncher?: 'added' | 'declined'
   /** macOS: the user ticked "Don't ask again" on the offer to move the app to Applications. */
   moveToApplications?: 'declined'
+  /** The dashboard window's last size and position, so it reopens where the user left it. */
+  window?: SavedWindowState
 }
 
 export const PREFS_FILE_NAME = 'desktop-prefs.json'
@@ -31,6 +34,8 @@ export function parsePrefs(text: string | undefined): DesktopPrefs {
     if (raw.closeWithoutTray === 'quit' || raw.closeWithoutTray === 'minimize') prefs.closeWithoutTray = raw.closeWithoutTray
     if (raw.appImageLauncher === 'added' || raw.appImageLauncher === 'declined') prefs.appImageLauncher = raw.appImageLauncher
     if (raw.moveToApplications === 'declined') prefs.moveToApplications = raw.moveToApplications
+    const window = parseSavedWindowState(raw.window)
+    if (window) prefs.window = window
     return prefs
   } catch {
     return {}
