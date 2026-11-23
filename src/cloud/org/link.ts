@@ -6,8 +6,10 @@
  * headless boxes. `leave` is local-first: it deletes the credential and stops forwarding
  * *before* it attempts the server-side revoke, so it works with the machine offline.
  *
- * The one thing this module guarantees: the loopback listener cannot outlive the attempt.
- * Success, failure, timeout, thrown error — `close()` runs on every path.
+ * The one thing this module guarantees: the loopback listener cannot accept anything once the
+ * attempt is over. Success, failure, timeout, thrown error — `close()` runs on every path. After a
+ * timeout the port stays up for a bounded while, but only to tell a late browser tab that the
+ * request expired (callbackServer.ts); it takes no code.
  */
 
 import * as os from 'os'
