@@ -52,6 +52,8 @@
     "desktop/src/systemdUnit.ts",
     "desktop/src/trayHost.ts",
     "desktop/src/windows.ts",
-    "desktop/src/windows.test.ts"
+    "desktop/src/windows.test.ts",
+    "desktop/src/windowBounds.ts",
+    "desktop/src/windowBounds.test.ts"
   ]
 }
