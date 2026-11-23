@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { movedDashboardUrl } from '../dashboardPortCarry'
 import { scrollBehavior } from '../a11y'
-import { configOpen, enableOtelIngestion, enableLogIngestion, otlpPort, vscode, otelReconfigureResult, type OtelReconfigureResult, themePreference, setThemePreference, type ThemePreference, sessionsPage, sessionsPageSize, setSessionsPageSize, SESSIONS_PAGE_SIZE_OPTIONS } from '../state'
+import { configOpen, enableOtelIngestion, enableLogIngestion, otlpPort, vscode, otelReconfigureResult, type OtelReconfigureResult, themePreference, setThemePreference, type ThemePreference, sessionsPage, sessionsPageSizeChoice, fitPageSize, setSessionsPageSize, parseSessionsPageSizeChoice, SESSIONS_PAGE_SIZE_OPTIONS } from '../state'
 
 function sendConfig(key: string, value: boolean) {
   if (vscode) {
@@ -115,17 +115,18 @@ export function ThemeToggle() {
 // cap, and the most common view ("All" time) had no limit applied at all — fine at hundreds,
 // unusable past a few thousand.
 export function SessionsPageSizeControl() {
-  const current = sessionsPageSize.value
+  const current = sessionsPageSizeChoice.value
 
   return (
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
       <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:2px">Traces per page</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">How many traces the Traces tab renders at once, with paging for the rest.</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">How many traces the Traces tab renders at once, with paging for the rest. Fit shows as many as fit the window.</div>
       <select
-        value={current}
-        onChange={e => setSessionsPageSize(Number((e.target as HTMLSelectElement).value))}
+        value={String(current)}
+        onChange={onPageSizeChange}
         style="width:100%;padding:4px 6px;font-size:12px;border:1px solid var(--border);border-radius:3px;background:var(--vscode-dropdown-background,var(--card-bg));color:var(--fg)"
       >
+        <option value="fit">Fit to window</option>
         {SESSIONS_PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n} per page</option>)}
       </select>
     </div>
@@ -137,14 +138,20 @@ export function SessionsPageSizeControl() {
 export function PageSizeSelect() {
   return (
     <select
-      value={sessionsPageSize.value}
-      onChange={e => setSessionsPageSize(Number((e.target as HTMLSelectElement).value))}
-      title="Traces per page"
+      value={String(sessionsPageSizeChoice.value)}
+      onChange={onPageSizeChange}
+      title="Traces per page. Fit shows as many as fit the window."
       style="padding:1px 4px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:var(--vscode-dropdown-background,var(--card-bg));color:var(--fg);cursor:pointer"
     >
+      <option value="fit">Fit: {fitPageSize.value}/page</option>
       {SESSIONS_PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n}/page</option>)}
     </select>
   )
+}
+
+function onPageSizeChange(e: Event): void {
+  const choice = parseSessionsPageSizeChoice((e.target as HTMLSelectElement).value)
+  if (choice !== undefined) setSessionsPageSize(choice)
 }
 
 function pagerBtnStyle(disabled: boolean): string {

@@ -4,7 +4,7 @@ import {
   focusedSessionId, vscode, ignoredInsightKeys,
   sessionSortKey, sessionSortDir, type SortKey, sessionsPage,
   goToHelp,
-  getSessionsPagination,
+  getSessionsPagination, rowsThatFit, setFitPageSize, sessionsPageSizeChoice,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   repoInfo, repoDisplayName, repoTooltipName,
   requestGitOutcomesFor, availableWorkspaces, hasAnyWorkspace, logIngestProgress,
@@ -981,6 +981,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
     <>
       <tr
         ref={rowRef}
+        class="trace-row"
         onClick={toggle}
         style={`cursor:pointer;background:${rowBg};border-bottom:1px solid var(--vscode-panel-border)${stickyStyle}`}
       >
@@ -1158,6 +1159,46 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
 
 // ── Main Sessions component ───────────────────────────────────────────────────
 
+/** Space kept under the pager so it doesn't sit flush against the window's bottom edge. */
+const FIT_BOTTOM_GAP = 4
+
+/**
+ * While the page size is "Fit", measure how many trace rows fit between the top of the table body
+ * and the pager inside the tab's scroll region (`.panel.active`), and keep fitPageSize in step as
+ * the window, the filter bars or the banner above the table change size. Rows are measured
+ * collapsed: expanding one makes the page taller than the window, and it scrolls, as it should.
+ */
+function useFitPageSize(contentRef: { current: HTMLElement | null }, footerRef: { current: HTMLElement | null }, active: boolean): void {
+  useLayoutEffect(() => {
+    const content = contentRef.current
+    if (!active || !content) return
+    const scroller = content.closest('.panel') as HTMLElement | null
+    if (!scroller) return
+    let frame = 0
+    const measure = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const tbody = content.querySelector('tbody')
+        const footer = footerRef.current
+        // The second row, when there is one: the first carries half a pixel of the header's
+        // border, and dividing by it can lose a whole row on a tall window.
+        const rows = tbody?.querySelectorAll<HTMLElement>('tr.trace-row')
+        const row = rows && (rows[1] ?? rows[0])
+        if (!tbody || !footer || !row || scroller.clientHeight === 0) return
+        const tbodyTop = tbody.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+        const available = scroller.clientHeight - tbodyTop - footer.offsetHeight - FIT_BOTTOM_GAP - 1
+        const fit = rowsThatFit(available, row.getBoundingClientRect().height)
+        if (fit !== undefined) setFitPageSize(fit)
+      })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(scroller)
+    observer.observe(content)
+    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
+  }, [active])
+}
+
 export function Sessions() {
   const sessions = filteredSessions.value
   const hasAny = (sessionSummary.value?.sessions?.length ?? 0) > 0
@@ -1196,6 +1237,9 @@ export function Sessions() {
   // clamping happens there rather than here.
   const { page, totalPages, pageSize } = getSessionsPagination(sessions.length)
   const pageSessions = sessions.slice(page * pageSize, (page + 1) * pageSize)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const footerRef = useRef<HTMLDivElement>(null)
+  useFitPageSize(contentRef, footerRef, sessionsPageSizeChoice.value === 'fit' && pageSessions.length > 0)
   // Only when a row on this page has a value — an all-blank column is UI without data.
   const showLimit = showLimitColumn(pageSessions, planUsage.value)
   const conversationInfo = buildConversationInfo(sessions)
@@ -1206,7 +1250,7 @@ export function Sessions() {
   useEffect(() => { if (showOutcome) requestGitOutcomesFor(pageSessions) }, [showOutcome, pageSessions])
 
   return (
-    <div id="sessions-content" style="padding-top:8px">
+    <div id="sessions-content" ref={contentRef} style="padding-top:8px">
       <AgentHealthBanner />
       <div role="region" aria-label="Traces table" tabIndex={0}>
       {/* Every column but Prompt has a fixed width, so a wide panel's spare space all goes to
@@ -1266,7 +1310,7 @@ export function Sessions() {
         </tbody>
       </table>
       </div>
-      <div class="trace-pagination" style="padding:6px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--vscode-panel-border);display:flex;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:8px">
+      <div class="trace-pagination" ref={footerRef} style="padding:6px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--vscode-panel-border);display:flex;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:8px">
         {window.__VERSION__ && <span title="TraceRoost version">v{window.__VERSION__}</span>}
         <span style="display:flex;align-items:center;gap:8px;margin-left:auto">
             <PageSizeSelect />

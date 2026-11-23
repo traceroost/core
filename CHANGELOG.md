@@ -8,6 +8,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 - **Listed in the official MCP Registry** as `io.github.traceroost/traceroost`, so MCP clients and directories that read the registry can find TraceRoost's MCP server. Each release now publishes the entry (`server.json`) after the npm package (#451)
 
+### Changed
+
+- **The Traces table fills the window.** A new page size, **Fit**, is now the default: it shows as many traces as fit between the table's header and its pager, so a page ends at the bottom of the window with no empty band under it and nothing to scroll, and it re-fits when you resize the window. The fixed sizes (20 to 500 per page) are still in the menu beside the pager and in Settings, and a size you picked before is kept
+
 ## [1.1.1] (2026-11-22)
 
 ### Fixed
