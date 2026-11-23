@@ -4,42 +4,42 @@
     "claude-code-monitoring-docs": {
       "kind": "page",
       "status": 200,
-      "sha": "1afa1fcc5d924cc6a60909126db878885db8c3a091a851da772377e5110dd045",
-      "checkedAt": "2026-11-16T16:20:27.231Z"
+      "sha": "09caf29c0e3dc8597819165b2f125cc39825857df05713a88e548934cc1b9149",
+      "checkedAt": "2026-11-23T18:41:26.422Z"
     },
     "claude-code-changelog": {
       "kind": "page",
       "status": 200,
-      "sha": "bbec68e7d60f6060a7d5d325c23cdeda282e5d6d6ed6281b0bac170eb383374b",
-      "checkedAt": "2026-11-16T16:20:27.585Z"
+      "sha": "81d7a2c740991fab6914d024fe2ede59f20d20d536b098a70b37599b0310446e",
+      "checkedAt": "2026-11-23T18:41:26.555Z"
     },
     "codex-otel-crate": {
       "kind": "repo",
-      "checkedAt": "2026-11-16T16:20:28.855Z",
-      "lastCommit": "de83e7674a69b9ae18544dd1fbf53f31bfe8c640",
-      "lastCommitAt": "2026-11-14T01:21:54Z"
+      "checkedAt": "2026-11-23T18:41:27.836Z",
+      "lastCommit": "548dd628df95e01dbaee503ca9cbb216242baaf1",
+      "lastCommitAt": "2026-11-20T22:39:52Z"
     },
     "codex-otel-readme": {
       "kind": "page",
       "status": 200,
       "sha": "c79c5c05df9049d8d10d36e6c5f579146c34c825ebc231032a6ced325bf83fb6",
-      "checkedAt": "2026-11-16T16:20:28.995Z"
+      "checkedAt": "2026-11-23T18:41:27.923Z"
     },
     "copilot-chat-otel": {
       "kind": "repo",
-      "checkedAt": "2026-11-16T16:20:29.933Z",
+      "checkedAt": "2026-11-23T18:41:28.932Z",
       "lastCommit": "ae752d97feced36a92695b2997ad9f69c00afad6",
       "lastCommitAt": "2026-03-31T04:59:30Z"
     },
     "copilot-cli-changelog": {
       "kind": "page",
       "status": 200,
-      "sha": "faeba2d75bf0549cd1e27670c868fb69e06e694d27d705abd65bfc0f139eee58",
-      "checkedAt": "2026-11-16T16:20:30.174Z"
+      "sha": "40e081f8464fd6e80865bd28234031edc400ed5e00e1258e160f9c6413eed5d3",
+      "checkedAt": "2026-11-23T18:41:29.110Z"
     },
     "opencode-observability": {
       "kind": "repo",
-      "checkedAt": "2026-11-16T16:20:30.954Z",
+      "checkedAt": "2026-11-23T18:41:29.689Z",
       "lastCommit": "1aae67e853babebcd2211f6e5cd3cebad3d6080c",
       "lastCommitAt": "2026-10-09T08:36:06Z"
     }
@@ -73,6 +73,12 @@
       "at": "2026-11-16T16:20:30.958Z",
       "changed": true,
       "noteworthy": 5,
+      "errors": 0
+    },
+    {
+      "at": "2026-11-23T18:41:29.695Z",
+      "changed": true,
+      "noteworthy": 3,
       "errors": 0
     }
   ]
