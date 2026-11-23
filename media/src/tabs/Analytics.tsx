@@ -14,10 +14,12 @@ import { ContextGrowthChart, SessionTokenChart, OutcomeTrendChart, CodeChangesCh
 import { buildCodeChangeBins } from './codeChanges'
 import { CostBarChart, fmtUsd } from './Cost'
 import { computeStats } from './Agents'
-import { SectionNav, type NavSection } from '../SectionNav'
+import { ViewNav, ViewHeader, ViewSection, ViewEmpty, type ViewNavItem } from '../ViewNav'
+import { EfficiencyMap, HotFiles } from './Efficiency'
+import { advisorPendingCount } from './Patterns'
 import { buildTrendBins, summarize, TREND_OUTCOMES, TREND_COLOR } from './outcomeTrend'
 import { OUTCOME_META } from './Sessions'
-import { gitOutcomes, selectedAgentFilter } from '../state'
+import { gitOutcomes, selectedAgentFilter, analyticsView, setAnalyticsView, goToAdvisor, type AnalyticsView } from '../state'
 import { planUsage, hasPlanData, forAgentFilter, PROVIDER_LABEL } from '../planUsage'
 import { PlanLimitsSection } from './PlanLimits'
 import { NoTracesYet } from './GettingStarted'
@@ -25,83 +27,66 @@ import { buildLanguageBreakdown, LANGUAGE_NOT_REPORTED_LABEL, type CodeChangeTot
 import { languageLabel } from '../language'
 import { CloudNote } from './CloudNote'
 
-// ── Section heading helper ────────────────────────────────────────────────────
-
-function SectionHead({ id, title, tip, first, helpAnchor }: { id: string; title: string; tip?: string; first?: boolean; helpAnchor?: string }) {
-  return (
-    <>
-      {!first && <div style="border-top:1px solid var(--border);margin:16px 0 8px" />}
-    <div id={id} style={`display:flex;align-items:center;gap:7px;margin:${first ? '8px' : '0'} 0 6px`}>
-      <h3
-        class={tip ? 'has-metric-tip' : undefined}
-        style="font-size:12px;color:var(--muted);margin:0"
-        data-tip={tip}
-        tabIndex={tip ? 0 : undefined}
-      >{title}</h3>
-      {helpAnchor && (
-        <button
-          onClick={() => goToHelp(helpAnchor)}
-          title="Learn more"
-          style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:17px;height:17px;border-radius:50%;border:1px solid var(--border);background:none;cursor:pointer;color:var(--muted);font-size:11px;font-weight:600;padding:0;line-height:1"
-        >?</button>
-      )}
-    </div>
-    </>
-  )
-}
-
-// ── Agent breakdown cards ─────────────────────────────────────────────────────
+// ── Agents: side-by-side comparison ─────────────────────────────────────────
 
 const BREAKDOWN_SOURCES = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor', 'antigravity'] as const
 
-function AgentCard({ source, sessions }: { source: string; sessions: SessionSummaryCard[] }) {
-  const s = computeStats(sessions)
-  if (s.sessions === 0) return null
-  // The agent's theme colour (agentColors.ts), the same as its dot, pill and chart bars.
-  const color = getAgentColorVar(source)
-  const label = getAgentSourceLabel(source)
-  // Cursor CLI records no token counts at all (Antigravity none without its conversation database)
-  // — show that as missing rather than as 0 / 0%.
-  const hasTokens = s.totalInput > 0 || s.totalOutput > 0 || s.totalCache > 0
-  const topTools = Object.entries(s.toolCounts).sort((a, b) => b[1] - a[1]).slice(0, 4)
-  // Agent-authored change size (src/editStats.ts) — summed over traces that recorded line counts.
-  const withLines = sessions.filter(x => x.linesAdded !== undefined && x.linesRemoved !== undefined)
-  const linesKnown = withLines.length > 0
-  const linesAdded = withLines.reduce((n, x) => n + (x.linesAdded ?? 0), 0)
-  const linesRemoved = withLines.reduce((n, x) => n + (x.linesRemoved ?? 0), 0)
+/** One column per agent with traces in view, one row per measure, so agents read across a row
+ *  instead of between cards. Cursor CLI records no token counts at all (Antigravity none without
+ *  its conversation database), so those cells read as missing, never as 0 / 0%. */
+function AgentComparison({ breakdown }: { breakdown: Array<{ source: string; sessions: SessionSummaryCard[] }> }) {
+  const cols = breakdown.map(b => {
+    const s = computeStats(b.sessions)
+    const hasTokens = s.totalInput > 0 || s.totalOutput > 0 || s.totalCache > 0
+    // Agent-authored change size (src/editStats.ts), summed over traces that recorded line counts.
+    const withLines = b.sessions.filter(x => x.linesAdded !== undefined && x.linesRemoved !== undefined)
+    const linesAdded = withLines.reduce((n, x) => n + (x.linesAdded ?? 0), 0)
+    const linesRemoved = withLines.reduce((n, x) => n + (x.linesRemoved ?? 0), 0)
+    const topTools = Object.entries(s.toolCounts).sort((x, y) => y[1] - x[1]).slice(0, 3)
+    return { source: b.source, s, hasTokens, linesKnown: withLines.length > 0, linesAdded, linesRemoved, topTools }
+  })
+  type Col = typeof cols[number]
+  const rows: Array<{ label: string; tip?: string; cell: (c: Col) => string }> = [
+    { label: 'Traces', cell: c => c.s.sessions.toLocaleString() },
+    { label: 'Turns', cell: c => c.s.totalLlm.toLocaleString() },
+    { label: 'Tool calls', cell: c => c.s.totalTools.toLocaleString() },
+    { label: 'Input tokens', cell: c => c.hasTokens ? formatCompact(c.s.totalInput) : '—' },
+    { label: 'Output tokens', cell: c => c.hasTokens ? formatCompact(c.s.totalOutput) : '—' },
+    { label: 'Cache hit', cell: c => c.hasTokens ? `${(c.s.cacheHitRate * 100).toFixed(0)}%` : '—' },
+    { label: 'Avg duration', cell: c => formatMs(c.s.avgDuration) },
+    { label: 'Avg TTFT', cell: c => c.s.avgTtft > 0 ? formatMs(c.s.avgTtft) : '—' },
+    { label: 'Lines +/−', tip: "Lines the agent's own edit/write tool calls added and removed, not git stats", cell: c => c.linesKnown ? `+${formatCompact(c.linesAdded)} / −${formatCompact(c.linesRemoved)}` : '—' },
+    { label: 'One-shot', tip: 'Files edited exactly once vs. files that needed a retry, across all traces in this view. Edit-pass count, not a signal the code actually worked.', cell: c => c.s.oneShotRate !== null ? `${Math.round(c.s.oneShotRate * 100)}%` : '—' },
+    { label: 'Top tools', cell: c => c.topTools.length > 0 ? c.topTools.map(([t, n]) => `${t} ${n}×`).join(', ') : '—' },
+  ]
   return (
-    <div data-agent-card={source} style={`background:var(--card-bg);border:1px solid var(--border);border-left:3px solid ${color};border-radius:6px;padding:12px 14px;flex:1;min-width:180px`}>
-      <div style={`display:flex;align-items:center;gap:6px;margin-bottom:10px`}>
-        <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${color}`} />
-        <span style="font-weight:600;font-size:13px">{label}</span>
-        <span style="font-size:11px;color:var(--muted);margin-left:auto">{s.sessions} trace{s.sessions !== 1 ? 's' : ''}</span>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px">
-        <div><span style="color:var(--muted)">Turns</span> <strong>{s.totalLlm}</strong></div>
-        <div><span style="color:var(--muted)">Tool calls</span> <strong>{s.totalTools}</strong></div>
-        <div><span style="color:var(--muted)">Input tokens</span> <strong>{hasTokens ? formatCompact(s.totalInput) : '—'}</strong></div>
-        <div><span style="color:var(--muted)">Output tokens</span> <strong>{hasTokens ? formatCompact(s.totalOutput) : '—'}</strong></div>
-        <div><span style="color:var(--muted)">Cache hit</span> <strong>{hasTokens ? `${(s.cacheHitRate * 100).toFixed(0)}%` : '—'}</strong></div>
-        <div><span style="color:var(--muted)">Avg dur</span> <strong>{formatMs(s.avgDuration)}</strong></div>
-        {linesKnown && <div data-tip="Lines the agent's own edit/write tool calls added and removed, not git stats"><span style="color:var(--muted)">Lines +/−</span> <strong>+{formatCompact(linesAdded)} / −{formatCompact(linesRemoved)}</strong></div>}
-        {s.avgTtft > 0 && <div><span style="color:var(--muted)">Avg TTFT</span> <strong>{formatMs(s.avgTtft)}</strong></div>}
-        {s.oneShotRate !== null && (
-          <div data-tip="Files edited exactly once vs. files that needed a retry, across all traces in this view. Edit-pass count, not a signal the code actually worked.">
-            <span style="color:var(--muted)">One-shot</span> <strong>{Math.round(s.oneShotRate * 100)}%</strong>
-          </div>
-        )}
-      </div>
-      {topTools.length > 0 && (
-        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:var(--fs-xs);color:var(--muted)">
-          <div style="margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Top tools</div>
-          {topTools.map(([t, n]) => (
-            <div key={t} style="display:flex;justify-content:space-between;margin-bottom:1px">
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px">{t}</span>
-              <span style="color:var(--fg);margin-left:6px;flex-shrink:0">{n}×</span>
-            </div>
+    <div class="h-scroll-hint" role="region" aria-label="Agent comparison" tabIndex={0}>
+      <table data-testid="agent-comparison" style="border-collapse:collapse;font-size:12px;min-width:100%">
+        <thead>
+          <tr>
+            <th scope="col" style="text-align:left;padding:6px 12px 6px 0;color:var(--muted);font-weight:500">Measure</th>
+            {cols.map(c => (
+              <th key={c.source} scope="col" data-agent-card={c.source}
+                style={`text-align:right;padding:6px 10px;font-weight:600;white-space:nowrap;border-top:3px solid ${getAgentColorVar(c.source)}`}>
+                {getAgentSourceLabel(c.source)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.label} style="border-top:1px solid var(--border)">
+              <th scope="row" style="text-align:left;padding:5px 12px 5px 0;color:var(--muted);font-weight:400;white-space:nowrap" data-tip={r.tip}>{r.label}</th>
+              {cols.map(c => (
+                <td key={c.source} data-agent={c.source}
+                  style={`text-align:right;padding:5px 10px;font-variant-numeric:tabular-nums;${r.label === 'Top tools' ? 'font-size:var(--fs-xs);color:var(--muted);max-width:200px;white-space:normal' : 'white-space:nowrap'}`}>
+                  {r.cell(c)}
+                </td>
+              ))}
+            </tr>
           ))}
-        </div>
-      )}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -180,10 +165,11 @@ export function Analytics() {
   const timelines = sessionTimelines.value
   const hasAny = (sessionSummary.value?.sessions?.length ?? 0) > 0
 
-  // Outcome vs. tokens (below) needs every filtered session's git outcome resolved, not just
-  // whichever happen to already be cached from a visit to the Sessions tab — mirrors how
-  // Sessions.tsx itself triggers requests as its own rows render.
-  useEffect(() => { requestGitOutcomesFor(sessions) }, [sessions])
+  // Output's outcome chart needs every filtered session's git outcome resolved, not just whichever
+  // happen to already be cached from a visit to the Sessions tab — mirrors how Sessions.tsx itself
+  // triggers requests as its own rows render. Only while that view is open.
+  const outputOpen = analyticsView.value === 'output'
+  useEffect(() => { if (outputOpen) requestGitOutcomesFor(sessions) }, [sessions, outputOpen])
 
   if (sessions.length === 0) {
     return (
@@ -195,7 +181,7 @@ export function Analytics() {
 
   const pricedSess = sessions.filter(s => s.source === 'copilot' || s.source === 'codex' || s.source === 'claude_code' || s.source === 'opencode')
   const copilotSess = sessions.filter(s => s.source === 'copilot')
-  // One Agent breakdown card per source with traces in view, in the agent filter's order.
+  // One Agents column per source with traces in view, in the agent filter's order.
   const breakdown = BREAKDOWN_SOURCES
     .map(source => ({ source, sessions: sessions.filter(s => s.source === source) }))
     .filter(b => b.sessions.length > 0)
@@ -214,10 +200,12 @@ export function Analytics() {
   // Most recent CHART_MAX sessions (newest-first slice, then reversed to oldest-first for charts)
   const chartSessions = timeOrdered.slice(0, CHART_MAX).reverse()
 
-  // Load timelines for context growth chart
-  chartSessions.forEach(sess => {
-    if (!sessionTimelines.value[sess.sessionId]) requestSessionTimeline(sess.sessionId)
-  })
+  // Load timelines for the context growth chart, only while the Efficiency view shows it.
+  if (analyticsView.value === 'efficiency') {
+    chartSessions.forEach(sess => {
+      if (!sessionTimelines.value[sess.sessionId]) requestSessionTimeline(sess.sessionId)
+    })
+  }
 
   const disclaimer = (
     <div style="font-size:11px;background:var(--hover);border:1px solid var(--border);border-radius:4px;padding:6px 10px;margin-bottom:8px;color:var(--muted)">
@@ -261,7 +249,6 @@ export function Analytics() {
     return String(n)
   }
 
-  const hasAgentBreakdown = breakdown.length > 0
   // By-language cut — only once some trace in view actually carries a language (older stored
   // rows don't), otherwise it would be one "—" row.
   const languageBreakdown = buildLanguageBreakdown(sessions)
@@ -280,173 +267,10 @@ export function Analytics() {
   const plan = forAgentFilter(planUsage.value, selectedAgentFilter.value)
   const hasPlan = hasPlanData(plan)
 
-  const navSections: NavSection[] = [
-    ...(hasAgentBreakdown ? [{ id: 'analytics-agent-breakdown', label: 'Agent breakdown' }] : []),
-    ...(hasLanguageBreakdown ? [{ id: 'analytics-language-breakdown', label: 'By language' }] : []),
-    ...(hasPlan ? [{ id: 'analytics-plan-limits', label: 'Plan limits' }] : []),
-    ...(trend.bins.length > 0 ? [{ id: 'analytics-outcome-tokens', label: 'Outcome & token spend' }] : []),
-    { id: 'analytics-code-changes', label: 'Code changes' },
-    ...(pricedSess.length > 0 ? [{ id: 'analytics-cost', label: 'Estimated cost' }] : []),
-    { id: 'analytics-token-usage', label: 'Token usage' },
-    { id: 'analytics-context-growth', label: 'Context growth' },
-  ]
-
-  return (
-    <div id="analytics-content">
-    <SectionNav label="Analytics sections" sections={navSections}>
-
-      {/* Agent breakdown */}
-      {hasAgentBreakdown && (
-        <>
-          <SectionHead id="analytics-agent-breakdown" title="AGENT BREAKDOWN" first />
-          <div style="display:flex;gap:12px;flex-wrap:wrap">
-            {breakdown.map(b => <AgentCard key={b.source} source={b.source} sessions={b.sessions} />)}
-          </div>
-        </>
-      )}
-
-      {/* By language — traces grouped by primary language (media/src/language.ts), in the cloud
-          dashboard's "By language" format: intro, lines-changed summary, then the table. */}
-      {hasLanguageBreakdown && (
-        <>
-          <SectionHead id="analytics-language-breakdown" title="BY LANGUAGE" first={!hasAgentBreakdown} helpAnchor="help-language"
-            tip="Traces grouped by primary language: the most common code language among the files the agent read or changed. A trace with no code is grouped by the kind of file it touched (Docs, Config, Data, Assets); 'No files' means it touched none." />
-          <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
-            Each trace's main programming language and the lines its agent added and removed.
-          </p>
-          <LanguageCodeChangesSummary totals={languageBreakdown.totals} />
-          <LanguageBreakdownTable rows={languageBreakdown.rows} />
-        </>
-      )}
-
-      {/* Subscription plan limits — Claude Code and Codex only, and only when they've written any. */}
-      {hasPlan && (
-        <>
-          <SectionHead id="analytics-plan-limits" title="PLAN LIMITS" first={!hasAgentBreakdown && !hasLanguageBreakdown} helpAnchor="help-plan-limits"
-            tip="How much of your Claude or ChatGPT plan's 5-hour and weekly windows you've used, read from files Claude Code and Codex write themselves. No credentials are read and nothing is sent anywhere." />
-          <PlanLimitsSection snapshot={plan} />
-        </>
-      )}
-
-      {/* Outcome & token spend over time — ports the cloud's Analytics chart of the same name;
-          this used to be a single median-per-outcome bar chart (buildOutcomeTokenBuckets still
-          feeds this section's median column). */}
-      {trend.bins.length > 0 && (
-        <>
-          <SectionHead id="analytics-outcome-tokens" title="OUTCOME &amp; TOKEN SPEND OVER TIME" first={!hasPlan && !hasAgentBreakdown && !hasLanguageBreakdown}
-            tip="Tokens and traces per day (or week), stacked by what happened to the work locally per git: merged, committed, or still uncommitted. Traces with no changed files, or outside a git repo, aren't counted." />
-          <p style="font-size:12px;margin:0 0 4px">
-            <strong>{formatCompact(trendSummary.total.tokens)}</strong> tokens across{' '}
-            <strong>{trendSummary.total.sessions.toLocaleString()}</strong> trace{trendSummary.total.sessions === 1 ? '' : 's'};{' '}
-            <strong>{pct(trendSummary.landedShare)}</strong> went to work that's merged or committed,{' '}
-            <strong>{pct(trendSummary.uncommittedShare)}</strong> to work still uncommitted.
-          </p>
-          <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
-            Tokens are input + output, excluding cache reads. Only traces with a merged,
-            committed, or uncommitted outcome are counted.
-            {trend.unit === 'week' ? ' Grouped by week (Monday start, UTC).' : ''}
-          </p>
-          <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-bottom:8px">
-            {TREND_OUTCOMES.filter(o => trendSummary.byOutcome[o].sessions > 0).map(o => (
-              <span key={o} style="display:inline-flex;align-items:center;gap:4px">
-                <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${TREND_COLOR[o]}`} />
-                {OUTCOME_META[o]!.label}
-              </span>
-            ))}
-          </div>
-          <OutcomeTrendChart bins={trend.bins} unit={trend.unit}
-            hitMarkers={(plan?.hits ?? []).map(h => ({ t: h.hitAt, label: `${PROVIDER_LABEL[h.provider]} ${h.windowKind === 'five_hour' ? '5-hour' : 'weekly'} limit hit` }))} />
-          <div class="h-scroll-hint" style="margin-top:10px">
-            <table style="font-size:11px;width:100%;border-collapse:collapse">
-              <thead>
-                <tr style="color:var(--muted);border-bottom:1px solid var(--vscode-panel-border)">
-                  <th style="text-align:left;font-weight:400;padding:3px 8px 3px 0">Outcome</th>
-                  <th style="text-align:right;font-weight:400;padding:3px 8px">Traces</th>
-                  <th style="text-align:right;font-weight:400;padding:3px 8px">Tokens</th>
-                  <th style="text-align:right;font-weight:400;padding:3px 8px">Share of tokens</th>
-                  <th style="text-align:right;font-weight:400;padding:3px 0 3px 8px">Median / trace</th>
-                </tr>
-              </thead>
-              <tbody>
-                {TREND_OUTCOMES.filter(o => trendSummary.byOutcome[o].sessions > 0).map(o => {
-                  const m = trendSummary.byOutcome[o]
-                  const meta = OUTCOME_META[o]!
-                  const median = medianByOutcome.get(o)
-                  return (
-                    <tr key={o} style="border-top:1px solid var(--vscode-panel-border)">
-                      <td style="padding:3px 8px 3px 0">
-                        <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${TREND_COLOR[o]};margin-right:6px`} />
-                        {meta.label}
-                      </td>
-                      <td style="padding:3px 8px;text-align:right">{m.sessions.toLocaleString()}</td>
-                      <td style="padding:3px 8px;text-align:right">{formatCompact(m.tokens)}</td>
-                      <td style="padding:3px 8px;text-align:right;color:var(--muted)">{trendSummary.total.tokens > 0 ? pct(m.tokens / trendSummary.total.tokens) : '—'}</td>
-                      <td style="padding:3px 0 3px 8px;text-align:right">{median !== undefined ? formatCompact(median) : '—'}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {/* Code changes over time — always shown (with its own empty state) so the reason it's
-          empty is visible; see codeChanges.ts for what is and isn't counted. */}
-      <SectionHead id="analytics-code-changes" title="CODE CHANGES OVER TIME" first={!hasPlan && !hasAgentBreakdown && !hasLanguageBreakdown && trend.bins.length === 0} helpAnchor="help-code-changes"
-        tip="Lines the agent's own edit/write tool calls added and removed, and files it changed, per day (or week). Agent-authored edits, not git commit stats." />
-      {changes.total.traces > 0 && (
-        <>
-          <p style="font-size:12px;margin:0 0 4px">
-            <strong style={`color:${CHANGE_COLOR.added}`}>+{formatCompact(changes.total.added)}</strong> /{' '}
-            <strong style={`color:${CHANGE_COLOR.removed}`}>−{formatCompact(changes.total.removed)}</strong> lines across{' '}
-            <strong>{changes.total.files.toLocaleString()}</strong> file{changes.total.files === 1 ? '' : 's'} changed in{' '}
-            <strong>{changes.total.traces.toLocaleString()}</strong> trace{changes.total.traces === 1 ? '' : 's'}.
-          </p>
-          <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-bottom:8px">
-            <span style="display:inline-flex;align-items:center;gap:4px"><span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${CHANGE_COLOR.added}`} />Lines added</span>
-            <span style="display:inline-flex;align-items:center;gap:4px"><span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${CHANGE_COLOR.removed}`} />Lines removed</span>
-            <span style="display:inline-flex;align-items:center;gap:4px">
-              <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true"><line x1="0" y1="4" x2="16" y2="4" stroke={CHANGE_COLOR.files} stroke-width="1.5" stroke-dasharray="4 2" /></svg>
-              Files changed (right axis)
-            </span>
-          </div>
-        </>
-      )}
-      <CodeChangesChart trend={changes} />
-      {(changes.excluded > 0 || changes.unit === 'week') && (
-        <p data-testid="code-changes-note" style="font-size:11px;color:var(--muted);margin:6px 0 0">
-          {changes.excluded > 0 && `${changes.excluded.toLocaleString()} trace${changes.excluded === 1 ? '' : 's'} without change data not counted (stored before change tracking, or the agent doesn't record edit contents).`}
-          {changes.unit === 'week' ? `${changes.excluded > 0 ? ' ' : ''}Grouped by week (Monday start, UTC).` : ''}
-        </p>
-      )}
-
-      {/* Estimated cost */}
-      {pricedSess.length > 0 && (
-        <>
-          <SectionHead id="analytics-cost" title="ESTIMATED COST" helpAnchor="help-costs" />
-          {disclaimer}
-
-          {/* Legend: each bar is one trace, coloured by its agent; the line is the daily total. */}
-          <div data-testid="cost-chart-legend" style="display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;font-size:var(--fs-xs);color:var(--muted);margin-bottom:6px">
-            {costChartAgents.map(src => (
-              <span key={src} style="display:inline-flex;align-items:center;gap:4px">
-                <span aria-hidden="true" style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${getAgentColorVar(src)};box-shadow:0 0 0 1px var(--border)`} />
-                {getAgentSourceLabel(src)}{src === 'copilot' && copilotSess.length > 0 ? ' (token-based)' : ''}
-              </span>
-            ))}
-            <span style="display:inline-flex;align-items:center;gap:4px">
-              <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true">
-                <line x1="0" y1="4" x2="16" y2="4" stroke="var(--vscode-charts-green, #81c784)" stroke-width="1.5" />
-              </svg>
-              Daily total (right axis)
-            </span>
-          </div>
-
-          <CostBarChart sessions={pricedChartSess} />
-
+  // Multi-dimensional cost table: date → agent, scrollable.
+  const costTable = (
+    <>
           {/* Multi-dimensional cost table: date → agent, scrollable */}
-          {dayRows.length > 0 && (
             <div style="display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-bottom:4px">
               <button
                 onClick={() => setShowZeroCost(s => !s)}
@@ -491,8 +315,6 @@ export function Analytics() {
                 style="font-size:var(--fs-xs);padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--muted);white-space:nowrap"
               >↓ CSV</button>
             </div>
-          )}
-          {dayRows.length > 0 && (
             <div class="h-scroll-hint" style="margin-bottom:8px">
               <table style="border-collapse:collapse;font-size:var(--fs-xs);min-width:100%;white-space:nowrap">
                 <thead>
@@ -563,26 +385,238 @@ export function Analytics() {
                 </tfoot>
               </table>
             </div>
-          )}
+    </>
+  )
+
+  const view = analyticsView.value
+  const help = (anchor: string) => goToHelp(anchor)
+  const pendingRecs = advisorPendingCount.value
+
+  const items: ViewNavItem<AnalyticsView>[] = [
+    { id: 'cost',       label: 'Cost & limits', hint: 'Spend and plan windows' },
+    { id: 'output',     label: 'Output',        hint: 'Outcomes, code changes, languages' },
+    { id: 'efficiency', label: 'Efficiency',    hint: 'Wasted turns, hot files, context' },
+    { id: 'agents',     label: 'Agents',        hint: 'Side-by-side comparison' },
+  ]
+
+  // ── Cost & limits ──
+  const planSection = (
+    <ViewSection id="analytics-plan-limits" title="Plan limits" helpAnchor="help-plan-limits" onHelp={help}
+      tip="How much of your Claude or ChatGPT plan's 5-hour and weekly windows you've used, read from files Claude Code and Codex write themselves. No credentials are read and nothing is sent anywhere.">
+      {hasPlan
+        ? <PlanLimitsSection snapshot={plan} />
+        : <ViewEmpty>{selectedAgentFilter.value !== 'all' && hasPlanData(planUsage.value)
+            ? 'Plan limits come from Claude Code and Codex subscription plans. Choose All, Claude or Codex in the agent filter to see them.'
+            : 'No plan usage recorded yet. Claude Code and Codex write it while you work on a subscription plan; usage through an API key has no plan limit.'}</ViewEmpty>}
+    </ViewSection>
+  )
+  const costSection = (
+    <ViewSection id="analytics-cost" title="Estimated cost" helpAnchor="help-costs" onHelp={help}>
+      {pricedSess.length === 0 ? (
+        <ViewEmpty>No trace in view can be priced. Cost is estimated for Copilot, Claude Code, Codex and OpenCode traces from their token counts.</ViewEmpty>
+      ) : (
+        <>
+          {disclaimer}
+          {/* Legend: each bar is one trace, coloured by its agent; the line is the daily total. */}
+          <div data-testid="cost-chart-legend" style="display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;font-size:var(--fs-xs);color:var(--muted);margin-bottom:6px">
+            {costChartAgents.map(src => (
+              <span key={src} style="display:inline-flex;align-items:center;gap:4px">
+                <span aria-hidden="true" style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${getAgentColorVar(src)};box-shadow:0 0 0 1px var(--border)`} />
+                {getAgentSourceLabel(src)}{src === 'copilot' && copilotSess.length > 0 ? ' (token-based)' : ''}
+              </span>
+            ))}
+            <span style="display:inline-flex;align-items:center;gap:4px">
+              <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true">
+                <line x1="0" y1="4" x2="16" y2="4" stroke="var(--vscode-charts-green, #81c784)" stroke-width="1.5" />
+              </svg>
+              Daily total (right axis)
+            </span>
+          </div>
+          <CostBarChart sessions={pricedChartSess} />
+          {dayRows.length > 0 && costTable}
         </>
       )}
+    </ViewSection>
+  )
 
-      {/* Token usage per session */}
-      <SectionHead id="analytics-token-usage" title="TOKEN USAGE PER TRACE" />
-      <div style="display:flex;gap:12px;margin-bottom:6px;font-size:var(--fs-xs);color:var(--muted)">
-        <span><span style="display:inline-block;width:10px;height:3px;background:#FFB74D;border-radius:1px;vertical-align:middle" /> Input tokens</span>
-        <span><span style="display:inline-block;width:10px;height:3px;background:#81C784;border-radius:1px;vertical-align:middle" /> Output tokens</span>
+  // ── Output ──
+  const outcomeSection = (
+    <ViewSection id="analytics-outcome-tokens" title="Outcome & token spend over time"
+      tip="Tokens and traces per day (or week), stacked by what happened to the work locally per git: merged, committed, or still uncommitted. Traces with no changed files, or outside a git repo, aren't counted.">
+      {trend.bins.length === 0 ? (
+        <ViewEmpty>No trace in view has a git outcome yet. Only traces that changed files inside a git repo count here, and their outcomes fill in as git is checked.</ViewEmpty>
+      ) : (
+        <>
+          <p style="font-size:12px;margin:0 0 4px">
+            <strong>{formatCompact(trendSummary.total.tokens)}</strong> tokens across{' '}
+            <strong>{trendSummary.total.sessions.toLocaleString()}</strong> trace{trendSummary.total.sessions === 1 ? '' : 's'};{' '}
+            <strong>{pct(trendSummary.landedShare)}</strong> went to work that's merged or committed,{' '}
+            <strong>{pct(trendSummary.uncommittedShare)}</strong> to work still uncommitted.
+          </p>
+          <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
+            Tokens are input + output, excluding cache reads. Only traces with a merged,
+            committed, or uncommitted outcome are counted.
+            {trend.unit === 'week' ? ' Grouped by week (Monday start, UTC).' : ''}
+          </p>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-bottom:8px">
+            {TREND_OUTCOMES.filter(o => trendSummary.byOutcome[o].sessions > 0).map(o => (
+              <span key={o} style="display:inline-flex;align-items:center;gap:4px">
+                <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${TREND_COLOR[o]}`} />
+                {OUTCOME_META[o]!.label}
+              </span>
+            ))}
+          </div>
+          <OutcomeTrendChart bins={trend.bins} unit={trend.unit}
+            hitMarkers={(plan?.hits ?? []).map(h => ({ t: h.hitAt, label: `${PROVIDER_LABEL[h.provider]} ${h.windowKind === 'five_hour' ? '5-hour' : 'weekly'} limit hit` }))} />
+          <div class="h-scroll-hint" style="margin-top:10px">
+            <table style="font-size:11px;width:100%;border-collapse:collapse">
+              <thead>
+                <tr style="color:var(--muted);border-bottom:1px solid var(--vscode-panel-border)">
+                  <th style="text-align:left;font-weight:400;padding:3px 8px 3px 0">Outcome</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 8px">Traces</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 8px">Tokens</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 8px">Share of tokens</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 0 3px 8px">Median / trace</th>
+                </tr>
+              </thead>
+              <tbody>
+                {TREND_OUTCOMES.filter(o => trendSummary.byOutcome[o].sessions > 0).map(o => {
+                  const m = trendSummary.byOutcome[o]
+                  const meta = OUTCOME_META[o]!
+                  const median = medianByOutcome.get(o)
+                  return (
+                    <tr key={o} style="border-top:1px solid var(--vscode-panel-border)">
+                      <td style="padding:3px 8px 3px 0">
+                        <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${TREND_COLOR[o]};margin-right:6px`} />
+                        {meta.label}
+                      </td>
+                      <td style="padding:3px 8px;text-align:right">{m.sessions.toLocaleString()}</td>
+                      <td style="padding:3px 8px;text-align:right">{formatCompact(m.tokens)}</td>
+                      <td style="padding:3px 8px;text-align:right;color:var(--muted)">{trendSummary.total.tokens > 0 ? pct(m.tokens / trendSummary.total.tokens) : '—'}</td>
+                      <td style="padding:3px 0 3px 8px;text-align:right">{median !== undefined ? formatCompact(median) : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </ViewSection>
+  )
+  const codeChangesSection = (
+    <ViewSection id="analytics-code-changes" title="Code changes over time" helpAnchor="help-code-changes" onHelp={help}
+      tip="Lines the agent's own edit/write tool calls added and removed, and files it changed, per day (or week). Agent-authored edits, not git commit stats.">
+      {changes.total.traces > 0 && (
+        <>
+          <p style="font-size:12px;margin:0 0 4px">
+            <strong style={`color:${CHANGE_COLOR.added}`}>+{formatCompact(changes.total.added)}</strong> /{' '}
+            <strong style={`color:${CHANGE_COLOR.removed}`}>−{formatCompact(changes.total.removed)}</strong> lines across{' '}
+            <strong>{changes.total.files.toLocaleString()}</strong> file{changes.total.files === 1 ? '' : 's'} changed in{' '}
+            <strong>{changes.total.traces.toLocaleString()}</strong> trace{changes.total.traces === 1 ? '' : 's'}.
+          </p>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-bottom:8px">
+            <span style="display:inline-flex;align-items:center;gap:4px"><span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${CHANGE_COLOR.added}`} />Lines added</span>
+            <span style="display:inline-flex;align-items:center;gap:4px"><span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${CHANGE_COLOR.removed}`} />Lines removed</span>
+            <span style="display:inline-flex;align-items:center;gap:4px">
+              <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true"><line x1="0" y1="4" x2="16" y2="4" stroke={CHANGE_COLOR.files} stroke-width="1.5" stroke-dasharray="4 2" /></svg>
+              Files changed (right axis)
+            </span>
+          </div>
+        </>
+      )}
+      <CodeChangesChart trend={changes} />
+      {(changes.excluded > 0 || changes.unit === 'week') && (
+        <p data-testid="code-changes-note" style="font-size:11px;color:var(--muted);margin:6px 0 0">
+          {changes.excluded > 0 && `${changes.excluded.toLocaleString()} trace${changes.excluded === 1 ? '' : 's'} without change data not counted (stored before change tracking, or the agent doesn't record edit contents).`}
+          {changes.unit === 'week' ? `${changes.excluded > 0 ? ' ' : ''}Grouped by week (Monday start, UTC).` : ''}
+        </p>
+      )}
+    </ViewSection>
+  )
+  // By language — traces grouped by primary language (media/src/language.ts), in the cloud
+  // dashboard's "By language" format: intro, lines-changed summary, then the table.
+  const languageSection = (
+    <ViewSection id="analytics-language-breakdown" title="By language" helpAnchor="help-language" onHelp={help}
+      tip="Traces grouped by primary language: the most common code language among the files the agent read or changed. A trace with no code is grouped by the kind of file it touched (Docs, Config, Data, Assets); 'No files' means it touched none.">
+      {hasLanguageBreakdown ? (
+        <>
+          <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
+            Each trace's main programming language and the lines its agent added and removed.
+          </p>
+          <LanguageCodeChangesSummary totals={languageBreakdown.totals} />
+          <LanguageBreakdownTable rows={languageBreakdown.rows} />
+        </>
+      ) : (
+        <ViewEmpty>No trace in view recorded a language. Traces stored before language tracking have none.</ViewEmpty>
+      )}
+    </ViewSection>
+  )
+
+  // ── Efficiency ──
+  const efficiencyView = (
+    <>
+      <div class="view-crosslink">
+        <span>{pendingRecs > 0
+          ? `${pendingRecs} recommendation${pendingRecs === 1 ? '' : 's'} in Advisor ${pendingRecs === 1 ? 'is' : 'are'} built from what this view shows.`
+          : 'Recommendations in Advisor are built from what this view shows.'}</span>
+        <button type="button" class="link-btn" onClick={() => goToAdvisor('recommendations')}>Open Recommendations</button>
       </div>
-      {/* Always pass newest-first (rangedSessions); chart reverses internally to oldest-first */}
-      <SessionTokenChart sessions={timeOrdered} />
+      <ViewSection id="analytics-efficiency-map" title="Cost vs back-and-forth">
+        <EfficiencyMap sessions={sessions} />
+      </ViewSection>
+      <ViewSection id="analytics-hot-files" title="Hot files">
+        <HotFiles sessions={sessions} />
+      </ViewSection>
+      <ViewSection id="analytics-context-growth" title="Context growth">
+        <ContextGrowthChart sessions={chartSessions} timelines={timelines} />
+      </ViewSection>
+      <ViewSection id="analytics-token-usage" title="Token usage per trace">
+        <div style="display:flex;gap:12px;margin-bottom:6px;font-size:var(--fs-xs);color:var(--muted)">
+          <span><span style="display:inline-block;width:10px;height:3px;background:#FFB74D;border-radius:1px;vertical-align:middle" /> Input tokens</span>
+          <span><span style="display:inline-block;width:10px;height:3px;background:#81C784;border-radius:1px;vertical-align:middle" /> Output tokens</span>
+        </div>
+        {/* Always pass newest-first (rangedSessions); chart reverses internally to oldest-first */}
+        <SessionTokenChart sessions={timeOrdered} />
+      </ViewSection>
+    </>
+  )
 
-      {/* Context growth */}
-      <SectionHead id="analytics-context-growth" title="CONTEXT GROWTH" />
-      <ContextGrowthChart sessions={chartSessions} timelines={timelines} />
-
-      <CloudNote kind="analytics" />
-
-    </SectionNav>
+  return (
+    <div id="analytics-content">
+      <ViewNav label="Analytics views" title="Analytics" items={items} active={view} onSelect={setAnalyticsView}>
+        {view === 'cost' && (
+          <div data-view-panel="cost">
+            <ViewHeader title="Cost & limits" question="How much am I spending, and how close am I to my plan limits?" />
+            {hasPlan && planSection}
+            {costSection}
+            {!hasPlan && planSection}
+          </div>
+        )}
+        {view === 'output' && (
+          <div data-view-panel="output">
+            <ViewHeader title="Output" question="What did the tokens buy: work that landed, code changed, and in which languages?" />
+            {outcomeSection}
+            {codeChangesSection}
+            {languageSection}
+          </div>
+        )}
+        {view === 'efficiency' && (
+          <div data-view-panel="efficiency">
+            <ViewHeader title="Efficiency" question="Where is effort being wasted: costly back-and-forth, files re-read every time, context that keeps growing?" />
+            {efficiencyView}
+          </div>
+        )}
+        {view === 'agents' && (
+          <div data-view-panel="agents">
+            <ViewHeader title="Agents" question="How do my agents compare on the same kind of work?" />
+            <ViewSection id="analytics-agent-breakdown" title="Agent comparison">
+              <AgentComparison breakdown={breakdown} />
+            </ViewSection>
+          </div>
+        )}
+        <CloudNote kind="analytics" />
+      </ViewNav>
     </div>
   )
 }

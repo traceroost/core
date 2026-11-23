@@ -80,11 +80,12 @@ test('Language filter narrows traces; Lang/Changes columns and the breakdown ren
   await expect(rows).toHaveCount(8)
 
   await page.locator('.tabs').getByRole('button', { name: 'Analytics', exact: true }).click()
+  await page.locator('.view-nav-rail [data-view=output]').click()
   const breakdown = page.locator('[data-testid=language-breakdown]')
   await expect(breakdown).toBeVisible()
   await expect(breakdown).toContainText('Python')
   await expect(breakdown).toContainText('Not reported')
-  await expect(page.locator('#analytics-language-breakdown')).toContainText('BY LANGUAGE')
+  await expect(page.locator('#analytics-language-breakdown')).toContainText('By language')
   // Two traces each: ties follow the language list (TypeScript first); the two traces with no
   // language sort last and show "—" for lines.
   await expect(breakdown.locator('tbody tr').first()).toContainText('TypeScript')

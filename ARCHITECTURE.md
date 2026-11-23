@@ -879,7 +879,7 @@ graph TD
 - `availableLanguages` / `availableAgents`: the Language dropdown's options and the Agent pills: only languages (primary or secondary) and agents (`source`) that at least one loaded session has, in allowlist / `AGENT_FILTER_ORDER` order, read from every loaded session rather than the filtered set; a selected value stays listed even with no data. `showAgentFilter` hides the pill row when only one agent has data and nothing is selected.
 - `displaySessions`: `agentFilteredSessions` sliced to `sessionLimit` (most recent N). Used for the Traces table.
 - `rangedSessions`: for bounded presets (7d/30d/…): merges `rangedSearchResults` (DB) with in-memory sessions that fall in the window. For "All": returns `agentFilteredSessions` directly.
-- `filteredSessions`: `rangedSessions` with the text filter (or an Insights/Instructions evidence set, `evidenceSessionIds`), the initiator and outcome filters, and sort applied (`preOutcomeFilteredSessions` is the same cut before the outcome filter; it feeds the outcome filter's own counts). Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (ESTIMATED COST, TOKEN USAGE PER TRACE, CONTEXT GROWTH) source from `rangedSessions` directly.
+- `filteredSessions`: `rangedSessions` with the text filter (or an Insights/Instructions evidence set, `evidenceSessionIds`), the initiator and outcome filters, and sort applied (`preOutcomeFilteredSessions` is the same cut before the outcome filter; it feeds the outcome filter's own counts). Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (Estimated cost, Token usage per trace, Context growth) source from `rangedSessions` directly.
 
 **Workspace field flow:** `workspace` is stored in the `sessions` SQLite table (always present, `NOT NULL`). `project_path` is an optional secondary path some OTEL exporters populate. Both are mapped by `DatabaseReader.listSessions` into `SessionSummaryCard`. For OTEL-sourced sessions, `workspace` is stamped onto the card by `DatabaseWriter.enqueue` (the summarizers produce `workspace: ''` as a placeholder). For log-sourced sessions, `_buildCard` receives and records the workspace at parse time.
 
@@ -898,14 +898,14 @@ graph LR
     T1 --> D4[Tools sub-tab<br/>donut chart + call table]
     T1 --> D5[Files sub-tab<br/>files changed · open in editor<br/>one-shot/retry-rate summary<br/>git outcome banner + per-file badges]
 
-    T2[Analytics<br/>AGENT BREAKDOWN · BY LANGUAGE · PLAN LIMITS<br/>OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST<br/>TOKEN USAGE PER TRACE · CONTEXT GROWTH]
+    T2[Analytics, one view at a time<br/>Cost & limits · Output<br/>Efficiency · Agents]
     T2 --> A1[CostBarChart — per-session bars<br/>daily total overlay · pricing mode toggle<br/>CSV export download button]
     T2 --> A2[AgentCard per agent with data — stat tiles<br/>incl. One-shot rate and Lines +/− tiles]
     T2 --> A3[SessionTokenChart — input/output bars<br/>day boundary highlights]
     T2 --> A4[ContextGrowthChart — animated<br/>per-session spotlight · play/pause/speed]
     T2 --> A5[CodeChangesChart — lines +/− per day or week<br/>files-changed line · agent-authored edits]
 
-    T3[Advisor<br/>hot files · behavioral loop patterns<br/>efficiency scatter · Instructions sub-view]
+    T3[Advisor, one view at a time<br/>Recommendations · Instruction files<br/>Results]
     T4[Export<br/>full or redacted export<br/>format: JSON · CSV · Markdown]
     T5[Import<br/>preview + import a TraceRoost JSON export]
     T6[Help<br/>sticky TOC nav · glossary · OTEL setup]
@@ -1536,7 +1536,7 @@ traceroost/
 │   │   ├── BrandMark.tsx         # Inline brand mark SVG (currentColor) — mirrors media/brand/mark-currentcolor.svg
 │   │   ├── Wordmark.tsx          # "traceroost" wordmark as real text, not SVG, for crispness at small sizes
 │   │   ├── sidebarWebview.ts     # Sidebar JS (no JSX)
-│   │   ├── SectionNav.tsx        # Left-hand jump rail for the long single-page tabs (Analytics, Advisor)
+│   │   ├── ViewNav.tsx           # Left-hand view menu for Analytics and Advisor (one view at a time, same ids as cloud's ?view=)
 │   │   ├── planUsage.ts          # Plan-limit snapshot (mirrors src/planUsage/) + the "no data, no UI" render rules
 │   │   ├── suggestionRules.ts    # Instruction-suggestion rules — byte-identical copy of src/suggestionRules.ts
 │   │   ├── suggest.ts            # Header "Make a suggestion" link URL (public Cloud /suggest page; both editions)
@@ -1563,7 +1563,7 @@ traceroost/
 │   │       │                     #   changing the sort returns to page 1
 │   │       │                     #   sub-tabs: Overview (InsightCards) · Waterfall · Flow · Tools ·
 │   │       │                     #   Files (one-shot/retry-rate summary + git outcome banner/badges)
-│   │       ├── Analytics.tsx     # AGENT BREAKDOWN (incl. one-shot rate) · BY LANGUAGE · PLAN LIMITS · OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST · TOKEN USAGE · CONTEXT GROWTH
+│   │       ├── Analytics.tsx     # Views: Cost & limits (plan limits, estimated cost) · Output (outcome & token spend, code changes, by language) · Efficiency (efficiency map, hot files, context growth, token usage) · Agents (comparison incl. one-shot rate)
 │   │       ├── PlanLimits.tsx    # Analytics' PLAN LIMITS section (5-hour / weekly plan windows)
 │   │       ├── languageBreakdown.ts # BY LANGUAGE cut + agent-authored change-size totals (traces without line data never count as 0)
 │   │       ├── GettingStarted.tsx # "Nothing recorded yet" empty state's next steps, shared by Traces and Analytics
@@ -1577,7 +1577,8 @@ traceroost/
 │   │       ├── Flow.tsx          # Turn-to-tool semantic graph (canvas), FlowCanvas component
 │   │       ├── Agents.tsx        # computeStats helper used by Analytics AgentCard
 │   │       ├── Tools.tsx         # ToolsChart (donut + table) used by Sessions detail
-│   │       ├── Patterns.tsx      # Advisor tab — hot files, loop patterns, efficiency scatter, Instructions sub-view
+│   │       ├── Patterns.tsx      # Advisor tab views: Recommendations (how to spend less + instruction suggestions) · Instruction files · Results
+│   │       ├── Efficiency.tsx    # Efficiency map and hot files (Analytics › Efficiency)
 │   │       ├── Instructions.tsx  # Instruction-file suggestion cards (apply/dismiss) used by Patterns
 │   │       ├── Import.tsx        # Import drawer — preview + import a TraceRoost JSON export
 │   │       ├── Alerts.tsx        # Alert config UI (incl. daily cost threshold), checkAlerts, AlertNotification type

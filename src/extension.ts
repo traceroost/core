@@ -1490,7 +1490,7 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
           }
           vscode.commands.executeCommand('traceRoost.openDashboard')
           setTimeout(() => {
-            DashboardPanel.switchToTab('patterns')
+            DashboardPanel.switchToTab('patterns', 'recommendations')
             DashboardPanel.currentPanel?.postToWebview({ type: 'focusSuggestion', id })
           }, 250)
           return
@@ -1514,7 +1514,7 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
             }
             vscode.commands.executeCommand('traceRoost.openDashboard')
             setTimeout(() => {
-              DashboardPanel.switchToTab('patterns')
+              DashboardPanel.switchToTab('patterns', 'recommendations')
               DashboardPanel.sendFilter(undefined, undefined, root)
             }, 250)
           })()
@@ -1587,7 +1587,7 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
               if (root) {
                 vscode.commands.executeCommand('traceRoost.openDashboard')
                 setTimeout(() => {
-                  DashboardPanel.switchToTab('patterns')
+                  DashboardPanel.switchToTab('patterns', 'recommendations')
                   DashboardPanel.sendFilter(undefined, undefined, root)
                 }, 250)
                 return

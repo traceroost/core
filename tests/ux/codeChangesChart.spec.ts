@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { sessions } from './fixtures'
 
 /**
- * Analytics → Code changes over time: agent-authored lines added/removed and files changed per
+ * Analytics › Output › Code changes over time: agent-authored lines added/removed and files changed per
  * day. Traces with no recorded line counts are left out and counted in a note; with none at all
  * the chart shows its empty state. Runs on every project (desktop/mobile, light/dark).
  */
@@ -31,8 +31,9 @@ test('code changes chart renders, notes excluded traces, and has an empty state'
   await load(page, withChanges)
   await page.locator('#sessions-content tbody tr').first().waitFor()
   await page.locator('.tabs').getByRole('button', { name: 'Analytics', exact: true }).click()
+  await page.locator('.view-nav-rail [data-view=output]').click()
 
-  await expect(page.locator('#analytics-code-changes')).toContainText('CODE CHANGES OVER TIME')
+  await expect(page.locator('#analytics-code-changes')).toContainText('Code changes over time')
   const chart = page.locator('[data-testid=code-changes-chart]')
   await expect(chart).toBeVisible()
   const total = { added: 0, removed: 0, files: 0 }

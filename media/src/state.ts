@@ -501,6 +501,59 @@ export function getSessionsPagination(totalCount: number): { page: number; total
 
 // ── Navigation helpers ────────────────────────────────────────────────────────
 
+// Analytics and Advisor each show one view at a time, picked from their left menu (ViewNav.tsx).
+// The ids and order match cloud's `?view=` values on its Analytics and Advisor pages, so the two
+// products stay one structure. The chosen view is remembered per viewer across reloads (a
+// convenience only: storage can be unavailable, and then each tab opens on its first view).
+export const ANALYTICS_VIEWS = ['cost', 'output', 'efficiency', 'agents'] as const
+export const ADVISOR_VIEWS = ['recommendations', 'instructions', 'results'] as const
+export type AnalyticsView = typeof ANALYTICS_VIEWS[number]
+export type AdvisorView = typeof ADVISOR_VIEWS[number]
+
+function readView<T extends string>(key: string, views: readonly T[]): T {
+  try {
+    const v = localStorage.getItem(key)
+    if (v && (views as readonly string[]).includes(v)) return v as T
+  } catch { /* storage unavailable: first view */ }
+  return views[0]
+}
+function writeView(key: string, view: string): void {
+  try { localStorage.setItem(key, view) } catch { /* storage unavailable: not remembered */ }
+}
+
+const ANALYTICS_VIEW_KEY = 'traceroost-analytics-view'
+const ADVISOR_VIEW_KEY = 'traceroost-advisor-view'
+export const analyticsView = signal<AnalyticsView>(readView(ANALYTICS_VIEW_KEY, ANALYTICS_VIEWS))
+export const advisorView = signal<AdvisorView>(readView(ADVISOR_VIEW_KEY, ADVISOR_VIEWS))
+
+export function isAnalyticsView(v: unknown): v is AnalyticsView {
+  return typeof v === 'string' && (ANALYTICS_VIEWS as readonly string[]).includes(v)
+}
+export function isAdvisorView(v: unknown): v is AdvisorView {
+  return typeof v === 'string' && (ADVISOR_VIEWS as readonly string[]).includes(v)
+}
+
+export function setAnalyticsView(view: AnalyticsView): void {
+  analyticsView.value = view
+  writeView(ANALYTICS_VIEW_KEY, view)
+}
+export function setAdvisorView(view: AdvisorView): void {
+  advisorView.value = view
+  writeView(ADVISOR_VIEW_KEY, view)
+}
+
+/** Switches to the Analytics tab on one of its views. */
+export function goToAnalytics(view: AnalyticsView): void {
+  setAnalyticsView(view)
+  activeTab.value = 'analytics'
+}
+/** Switches to the Advisor tab (id 'patterns') on one of its views. */
+export function goToAdvisor(view: AdvisorView): void {
+  setAdvisorView(view)
+  activeTab.value = 'patterns'
+}
+
+
 export function goToHelp(anchor: string): void {
   activeTab.value = 'help'
   setTimeout(() => {

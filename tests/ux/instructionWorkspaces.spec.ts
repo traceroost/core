@@ -1,8 +1,8 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { sessions } from './fixtures'
 
 /**
- * Advisor → Instructions File in the standalone dashboard (no open folder): suggestions are grouped
+ * Advisor's instruction-file views in the standalone dashboard (no open folder): suggestions are grouped
  * per repo, each group asks the host for its own instruction files and applied/dismissed state, and
  * Apply / Dismiss name that group's workspace. A repo whose folder the host reports missing keeps its
  * suggestions but loses Apply. The fixture host (serve.ts) sets __STANDALONE__ and records every
@@ -10,6 +10,12 @@ import { sessions } from './fixtures'
  */
 const CORE = '/fixtures/core'
 const CLOUD = '/fixtures/cloud'
+
+
+/** Opens one of Advisor's views from its left menu (ViewNav.tsx). */
+async function advisorView(page: Page, view: 'recommendations' | 'instructions' | 'results') {
+  await page.locator(`.view-nav-rail [data-view=${view}]`).click()
+}
 
 test('suggestions are grouped by repo and act on their own workspace', async ({ page }) => {
   const errors: string[] = []
@@ -48,14 +54,19 @@ test('suggestions are grouped by repo and act on their own workspace', async ({ 
   const cloudGroup = page.locator(`[data-instructions-workspace="${CLOUD}"]`)
   await expect(coreGroup).toContainText('Repo:')
   await expect(cloudGroup).toContainText('Repo:')
-  // Only the files read by agents in core's traces (Copilot, Codex): no CLAUDE.md or Cursor rule.
+  await expect(coreGroup).toContainText(CORE)
+  await expect(cloudGroup).toContainText(CLOUD)
+
+  // Advisor › Instruction files: only the files read by agents in core's traces (Copilot, Codex),
+  // no CLAUDE.md or Cursor rule.
+  await advisorView(page, 'instructions')
   const coreFiles = coreGroup.locator('[data-instruction-file-status]')
   await expect(coreFiles).toHaveText([
     '.github/copilot-instructions.md · not found',
     'AGENTS.md · present',
   ])
-  await expect(coreGroup).toContainText(CORE)
-  await expect(cloudGroup).toContainText(CLOUD)
+  await expect(cloudGroup).toContainText('no longer exists on this machine')
+  await advisorView(page, 'recommendations')
 
   const title = 'Add hotModule.ts to instruction file'
   const coreCard = coreGroup.locator('[data-suggestion-id]').filter({ hasText: title })
@@ -92,13 +103,16 @@ test('suggestions are grouped by repo and act on their own workspace', async ({ 
     }],
   }, '*'), msg as Record<string, unknown>)
   await expect(coreCard).toHaveCount(0)
-  await expect(coreGroup.getByTitle('Remove from instruction file and move back to pending')).toHaveCount(1)
   await expect(cloudCard).toHaveCount(1)
+  await advisorView(page, 'results')
+  await expect(coreGroup.getByTitle('Remove from instruction file and move back to pending')).toHaveCount(1)
 
   // Dismiss names cloud's workspace and leaves core's applied record alone.
+  await advisorView(page, 'recommendations')
   await cloudCard.getByTitle('Dismiss').click()
   await expect(cloudCard).toHaveCount(0)
   expect((await posted()).find((m) => m.type === 'dismissInstructionSuggestion')).toMatchObject({ workspace: CLOUD, id: msg?.id })
+  await advisorView(page, 'results')
   await expect(coreGroup.getByTitle('Remove from instruction file and move back to pending')).toHaveCount(1)
 
   // Remove names core's workspace.
