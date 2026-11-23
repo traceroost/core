@@ -208,6 +208,8 @@ jobs:
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # An agent listed here (`claude`, `codex`) is skipped by real-agents.mjs, as in the capture.
+      AGENT_CAPTURE_SKIP: ${{ vars.AGENT_CAPTURE_SKIP }}
     steps:
       - name: Check for API key secrets
         id: keys
