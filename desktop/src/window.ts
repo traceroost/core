@@ -14,6 +14,7 @@
 
 import { BrowserWindow, shell, type WebContents } from 'electron'
 import { decideNavigation, decideWindowOpen, portMoveTarget } from './navigation'
+import { type InitialWindowBounds, type SavedWindowState } from './windowBounds'
 
 export interface DashboardWindowOptions {
   initialUrl: string
@@ -36,14 +37,20 @@ export interface DashboardWindowOptions {
   iconPath?: string
   /** Come up minimised rather than in front — a Linux login launch with no tray to sit in. */
   startMinimized?: boolean
+  /** Where and how big to open: fitted to the screen, or restored (windowBounds.ts). */
+  bounds: InitialWindowBounds
+  /** The window was moved, resized, maximised or restored. Debounced; also called on close. */
+  onBoundsChanged?: (state: SavedWindowState) => void
 }
+
+/** How long the window has to sit still before a move or resize is saved. */
+const SAVE_BOUNDS_AFTER_MS = 500
 
 export function createDashboardWindow(opts: DashboardWindowOptions): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1280,
-    height: 860,
-    minWidth: 720,
-    minHeight: 480,
+    ...opts.bounds.bounds,
+    minWidth: opts.bounds.minWidth,
+    minHeight: opts.bounds.minHeight,
     show: false,
     title: 'TraceRoost',
     backgroundColor: '#1e1e1e',
@@ -65,6 +72,8 @@ export function createDashboardWindow(opts: DashboardWindowOptions): BrowserWind
   hardenWebContents(win.webContents, opts.origin, opts.log, opts.acceptPortMove)
 
   win.once('ready-to-show', () => {
+    // Maximise before showing, so the window doesn't appear at its normal size and then jump.
+    if (opts.bounds.maximized) win.maximize()
     if (opts.startMinimized) {
       // showInactive then minimize: the window exists in the task switcher / dock without taking
       // focus from whatever the user opened at login.
@@ -77,7 +86,26 @@ export function createDashboardWindow(opts: DashboardWindowOptions): BrowserWind
 
   // Close keeps the app alive in the menu bar (the plan's close-to-menu-bar requirement) — except
   // while quitting, when the close has to be allowed through for the app to exit at all.
+  const saveBounds = (): void => {
+    if (!opts.onBoundsChanged || win.isDestroyed() || win.isMinimized()) return
+    // getNormalBounds: a maximised or full-screen window reopens maximised over the size it had
+    // before, so un-maximising it next time lands somewhere sensible.
+    opts.onBoundsChanged({ bounds: win.getNormalBounds(), maximized: win.isMaximized() })
+  }
+  let saveTimer: NodeJS.Timeout | undefined
+  const saveSoon = (): void => {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => { saveTimer = undefined; saveBounds() }, SAVE_BOUNDS_AFTER_MS)
+  }
+  // 'resize' and 'move' rather than 'resized'/'moved', which Linux never sends.
+  win.on('resize', saveSoon)
+  win.on('move', saveSoon)
+  win.on('maximize', saveSoon)
+  win.on('unmaximize', saveSoon)
+
   win.on('close', event => {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = undefined }
+    saveBounds()
     if (opts.isQuitting()) return
     event.preventDefault()
     opts.onCloseRequested()

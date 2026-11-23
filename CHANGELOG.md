@@ -8,6 +8,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 - **Listed in the official MCP Registry** as `io.github.traceroost/traceroost`, so MCP clients and directories that read the registry can find TraceRoost's MCP server. Each release now publishes the entry (`server.json`) after the npm package (#451)
 
+### Changed
+
+- **The desktop app's window opens at a size that fits, and remembers yours.** It used to open at 1280×860 every time, which left an empty band under the Traces table and could run behind the Dock or taskbar on a smaller screen. It now opens at 1280×770 (a full page of traces and its pager), shrunk to fit any screen too small for that, and centred on the display the pointer is on. After that it reopens at the size and position you left it, maximised if it was. A window last seen on a monitor that is no longer attached, or larger than the screen after a resolution change, is moved and shrunk back onto the screen
+
 ## [1.1.1] (2026-11-22)
 
 ### Fixed
