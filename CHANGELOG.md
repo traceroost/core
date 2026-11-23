@@ -4,10 +4,14 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+## [1.1.1] (2026-11-22)
+
 ### Fixed
 
-- **Linking a machine no longer dead-ends on a `127.0.0.1` browser error when signing in takes a while.** The app now waits 15 minutes for the approval instead of 5, and if the request does expire, the browser tab says so and tells you to click Link this machine again.
-- **The winget package can be submitted again**: 1.1.0's winget manifest was not valid YAML (a description with a colon in it was written unquoted), so no winget update was opened for that release. The description is now quoted, and a test checks every generated manifest for the same mistake
+- **Linking a machine no longer dead-ends on a `127.0.0.1` browser error when signing in takes a while.** The app now waits 15 minutes for the approval instead of 5, and if the request does expire, the browser tab says so and tells you to click Link this machine again (#443)
+- **The winget package can be submitted again**: 1.1.0's winget manifest was not valid YAML (a description with a colon in it was written unquoted), so no winget update was opened for that release. The description is now quoted, and a test checks every generated manifest for the same mistake (#441)
+
+---
 
 ## [1.1.0] (2026-11-15)
 
