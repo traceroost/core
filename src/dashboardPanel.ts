@@ -148,7 +148,8 @@ export class DashboardPanel {
     }
   }
 
-  /** `anchor` (Help tab only) scrolls to that element id once the tab is shown. */
+  /** `anchor`: on Help, the element id to scroll to; on Analytics ('analytics') or Advisor
+   *  ('patterns'), the view to open (media/src/state.ts's ANALYTICS_VIEWS / ADVISOR_VIEWS). */
   static switchToTab(tab: string, anchor?: string) {
     DashboardPanel.currentPanel?.panel.webview.postMessage({ type: 'switchTab', tab, anchor })
   }

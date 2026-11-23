@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'preact/hooks'
-import { activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt } from '../state'
+import { activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt, goToAdvisor } from '../state'
 import { getAgentColorVar } from '../utils'
 import { appliedSuggestions } from './Instructions'
 import {
@@ -447,7 +447,6 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
   const views = chart1Views(snapshot)
   const [pref, setPref] = useState<Chart1View | null>(readViewPref)
   const view = pref && views.includes(pref) ? pref : defaultChart1View(snapshot)
-  const rollups = chart2Rollups(snapshot)
   const windowless = windowlessPlans(snapshot)
   const choose = (v: Chart1View) => {
     setPref(v)
@@ -494,15 +493,21 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
         </>
       )}
 
-      {rollups.length > 0 && (
-        <>
-          <div style="font-size:12px;margin:14px 0 4px"><strong>Did my fixes work?</strong></div>
-          <p style="font-size:11px;color:var(--muted);margin:0 0 6px">
-            Peak weekly usage per week. Markers show when an instruction-file suggestion was applied; a lower peak after one is the saving.
-          </p>
-          <WeeklyPeaksChart rollups={rollups} />
-        </>
-      )}
+    </>
+  )
+}
+
+/** Advisor › Results' "Did my fixes work?": peak weekly plan usage per week, with a marker where an
+ *  instruction-file suggestion was applied. Null when no plan has a full week recorded yet. */
+export function PlanFixesChart({ snapshot }: { snapshot: PlanUsageSnapshot | null }) {
+  const rollups = snapshot ? chart2Rollups(snapshot) : []
+  if (rollups.length === 0) return null
+  return (
+    <>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 6px">
+        Peak weekly plan usage per week. Markers show when an instruction-file suggestion was applied; a lower peak after one is the saving.
+      </p>
+      <WeeklyPeaksChart rollups={rollups} />
     </>
   )
 }
@@ -579,7 +584,7 @@ export function LimitHitBanner({ sessionId }: { sessionId: string }) {
         {used !== undefined ? ` · this trace used ${u?.approximate ? '≈ ' : ''}${fmtPct(used)} of the window before the block` : ''}
         {hits.length > 1 ? ` · ${hits.length} limit hits in this trace` : ''}
       </div>
-      <button onClick={() => { activeTab.value = 'patterns' }}
+      <button onClick={() => goToAdvisor('recommendations')}
         style="margin-top:4px;padding:2px 8px;font-size:var(--fs-xs);border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--fg)">
         See how to use less of your limit →
       </button>

@@ -16,6 +16,7 @@ import {
   collectorConflict, type CollectorConflict, logIngestProgress, agentSetupPending, agentRestartNeeded,
   getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp, riskSignals,
   configOpen, alertsOpen, filtersOpen, filtersFocusField, exportOpen, importOpen, importDroppedFile,
+  goToAnalytics, goToAdvisor, isAnalyticsView, isAdvisorView,
 } from './state'
 import { useDialog } from './a11y'
 import type { TimelineEntry, AgentFilter, LanguageFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, LoopSignal, VersionCheckResponse, ActionLogEntry, LogIngestProgress, AgentRestartNeeded } from './types'
@@ -64,8 +65,8 @@ const versionCheck = signal<VersionCheckResponse | null>(null)
 // glossary in Help.tsx.
 const TABS = [
   { id: 'sessions',   label: 'Traces',     title: 'Trace list with expand-in-place detail: waterfall, files, cost, and flagged issues for each trace.' },
-  { id: 'analytics',  label: 'Analytics',  title: 'Aggregate charts and metrics: token/cost trends, agent comparison, tool distribution, and active insights.' },
-  { id: 'patterns',   label: 'Advisor',    title: 'Cross-trace behavioral patterns, efficiency map, hot files, and instruction file recommendations.' },
+  { id: 'analytics',  label: 'Analytics',  title: 'What happened: cost and plan limits, output, efficiency, and agents side by side.' },
+  { id: 'patterns',   label: 'Advisor',    title: 'What to do: ranked recommendations, instruction files, and whether applied changes worked.' },
 ]
 
 // See flushOutcomes in App's message handler.
@@ -824,6 +825,10 @@ export function App() {
           exportOpen.value = true
         } else if (tab === 'import') {
           importOpen.value = true
+        } else if (tab === 'analytics' && isAnalyticsView(msg.anchor)) {
+          goToAnalytics(msg.anchor)
+        } else if (tab === 'patterns' && isAdvisorView(msg.anchor)) {
+          goToAdvisor(msg.anchor)
         } else {
           activeTab.value = tab
         }

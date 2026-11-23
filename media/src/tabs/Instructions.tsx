@@ -511,6 +511,8 @@ interface WorkspaceView {
   files: InstructionFile[]
   /** The host reports this folder no longer exists on disk. */
   missing: boolean
+  /** The host has answered for this folder's instruction files (false while still being asked). */
+  loaded: boolean
   /** The host doesn't read this folder: it's in macOS cloud storage (standalone/desktop only,
    *  src/projectAccess.ts) — suggestions can't be applied, and existing files aren't known. */
   cloudStorage: boolean
@@ -541,7 +543,7 @@ function workspaceView(workspace: string, sessions: SessionSummaryCard[]): Works
   const existingText = allFiles.map(f => f.content).join('\n')
   const pending = generateSuggestions(sessions, existingText)
     .filter(s => !appliedIds.has(s.id) && !dismissed?.has(s.id))
-  return { workspace, sessions, files, missing: entry?.missing === true, cloudStorage: entry?.cloudStorage === true, pending, applied }
+  return { workspace, sessions, files, missing: entry?.missing === true, cloudStorage: entry?.cloudStorage === true, loaded: entry !== undefined, pending, applied }
 }
 
 const viewTraces = (ids: Set<string>) => {
@@ -609,9 +611,10 @@ function ImpactSummary({ applied, sessions }: { applied: AppliedRecord[]; sessio
   )
 }
 
-/** Pending and applied suggestions for one workspace. `canApply` false hides the target picker and
- *  Apply (nowhere to write); `repoPill` labels each card with its repo when no group header does. */
-function WorkspaceSuggestions({ view, canApply, repoPill }: { view: WorkspaceView; canApply: boolean; repoPill: boolean }) {
+/** One workspace's pending suggestions (Advisor › Recommendations) or applied ones (Advisor ›
+ *  Results), per `show`. `canApply` false hides the target picker and Apply (nowhere to write);
+ *  `repoPill` labels each card with its repo when no group header does. */
+function WorkspaceSuggestions({ view, canApply, repoPill, show }: { view: WorkspaceView; canApply: boolean; repoPill: boolean; show: 'pending' | 'applied' }) {
   const { workspace, pending, applied, sessions } = view
 
   function handleApply(card: SuggestionCard, targetFile: string) {
@@ -648,7 +651,7 @@ function WorkspaceSuggestions({ view, canApply, repoPill }: { view: WorkspaceVie
 
   return (
     <>
-      {pending.length > 0 && (
+      {show === 'pending' && pending.length > 0 && (
         <>
           {sectionLabel('Pending', pending.length)}
           {pending.map(card => (
@@ -667,8 +670,8 @@ function WorkspaceSuggestions({ view, canApply, repoPill }: { view: WorkspaceVie
         </>
       )}
 
-      {applied.length > 0 && (
-        <div style="margin-top:16px">
+      {show === 'applied' && applied.length > 0 && (
+        <div>
           {sectionLabel('Applied', applied.length)}
           <ImpactSummary applied={applied} sessions={sessions} />
           {applied.map(rec => (
@@ -777,7 +780,7 @@ function toggleCollapsed(workspace: string): void {
   setCollapsed(next)
 }
 
-function WorkspaceGroup({ view, canApply, highlight }: { view: WorkspaceView; canApply: boolean; highlight: boolean }) {
+function WorkspaceGroup({ view, canApply, highlight, part }: { view: WorkspaceView; canApply: boolean; highlight: boolean; part: InstructionsPart }) {
   const { workspace, missing, cloudStorage, pending, applied, sessions } = view
   const info = repoInfo.value
   const collapsed = collapsedWorkspaces.value.has(workspace)
@@ -831,11 +834,23 @@ function WorkspaceGroup({ view, canApply, highlight }: { view: WorkspaceView; ca
       </button>
       {!collapsed && (
         <div id={bodyId}>
-          {canApply && !missing && !cloudStorage && <FileStatusBar files={view.files} />}
-          <div style="padding:10px 12px 2px">
-            {note && <div style={noteStyle}>{note}</div>}
-            <WorkspaceSuggestions view={view} canApply={canApply && !!workspace && !missing && !cloudStorage} repoPill={false} />
-          </div>
+          {part === 'files' && canApply && !missing && !cloudStorage && <FileStatusBar files={view.files} />}
+          {part === 'files' ? (
+            (note || !canApply || view.files.length === 0) && (
+              <div style="padding:10px 12px 2px">
+                <div style={noteStyle}>{note ?? (!canApply
+                  ? 'Open this repo\'s folder in VS Code to check its instruction files.'
+                  : !view.loaded ? 'Checking this repo\'s instruction files…'
+                  : 'No agent with traces here has an instruction file TraceRoost knows how to check.')}</div>
+              </div>
+            )
+          ) : (
+            <div style="padding:10px 12px 2px">
+              {note && part === 'suggestions' && <div style={noteStyle}>{note}</div>}
+              <WorkspaceSuggestions view={view} canApply={canApply && !!workspace && !missing && !cloudStorage} repoPill={false}
+                show={part === 'results' ? 'applied' : 'pending'} />
+            </div>
+          )}
         </div>
       )}
     </section>
@@ -958,7 +973,33 @@ function RepoToolbar({ workspaces }: { workspaces: string[] }) {
 
 // ── Main tab component ────────────────────────────────────────────────────────
 
-export function Instructions() {
+function NothingAppliedYet() {
+  return (
+    <div class="view-empty" data-instructions-empty="results">
+      Nothing applied yet. Apply a suggestion under Recommendations, and how traces changed after it
+      shows here once a few more come in.
+    </div>
+  )
+}
+
+/** Which Advisor view this renders into: pending suggestions (Recommendations), each repo's files
+ *  (Instruction files), or applied suggestions and their effect (Results). */
+export type InstructionsPart = 'suggestions' | 'files' | 'results'
+
+/** Pending suggestions across the repos this view covers: the Recommendations count in Advisor's
+ *  menu. Same scoping as Instructions() below (the open folder, else each repo with 3+ traces). */
+export function pendingInstructionCount(sessions: SessionSummaryCard[]): number {
+  const workspace = currentWorkspace.value
+  if (workspace !== null) {
+    const wsSessions = sessions.filter(s => (s.workspace ?? '') === workspace)
+    return wsSessions.length < 3 ? 0 : workspaceView(workspace, wsSessions).pending.length
+  }
+  let n = 0
+  for (const [ws, g] of groupByWorkspace(sessions)) if (g.length >= 3) n += workspaceView(ws, g).pending.length
+  return n
+}
+
+export function Instructions({ part }: { part: InstructionsPart }) {
   // The real folder this VS Code window has open (dashboardPanel.ts's 'update' message) — not
   // workspaceFilter, which is the header's freeform repo *search* box and can match any historical
   // repo's sessions, not just the one Apply actually writes to (the extension host resolves
@@ -1001,14 +1042,25 @@ export function Instructions() {
       return <InsufficientDataState workspace={workspace} count={wsSessions.length} filtered={unfiltered.length >= 3} />
     }
     const view = workspaceView(workspace, wsSessions)
-    return (
-      <div>
-        <FileStatusBar files={view.files} />
-        <div style="padding:12px 16px">
-          <FilterNotice traceCount={wsSessions.length} multiRepo={false} />
-          <WorkspaceSuggestions view={view} canApply={true} repoPill={true} />
-          {view.pending.length === 0 && view.applied.length === 0 && <DiagnosticsPanel sessions={wsSessions} />}
+    if (part === 'files') {
+      return (
+        <div data-instructions-workspace={workspace}>
+          <FileStatusBar files={view.files} />
+          <div style="padding:10px 16px;font-size:11px;color:var(--muted)">
+            {view.files.length === 0 && (view.loaded
+              ? 'No agent with traces in this folder has an instruction file TraceRoost knows how to check. '
+              : 'Checking this folder\'s instruction files… ')}
+            {view.pending.length} pending suggestion{view.pending.length === 1 ? '' : 's'} · {view.applied.length} applied
+          </div>
         </div>
+      )
+    }
+    if (part === 'results' && view.applied.length === 0) return <NothingAppliedYet />
+    return (
+      <div style="padding:12px 16px">
+        <FilterNotice traceCount={wsSessions.length} multiRepo={false} />
+        <WorkspaceSuggestions view={view} canApply={true} repoPill={true} show={part === 'results' ? 'applied' : 'pending'} />
+        {part === 'suggestions' && view.pending.length === 0 && <DiagnosticsPanel sessions={wsSessions} />}
       </div>
     )
   }
@@ -1021,11 +1073,13 @@ export function Instructions() {
 
   const byWs = groupByWorkspace(sessions)
   const views = groups.map(ws => workspaceView(ws, byWs.get(ws) ?? []))
-  const shown = sortViews(views.filter(v => v.pending.length > 0 || v.applied.length > 0), repoSort.value)
+  const keep = (v: WorkspaceView) => part === 'files' ? true : part === 'results' ? v.applied.length > 0 : v.pending.length > 0
+  const shown = sortViews(views.filter(keep), repoSort.value)
+  if (part === 'results' && shown.length === 0) return <NothingAppliedYet />
 
   return (
     <div style="padding:12px 16px">
-      {!across && (
+      {!across && part !== 'results' && (
         <div style={noteStyle}>
           No repo folder is open in this window, so TraceRoost has nowhere to write instruction
           file changes. Suggestions below (grouped by the repo they came from) are shown for
@@ -1035,8 +1089,8 @@ export function Instructions() {
       )}
       <FilterNotice traceCount={sessions.length} multiRepo={true} />
       {shown.length > 1 && <RepoToolbar workspaces={shown.map(v => v.workspace)} />}
-      {shown.map(v => <WorkspaceGroup key={v.workspace} view={v} canApply={across} highlight={shown.length > 1} />)}
-      {shown.length === 0 && <DiagnosticsPanel sessions={sessions} />}
+      {shown.map(v => <WorkspaceGroup key={v.workspace} view={v} canApply={across} highlight={shown.length > 1} part={part} />)}
+      {part === 'suggestions' && shown.length === 0 && <DiagnosticsPanel sessions={sessions} />}
     </div>
   )
 }

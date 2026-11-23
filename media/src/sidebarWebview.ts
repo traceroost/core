@@ -520,9 +520,9 @@ window.addEventListener('message', (e: MessageEvent<UpdateMsg>) => {
 const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : null
 
 document.getElementById('sb-plan-meters')?.addEventListener('click', () => {
-  if (vscode) vscode.postMessage({ type: 'openDashboardTab', tab: 'analytics' })
+  if (vscode) vscode.postMessage({ type: 'openDashboardTab', tab: 'analytics', anchor: 'cost' })
   // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration -- posts to this same window, with no data
-  else window.postMessage({ type: 'switchTab', tab: 'analytics' }, '*')
+  else window.postMessage({ type: 'switchTab', tab: 'analytics', anchor: 'cost' }, '*')
 })
 
 document.getElementById('sb-open-btn')?.addEventListener('click', () => {

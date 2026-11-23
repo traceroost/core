@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Analytics and Advisor show one view at a time, and each tab has one job.** Their left menus used to jump down a long page, and several items appeared only when there was data, so where something lived depended on your filters. Now each menu item opens its own view, the items never change, and a section with nothing to show says why. **Analytics** shows what happened: *Cost & limits* (plan limits, estimated cost), *Output* (outcome & token spend, code changes, by language), *Efficiency* (the efficiency map and hot files, moved from Advisor, plus context growth and token usage per trace) and *Agents* (the per-agent cards are now one side-by-side table). **Advisor** says what to do and whether it worked: *Recommendations* (how to spend less, and pending instruction-file suggestions, counted in the menu), *Instruction files* (each repo's files) and *Results* (applied suggestions and their effect, and "Did my fixes work?", moved from Plan limits). Each tab remembers the view you were on. TraceRoost Cloud's Analytics and Advisor pages get the same structure
+
 ### Added
 
 - **Listed in the official MCP Registry** as `io.github.traceroost/traceroost`, so MCP clients and directories that read the registry can find TraceRoost's MCP server. Each release now publishes the entry (`server.json`) after the npm package (#451)

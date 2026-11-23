@@ -813,19 +813,19 @@ function AnalyticsSection() {
     <div class="help-section" id="help-analytics">
       <h3 class="help-heading">{HELP_SECTIONS.analytics.heading}</h3>
       <div class="help-overview-body">
-        <p>The Analytics tab charts the traces in the active time range that match the filter bar's agent, language, repo and source filters, so narrowing them narrows every section below. Agent breakdown, By language, Plan limits, Outcome &amp; token spend and Estimated cost appear only when there's data for them.</p>
+        <p>The Analytics tab shows what happened, one view at a time, picked from its left menu: <strong>Cost &amp; limits</strong> (plan limits and estimated cost), <strong>Output</strong> (outcome &amp; token spend, code changes, by language), <strong>Efficiency</strong> (efficiency map, hot files, context growth, token usage per trace) and <strong>Agents</strong> (a side-by-side comparison). Every view charts the traces in the active time range that match the filter bar, so narrowing the filters narrows every section. The menu never changes with the data: a section with nothing to show says why. What to do about any of it is under the <a href="#help-advisor">Advisor</a>.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
-            <dt class="glossary-term">Agent Breakdown</dt>
-            <dd class="glossary-def" style="display:block">One card per agent with traces in view (Copilot, Claude, Codex, OpenCode, Cursor CLI and Antigravity), showing LLM and tool call counts, input and output tokens, cache hit rate, average duration and TTFT (OTel only), lines added and removed, <a href="#gl-one-shot-rate">One-shot rate</a>, and top tools. Cursor CLI records no token counts (Antigravity none without its conversation database), so its token and cache figures show as —. One-shot rate is hidden when fewer than 2 files were edited.</dd>
+            <dt class="glossary-term">Agents</dt>
+            <dd class="glossary-def" style="display:block">One column per agent with traces in view (Copilot, Claude, Codex, OpenCode, Cursor CLI and Antigravity) and one row per measure, so agents compare across a row: LLM and tool call counts, input and output tokens, cache hit rate, average duration and TTFT (OTel only), lines added and removed, <a href="#gl-one-shot-rate">One-shot rate</a>, and top tools. Cursor CLI records no token counts (Antigravity none without its conversation database), so its token and cache figures show as —. One-shot rate is hidden when fewer than 2 files were edited.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">By Language</dt>
-            <dd class="glossary-def" style="display:block">Traces in view grouped by primary <a href="#help-language">language</a>. A summary line totals the files changed and lines added and removed by the agent's own edits, from the traces that recorded them (and says how many of the traces in view that was). The table then shows, per language, trace count with a bar, estimated cost, tokens (input + output) and lines +/− ("—" when none of its traces recorded lines), most traces first. Shown once any trace in view has a recorded language; traces stored before language tracking are grouped last as "Not reported".</dd>
+            <dd class="glossary-def" style="display:block">Traces in view grouped by primary <a href="#help-language">language</a>. A summary line totals the files changed and lines added and removed by the agent's own edits, from the traces that recorded them (and says how many of the traces in view that was). The table then shows, per language, trace count with a bar, estimated cost, tokens (input + output) and lines +/− ("—" when none of its traces recorded lines), most traces first. Traces stored before language tracking are grouped last as "Not reported"; with none recorded at all, the section says so.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Plan Limits</dt>
-            <dd class="glossary-def" style="display:block">How full your Claude Pro/Max and ChatGPT plan's 5-hour and weekly windows are, and when they reset. Shown only once Claude Code or Codex has recorded a reading; see <a href="#help-plan-limits">Plan limits</a>.</dd>
+            <dd class="glossary-def" style="display:block">On Cost &amp; limits: how full your Claude Pro/Max and ChatGPT plan's 5-hour and weekly windows are, and when they reset. Until Claude Code or Codex has recorded a reading, or when the agent filter excludes both, the section says why it's empty; see <a href="#help-plan-limits">Plan limits</a>.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Outcome &amp; Token Spend Over Time</dt>
@@ -838,6 +838,14 @@ function AnalyticsSection() {
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Estimated Cost</dt>
             <dd class="glossary-def" style="display:block">A bar chart of daily spend with a green total-per-day overlay line and inline date labels at day boundaries. Below the chart: a day-grouped cost table (date → agent → model) and a model breakdown table. The <strong>↓ CSV</strong> button exports the cost data.</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:4px">
+            <dt class="glossary-term">Efficiency Map</dt>
+            <dd class="glossary-def" style="display:block">On Efficiency, as "Cost vs back-and-forth": a scatter plot where each dot is one trace. Right = more expensive. Up = more turns (LLM calls). Color = cache hit rate (green ≥60%, orange 20–60%, red &lt;20%). Click a dot to navigate to that trace. The table below shows the top 10 traces sorted by the active column; click any column header to re-sort.</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:4px">
+            <dt class="glossary-term">Hot Files</dt>
+            <dd class="glossary-def" style="display:block">Files the agent accessed most frequently across traces, ranked by trace count. Switch between Read, Changed, Written, and Both modes. Frequently read files cost tokens every trace and are strong candidates for your instruction file; frequently changed files benefit from explicit constraints. The Advisor turns these into suggestions.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Token Usage Per Trace</dt>
@@ -858,12 +866,12 @@ function PatternsSection() {
     <div class="help-section" id="help-advisor">
       <h3 class="help-heading">{HELP_SECTIONS.patterns.heading}</h3>
       <div class="help-overview-body">
-        <p>The Advisor tab analyzes your trace history to surface actionable improvements for your agent instruction file. All panels respect the shared filter bar. Instruction-file suggestions are always worked out per repo, from that repo's traces only: in VS Code they cover the folder the window has open; in standalone/npx mode they cover every repo in your traces, one group per repo (repo name and path), and the Repo filter narrows which groups show.</p>
+        <p>The Advisor tab says what to change and whether it worked, in three views picked from its left menu. <strong>Recommendations</strong> holds the ranked "How to spend less" list and the pending instruction-file suggestions, with a count in the menu. <strong>Instruction files</strong> shows which instruction files each repo has for the agents working in it. <strong>Results</strong> lists the suggestions you applied with how traces changed after each, and, on a Claude or ChatGPT plan, the "Did my fixes work?" chart of peak weekly usage with a marker where each was applied. The data these are built from is charted under <a href="#help-analytics">Analytics</a>, Efficiency. All views respect the shared filter bar. Instruction-file suggestions are always worked out per repo, from that repo's traces only: in VS Code they cover the folder the window has open; in standalone/npx mode they cover every repo in your traces, one group per repo (repo name and path), and the Repo filter narrows which groups show.</p>
 
         <h4 style={subHeadStyle}>How to Spend Less</h4>
         <p style={mutedP}>When there's something to act on, the Advisor opens with one ranked list of the biggest savings (loop signals, hot files, and cache problems combined), ranked by priority, with an estimated dollar (or weekly plan-limit) saving where one can be priced, so you can start at the top.</p>
 
-        <h4 style={subHeadStyle}>Instructions File</h4>
+        <h4 style={subHeadStyle}>Instruction file suggestions</h4>
         <p style={mutedP}>TraceRoost scans trace patterns and generates specific, ready-to-copy suggestions for improving your instruction file: <code>CLAUDE.md</code> (Claude Code), <code>.github/copilot-instructions.md</code> (Copilot), <code>AGENTS.md</code> (read by Codex, OpenCode, the Cursor CLI and Antigravity; Antigravity's legacy <code>GEMINI.md</code> isn't checked) or <code>.cursor/rules/traceroost.mdc</code> (a Cursor project rule, created with <code>alwaysApply: true</code> frontmatter). Each card lists the agents it applies to. Suggestions are grouped by type:</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
@@ -889,11 +897,6 @@ function PatternsSection() {
         </div>
         <p style={mutedP}>Each suggestion card shows a <strong>Recommended addition</strong> (text ready to paste into your instruction file) and an <strong>Ask your agent</strong> prompt you can copy and send directly to your agent to get its own recommendation. Both have Copy buttons. <strong>TraceRoost only writes to your instruction file when you click Apply</strong>: it appends the suggestion as a block wrapped in <code>&lt;!-- TraceRoost suggestion … --&gt;</code> markers, and Remove deletes exactly that block, never text you wrote around it. Copy-and-paste works too, applied by you (or by the agent, if you paste the "Ask your agent" prompt into it). Apply writes into the repo the suggestion came from (in VS Code, the open folder); pick the file from the card's picker; "(create)" marks one that doesn't exist yet. In standalone mode a repo whose folder has since been moved or deleted keeps its suggestions but not the Apply button.</p>
 
-        <h4 style={subHeadStyle}>Efficiency Map</h4>
-        <p style={mutedP}>A scatter plot where each dot is one trace. Right = more expensive. Up = more turns (LLM calls). Color = cache hit rate (green ≥60%, orange 20–60%, red &lt;20%). Click a dot to navigate to that trace. The table below shows the top 10 traces sorted by the active column; click any column header to re-sort.</p>
-
-        <h4 style={subHeadStyle}>Hot Files</h4>
-        <p style={mutedP}>Files the agent accessed most frequently across traces, ranked by trace count. Switch between Read, Changed, Written, and Both modes. Frequently read files cost tokens every trace and are strong candidates for your instruction file; frequently changed files benefit from explicit constraints.</p>
       </div>
     </div>
   )
@@ -910,7 +913,7 @@ function CostSection() {
       <div class="help-overview-body">
 
         <h4 style={subHeadStyle} id="help-plan-limits">Plan limits: your 5-hour and weekly windows</h4>
-        <p>On a Claude Pro/Max or ChatGPT plan you don't pay per token; what runs out is the plan's <strong>5-hour</strong> and <strong>weekly</strong> usage windows. TraceRoost shows how full each window is (Analytics → Plan limits, and the sidebar), how much of it each trace used (the Traces table's <em>Limit</em> column shows the 5-hour window, or weekly when there's no 5-hour reading; expand a trace for both windows and any limit hits), when a limit blocked you, and how much of your weekly limit the Advisor's fixes would save.</p>
+        <p>On a Claude Pro/Max or ChatGPT plan you don't pay per token; what runs out is the plan's <strong>5-hour</strong> and <strong>weekly</strong> usage windows. TraceRoost shows how full each window is (Analytics › Cost &amp; limits, and the sidebar), how much of it each trace used (the Traces table's <em>Limit</em> column shows the 5-hour window, or weekly when there's no 5-hour reading; expand a trace for both windows and any limit hits), when a limit blocked you, and how much of your weekly limit the Advisor's fixes would save.</p>
         <p>It reads only files Claude Code and Codex already write on your machine:</p>
         <ul style="font-size:12px;color:var(--muted);padding-left:18px;line-height:1.8">
           <li><strong style="color:var(--fg)">Codex</strong>: the plan data Codex records on every turn in <code style={codeStyle}>~/.codex/sessions/…/rollout-*.jsonl</code>, so its meter is exact and updates with each turn. Some plans, such as <strong style="color:var(--fg)">ChatGPT Business</strong>, report no 5-hour or weekly window because usage is billed in credits. For those, Plan limits shows a Codex card with the plan and its credit state instead of a meter, and turns it red if Codex reports a spend limit.</li>

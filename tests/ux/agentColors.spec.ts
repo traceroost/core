@@ -3,7 +3,7 @@ import { sessions } from './fixtures'
 
 /**
  * One colour per agent (media/src/agentColors.ts), from the theme's chart palette: the same
- * colour on the filter pill, the Analytics agent card and the cost chart legend; five distinct
+ * colour on the filter pill, the Analytics › Agents column header and the cost chart legend; five distinct
  * colours; and none that disappears on the page background (OpenCode's white and Codex's neon
  * yellow used to, on a light theme).
  */
@@ -41,16 +41,19 @@ test('each agent has one theme-aware colour across pills, cards and the cost leg
     expect(contrast(pillColor[src], bg), `${src} ${pillColor[src]} on ${bg}`).toBeGreaterThanOrEqual(2.5)
   }
 
+  // Analytics opens on Cost & limits, with the cost chart's legend.
   await page.locator('.tabs').getByRole('button', { name: 'Analytics', exact: true }).click()
-  for (const src of SOURCES) {
-    const card = page.locator(`[data-agent-card=${src}]`)
-    await expect(card).toBeVisible()
-    expect(await card.evaluate((el) => getComputedStyle(el).borderLeftColor)).toBe(pillColor[src])
-  }
   const legend = page.locator('[data-testid=cost-chart-legend]')
   await expect(legend).toBeVisible()
   for (const src of SOURCES.filter((s) => s !== 'cursor')) {
     const swatch = legend.locator('span', { hasText: LABELS[src] }).first().locator('span[aria-hidden=true]')
     expect(await swatch.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(pillColor[src])
+  }
+  // Agents: each column header carries the agent's colour.
+  await page.locator('.view-nav-rail [data-view=agents]').click()
+  for (const src of SOURCES) {
+    const head = page.locator(`[data-agent-card=${src}]`)
+    await expect(head).toBeVisible()
+    expect(await head.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe(pillColor[src])
   }
 })

@@ -74,7 +74,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         vscode.commands.executeCommand('traceRoost.openDashboard')
         setTimeout(() => {
           const { DashboardPanel } = require('./dashboardPanel')
-          DashboardPanel.switchToTab(msg.tab ?? 'sessions')
+          DashboardPanel.switchToTab(msg.tab ?? 'sessions', typeof msg.anchor === 'string' ? msg.anchor : undefined)
         }, 300)
       } else if (msg.type === 'confirmClear') {
         const answer = await vscode.window.showWarningMessage(

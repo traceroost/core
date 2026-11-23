@@ -40,75 +40,69 @@ type Logger = (msg: string) => void
 export interface SectionRail {
   /** The tab's content wrapper — '#analytics-content', '#patterns-content'. */
   contentSel: string
-  /** The rail's aria-label, i.e. SectionNav's `label` prop. */
+  /** The menu's aria-label, i.e. ViewNav's `label` prop. */
   railLabel: string
-  /** How long to hold each section, keyed by the rail button's visible label. */
+  /** How long to hold each view, keyed by the menu button's `data-view` id. */
   pauseMs: Record<string, number>
-  /** Hold for a section this map doesn't name, so a newly added one still gets screen time. */
+  /** Hold for a view this map doesn't name, so a newly added one still gets screen time. */
   defaultMs: number
 }
 
-// Charts get roughly twice the hold of the tables and cards around them — the point of the
-// walk is the graphs. Labels come from each tab's `navSections` array (media/src/tabs/
-// Analytics.tsx, Patterns.tsx); a renamed or added section falls back to defaultMs rather
-// than dropping out, and the log names whatever it actually clicked.
+// Chart-heavy views get the longest hold — the point of the walk is the graphs. Ids are the
+// `data-view` values from media/src/state.ts's ANALYTICS_VIEWS / ADVISOR_VIEWS; a renamed or
+// added view falls back to defaultMs rather than dropping out, and the log names whatever it
+// actually clicked.
 export const ANALYTICS_RAIL: SectionRail = {
   contentSel: '#analytics-content',
-  railLabel: 'Analytics sections',
-  defaultMs: 2600,
+  railLabel: 'Analytics views',
+  defaultMs: 3000,
   pauseMs: {
-    'Agent breakdown': 1200,
-    'By language': 1200,
-    'Plan limits': 1400,
-    'Outcome & token spend': 3600,
-    'Code changes': 3400,
-    'Estimated cost': 3000,
-    'Token usage': 3000,
-    'Context growth': 3000,
+    cost: 3400,
+    output: 4000,
+    efficiency: 3600,
+    agents: 1600,
   },
 }
 
 export const ADVISOR_RAIL: SectionRail = {
   contentSel: '#patterns-content',
-  railLabel: 'Advisor sections',
+  railLabel: 'Advisor views',
   defaultMs: 2400,
   pauseMs: {
-    'How to spend less': 1600,
-    'Instructions file': 1200,
-    'Efficiency map': 3000,
-    'Hot files': 1600,
+    recommendations: 2400,
+    instructions: 1400,
+    results: 1600,
   },
 }
 
-// Walks a long tab's left-hand jump rail (media/src/SectionNav.tsx), holding on each section.
-// Buttons are taken by position rather than by name so that a section this file doesn't know
-// about is still visited; the rail itself only renders with more than one section, and its
-// clicks scroll `.panel.active` (not the document), which is why this drives the rail instead
-// of scrolling the page by hand.
+// Walks a tab's left-hand view menu (media/src/ViewNav.tsx), holding on each view. Buttons are
+// taken by position rather than by name so that a view this file doesn't know about is still
+// visited; each click swaps the one view shown, which is why this drives the menu instead of
+// scrolling the page by hand.
 export async function tourSectionRail(
   page: Page, rail: SectionRail, speed: number, log: Logger,
 ): Promise<void> {
   const nav = page.locator(`${rail.contentSel} nav[aria-label="${rail.railLabel}"]`).first()
   const visible = await nav.isVisible().catch(() => false)
   if (!visible) {
-    log(`  ! ${rail.railLabel}: jump rail not visible; every section below the fold SKIPPED`)
+    log(`  ! ${rail.railLabel}: view menu not visible; every view SKIPPED`)
     return
   }
 
-  const buttons = nav.getByRole('button')
+  const buttons = nav.locator('button[data-view]')
   const count = await buttons.count().catch(() => 0)
   if (count === 0) {
-    log(`  ! ${rail.railLabel}: rail has no buttons; sections SKIPPED`)
+    log(`  ! ${rail.railLabel}: menu has no views; views SKIPPED`)
     return
   }
 
   for (let i = 0; i < count; i++) {
     const btn = buttons.nth(i)
-    const label = ((await btn.textContent().catch(() => null)) ?? `section ${i + 1}`).trim()
+    const label = (await btn.getAttribute('data-view').catch(() => null)) ?? `view ${i + 1}`
     const ms = rail.pauseMs[label] ?? rail.defaultMs
     const clicked = await btn.click({ timeout: 5000 }).then(() => true).catch(() => false)
     if (!clicked) {
-      log(`  ! ${rail.railLabel}: "${label}" would not click; section SKIPPED`)
+      log(`  ! ${rail.railLabel}: "${label}" would not click; view SKIPPED`)
       continue
     }
     log(`  → ${label} (${ms / 1000}s)`)
@@ -257,18 +251,15 @@ export async function runTour(page: Page, opts: RunTourOptions): Promise<void> {
     // detail nav — those live inside the row, not the top-level tab bar.
     if (id === 'sessions') await tourSessionDetail(page, speed, log)
 
-    // Analytics: walk the whole page. Its charts (outcome and token spend, code changes,
-    // estimated cost, token usage, context growth) are all below the fold, so a flat pause on
-    // the tab showed the breakdown tables at the top and none of the graphs — which is what
-    // this tour did until 2026-11-08. Then the Alerts panel, which is the natural point to
+    // Analytics: walk every view in its menu. A flat pause on the tab would show only the first
+    // view (Cost & limits) and none of the other charts. Then the Alerts panel, which is the natural point to
     // surface Automation/Alerts: they live behind the header bell, not in a tab of their own.
     if (id === 'analytics') {
       await tourSectionRail(page, ANALYTICS_RAIL, speed, log)
       await tourAlertsPanel(page, speed, log)
     }
 
-    // Advisor is a scrolling page too — the Efficiency map and Hot files sit below its
-    // instructions-file section.
+    // Advisor: walk its views too (Recommendations, Instruction files, Results).
     if (id === 'patterns') await tourSectionRail(page, ADVISOR_RAIL, speed, log)
   }
 

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { sessions } from './fixtures'
 
 /**
- * Advisor → Instructions File: a suggestion card's Apply posts applyInstructionSuggestion with the
+ * Advisor › Recommendations: a suggestion card's Apply posts applyInstructionSuggestion with the
  * picked target file, stays disabled while in flight, and the card leaves Pending once the host
  * replies with the applied record (what dashboardPanel.ts and the standalone polyfill both send).
  * The fixture host (serve.ts) records every posted message in window.__posted.
@@ -62,6 +62,8 @@ test('Apply posts the suggestion with its target file and waits for the host', a
     }],
   }, '*'), msg as Record<string, unknown>)
   await expect(page.locator(`[data-suggestion-id="${msg?.id}"]`)).toHaveCount(0)
+  // Applied suggestions and their effect live under Advisor › Results.
+  await page.locator('.view-nav-rail [data-view=results]').click()
   await expect(page.getByTitle('Remove from instruction file and move back to pending')).toHaveCount(1)
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), 'document overflow').toBe(false)
