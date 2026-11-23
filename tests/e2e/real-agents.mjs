@@ -25,7 +25,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import {
   REPO_ROOT, IS_WIN, notice, log, assert, assertEqual, waitFor, freePorts, getJson, postJson, request, mcpCall,
-  makeTempHome, answerAgentSetupYes, makeGitRepo, git, startProcess, stepRunner, sleep, rmrf,
+  makeTempHome, answerAgentSetupYes, makeGitRepo, git, startProcess, stepRunner, sleep, rmrf, skippedAgents,
 } from './lib.mjs'
 
 const argv = process.argv.slice(2)
@@ -45,9 +45,11 @@ function version(bin) {
 }
 
 const agents = {}
+const skipped = skippedAgents()
 if (!only || only === 'claude') {
   const bin = globalBin('claude')
-  if (!process.env.ANTHROPIC_API_KEY) notice('Claude Code: ANTHROPIC_API_KEY secret is not set — skipping the Claude Code run')
+  if (skipped.has('claude')) notice('Claude Code: turned off by the repo variable AGENT_CAPTURE_SKIP — skipping the Claude Code run')
+  else if (!process.env.ANTHROPIC_API_KEY) notice('Claude Code: ANTHROPIC_API_KEY secret is not set — skipping the Claude Code run')
   else if (!bin) notice('Claude Code: `claude` not found in the global npm prefix — install @anthropic-ai/claude-code')
   else {
     log(`claude ${version(bin)} at ${bin}`)
@@ -61,7 +63,8 @@ if (!only || only === 'claude') {
 }
 if (!only || only === 'codex') {
   const bin = globalBin('codex')
-  if (!process.env.OPENAI_API_KEY) notice('Codex: OPENAI_API_KEY secret is not set — skipping the Codex run')
+  if (skipped.has('codex')) notice('Codex: turned off by the repo variable AGENT_CAPTURE_SKIP — skipping the Codex run')
+  else if (!process.env.OPENAI_API_KEY) notice('Codex: OPENAI_API_KEY secret is not set — skipping the Codex run')
   else if (!bin) notice('Codex: `codex` not found in the global npm prefix — install @openai/codex')
   else {
     log(`codex ${version(bin)} at ${bin}`)

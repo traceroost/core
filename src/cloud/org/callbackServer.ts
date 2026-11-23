@@ -6,6 +6,12 @@
  * answered immediately — nothing further to wait for. A good one is *not* answered immediately:
  * `waitForCallback()` resolves as soon as the request lands, but the actual HTTP response is held
  * open until the caller calls `finish()` — see the note there for why.
+ *
+ * When nothing arrives in time the attempt fails, but the port keeps answering for a while with a
+ * page that says the request expired (see `EXPIRED_LINGER_MS`). The browser tab the user was sent
+ * to still holds this port, and it can come back long after the wait ended: a first sign-in on a
+ * new computer, with a magic-link email in the middle, easily outlasts it. A closed port there is
+ * a bare "can't connect to 127.0.0.1" browser error with nothing to say what to do next.
  */
 
 import * as http from 'http'
@@ -43,7 +49,8 @@ export interface CallbackServer {
    */
   finish(ok: boolean, message?: string): void
   /** Idempotent. Safe to call from any exit path — completes any still-open response with the
-   *  plain failure page first, so a forgotten `finish()` can never hang the browser tab. */
+   *  plain failure page first, so a forgotten `finish()` can never hang the browser tab. After a
+   *  timeout it leaves the listener up to serve the "expired" page; that one shuts itself down. */
   close(): void
 }
 
@@ -52,7 +59,7 @@ export interface CallbackServer {
  * `/oauth/authorize`'s approve action, which is the one place that already knows both the site's
  * own domain and which org the machine just joined). It arrives as an untrusted query param on a
  * request to a loopback listener that anyone briefly sharing this machine's network namespace
- * could in principle hit during the ~5-minute link window, so it's checked against the endpoint
+ * could in principle hit during the link window (15 minutes at most), so it's checked against the endpoint
  * this CLI is actually configured to trust — see `isTrustedOrgUrl` — the moment the request
  * lands, before any of it reaches this function. An absent or untrusted URL falls back to the
  * plain static message, never a guess.
@@ -87,6 +94,12 @@ function isTrustedOrgUrl(raw: string | null, orgOrigin: string | undefined): str
   }
 }
 
+function describeWait(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 120) return `${seconds}s`
+  return `${Math.round(seconds / 60)} minutes`
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 }
@@ -95,34 +108,55 @@ function escapeHtml(s: string): string {
  *  rejection from `assertCanLinkMachine`, which is otherwise invisible to a user who links from a
  *  context (a headless box, a teammate walking them through it) where they never see the
  *  CLI/panel's own error output. */
-const errorHtml = (message?: string) => `<!doctype html><html><head><meta charset="utf-8"><title>TraceRoost</title>
+const errorHtml = (message?: string) => failurePage('Link failed', message ?? 'Something went wrong. Return to TraceRoost and try again.')
+
+/** What the port answers once the wait is over: the approval in this request (if any) can no
+ *  longer be used, and the only way forward is a fresh attempt from the app. */
+const EXPIRED_HTML = failurePage('This link request expired', 'Nothing was sent. Return to TraceRoost and click Link this machine again.')
+
+function failurePage(heading: string, message: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><title>TraceRoost</title>
 <style>body{font:14px -apple-system,system-ui,sans-serif;color:#1f2328;display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center;background:#f6f8fa}
 .card{background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:32px 40px;text-align:center;max-width:360px}
 h1{font-size:16px;margin:0 0 8px}p{color:#656d76;margin:0}</style></head>
-<body><div class="card"><h1>Link failed</h1><p>${message ? escapeHtml(message) : 'Something went wrong. Return to TraceRoost and try again.'}</p></div></body></html>`
+<body><div class="card"><h1>${escapeHtml(heading)}</h1><p>${escapeHtml(message)}</p></div></body></html>`
+}
 
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
+// How long the browser has to come back with an approval. Long enough for a first sign-in on a
+// new computer (find the magic-link email, or get through an SSO prompt, then read the consent
+// screen): 5 minutes was not. The same lifetime the cloud gives a device code.
+const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000
+// After a timeout, how long the port keeps answering with EXPIRED_HTML before it is closed for
+// good. Nothing is accepted in this state; it exists only so a late browser tab gets an
+// explanation. Bounded so a long-lived host (the desktop app, the extension) never collects
+// listeners, and unref'd so it never keeps a CLI process alive.
+const EXPIRED_LINGER_MS = 60 * 60 * 1000
 // Bounds how long a good callback's response stays open waiting for finish() — comfortably above
 // a real token exchange (one HTTP round trip, a couple of DB writes), so this only ever fires on
 // a caller bug, not normal latency.
 const FINISH_SAFETY_TIMEOUT_MS = 20_000
 
 /** `callbackPath` defaults to `/callback`; overridable for tests. `timeoutMs` bounds the wait for
- *  the browser redirect to land at all. `orgOrigin` (e.g. `https://test.traceroost.com`, from
+ *  the browser redirect to land at all, and `expiredLingerMs` how long the port then keeps
+ *  answering with the "expired" page (0 closes it at once). `orgOrigin` (e.g. `https://test.traceroost.com`, from
  *  `orgEndpoint()`) is the only origin a `org_url` query param on the callback is ever trusted
  *  to link to — see `isTrustedOrgUrl`. */
 export async function startCallbackServer(opts: {
   callbackPath?: string
   timeoutMs?: number
+  expiredLingerMs?: number
   orgOrigin?: string
 } = {}): Promise<CallbackServer> {
   const callbackPath = opts.callbackPath ?? '/callback'
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const expiredLingerMs = opts.expiredLingerMs ?? EXPIRED_LINGER_MS
 
   let settle: ((r: CallbackResult) => void) | undefined
   let fail: ((e: Error) => void) | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let closed = false
+  // Set when the wait timed out: the attempt is over, the port only says so (see the header).
+  let expired = false
   // The redirect can land before `waitForCallback()` has registered its handlers (a fast
   // `openUrl`, or a test). Buffer whichever comes first so nothing is lost.
   let pendingResult: CallbackResult | undefined
@@ -162,6 +196,11 @@ export async function startCallbackServer(opts: {
       res.end('Not found')
       return
     }
+    if (expired) {
+      res.writeHead(410, { 'Content-Type': 'text/html' })
+      res.end(EXPIRED_HTML)
+      return
+    }
     const error = url.searchParams.get('error')
     // RFC 6749 §4.1.2.1: the human-readable reason, when the server gives one (the free tier's
     // machine cap answers `access_denied` with its message here).
@@ -182,6 +221,11 @@ export async function startCallbackServer(opts: {
   })
 
   const close = () => {
+    if (closed || expired) return
+    shutdown()
+  }
+
+  const shutdown = () => {
     if (closed) return
     closed = true
     if (timer) clearTimeout(timer)
@@ -210,13 +254,21 @@ export async function startCallbackServer(opts: {
       // Unlike before, settling here does NOT close the server — the good-request response is
       // still open, waiting on finish(). Only the failure path (no response left pending) closes
       // immediately.
-      settle = (r) => resolve(r)
+      // The approval is in: the wait is over, so the timeout must not expire the port under the
+      // token exchange that follows.
+      settle = (r) => { if (timer) clearTimeout(timer); resolve(r) }
       fail = (e) => { close(); reject(e) }
       if (pendingResult) { settle(pendingResult); return }
       if (pendingError) { fail(pendingError); return }
       timer = setTimeout(() => {
-        close()
-        reject(new Error(`timed out after ${Math.round(timeoutMs / 1000)}s waiting for the browser redirect`))
+        if (expiredLingerMs > 0) {
+          expired = true
+          setTimeout(shutdown, expiredLingerMs).unref?.()
+          server.unref()
+        } else {
+          close()
+        }
+        reject(new Error(`timed out after ${describeWait(timeoutMs)} waiting for the approval from your browser; start the link again`))
       }, timeoutMs)
       // `unref` so a forgotten link attempt never keeps a CLI process alive.
       timer.unref?.()

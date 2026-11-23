@@ -50,8 +50,22 @@ suite('org/callbackServer', () => {
     assert.strictEqual(await isListening(server.redirectUri), false)
   })
 
-  test('a timeout closes the listener', async () => {
-    const server = await startCallbackServer({ timeoutMs: 60 })
+  test('after a timeout the port tells a late browser tab the request expired, and takes no code', async () => {
+    const server = await startCallbackServer({ timeoutMs: 60, expiredLingerMs: 300 })
+    await assert.rejects(server.waitForCallback(), /timed out after 0s waiting for the approval from your browser; start the link again/)
+    // What link.ts's `finally` does: it must not take the explanation away.
+    server.close()
+    const late = await get(`${server.redirectUri}?code=late&state=s&org_url=${encodeURIComponent('https://test.traceroost.com/acme/traces')}`)
+    assert.strictEqual(late.status, 410)
+    assert.match(late.body, /This link request expired/)
+    assert.match(late.body, /click Link this machine again/)
+    assert.strictEqual(late.headers.location, undefined)
+    await new Promise(r => setTimeout(r, 400))
+    assert.strictEqual(await isListening(server.redirectUri), false, 'closed for good once the linger is over')
+  })
+
+  test('a timeout with no linger closes the listener', async () => {
+    const server = await startCallbackServer({ timeoutMs: 60, expiredLingerMs: 0 })
     await assert.rejects(server.waitForCallback(), /timed out/)
     assert.strictEqual(await isListening(server.redirectUri), false)
   })

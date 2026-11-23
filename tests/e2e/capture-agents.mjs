@@ -6,7 +6,8 @@
 //
 //   node tests/e2e/capture-agents.mjs [--only <agent>] [--out test-results/agent-capture]
 //
-// Each agent is gated on its own secret; a missing key or CLI skips only that agent, with a notice:
+// Each agent is gated on its own secret; a missing key or CLI skips only that agent, with a notice,
+// and so does listing it in the repo variable AGENT_CAPTURE_SKIP (lib.mjs's skippedAgents):
 //   claude    ANTHROPIC_API_KEY      claude -p … --permission-mode acceptEdits --model haiku
 //   codex     OPENAI_API_KEY         codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -m gpt-5-mini
 //   opencode  ANTHROPIC_API_KEY      opencode run --model anthropic/claude-haiku-4-5
@@ -19,12 +20,15 @@
 //   <out>/claude-projects/  codex-sessions/  opencode/opencode.db  cursor-projects/  copilot-session-state/
 //   <out>/versions.json     { "<agent>": "<--version output>" }
 // Exit 1 when an agent that had its key and CLI failed to run or wrote nothing.
+// When the model provider refused the request (no credit, a revoked key), the agent still writes a
+// log holding one synthetic error record. That log is not copied, so it can't show up in the diff
+// as a format change, and the refusal is named on its own line and in the step summary.
 
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { IS_WIN, REPO_ROOT, log, notice, makeTempHome, makeGitRepo, rmrf } from './lib.mjs'
+import { IS_WIN, REPO_ROOT, log, notice, makeTempHome, makeGitRepo, providerRefusal, rmrf, skippedAgents } from './lib.mjs'
 
 const argv = process.argv.slice(2)
 const flag = n => (argv.includes(`--${n}`) ? argv[argv.indexOf(`--${n}`) + 1] : undefined)
@@ -67,6 +71,7 @@ const AGENTS = {
   copilot:  { secret: 'COPILOT_GITHUB_TOKEN', bin: () => npmBin('copilot'),  args: ['-p', PROMPT, '--allow-all-tools'], data: [['.copilot/session-state', 'copilot-session-state']] },
 }
 
+const skipped = skippedAgents()
 const versions = {}
 let failures = 0
 let ran = 0
@@ -74,6 +79,7 @@ fs.mkdirSync(outDir, { recursive: true })
 
 for (const [key, a] of Object.entries(AGENTS)) {
   if (only && only !== key) continue
+  if (skipped.has(key)) { notice(`${key}: turned off by the repo variable AGENT_CAPTURE_SKIP — skipped`); continue }
   if (!process.env[a.secret]) { notice(`${key}: ${a.secret} is not set — skipped`); continue }
   const bin = a.bin()
   if (!bin) { notice(`${key}: CLI not installed — skipped`); continue }
@@ -99,6 +105,14 @@ for (const [key, a] of Object.entries(AGENTS)) {
     log(`${key} exited ${res.status}${res.error ? ` (${res.error.message})` : ''}`)
     if (res.status !== 0) for (const line of failureTail(res, t.home)) log(`  ${key}| ${line}`)
     ran++
+    const refusal = res.status !== 0 ? providerRefusal(res.stdout, res.stderr) : undefined
+    if (refusal) {
+      failures++
+      const msg = `${key}: the model provider refused the request, so nothing was captured: ${refusal.slice(0, 200).replace(/\.?$/, '.')} Check the account behind ${a.secret}.`
+      console.error(`::error::${msg}`)
+      if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `- **${msg}**\n`)
+      continue
+    }
     let copied = 0
     for (const [from, to] of a.data) {
       const src = path.join(t.home, from)
