@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Listed in the official MCP Registry** as `io.github.traceroost/traceroost`, so MCP clients and directories that read the registry can find TraceRoost's MCP server. Each release now publishes the entry (`server.json`) after the npm package (#451)
+
 ## [1.1.1] (2026-11-22)
 
 ### Fixed

@@ -16,6 +16,7 @@ accumulated since the last one. Check what's landed since the last tag before as
 | Docker | `traceroost/traceroost` + `ghcr.io/traceroost/core` | `docker.yml`, called by `release.yml`'s `docker` job | `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN` (Docker Hub); `GITHUB_TOKEN` (ghcr) |
 | Homebrew | `traceroost/tap/traceroost` (formula `Formula/traceroost.rb` in `traceroost/homebrew-tap`) | `release.yml`'s `publish-homebrew` job, after `publish-npm`: `scripts/homebrew-formula.mjs` writes the formula from the tarball npm serves | `HOMEBREW_TAP_TOKEN` (the job is skipped, with a notice, until it exists) |
 | winget | `TraceRoost.TraceRoost` (manifests under `manifests/t/TraceRoost/TraceRoost/` in `microsoft/winget-pkgs`) | `release.yml`'s `publish-winget` job, after `desktop`: `desktop/scripts/winget-manifests.mjs` writes the manifests from the Windows installers the release serves, and `wingetcreate submit` opens the pull request; winget-pkgs moderators merge it | `WINGET_CREATE_GITHUB_TOKEN` (the job is skipped, with a notice, until it exists) |
+| MCP Registry | `io.github.traceroost/traceroost` | `server.json` `name`, which must equal `package.json` `mcpName` (the registry checks the published npm package for it); `release.yml`'s `publish-mcp-registry` job, after `publish-npm`, sets `server.json`'s version from `package.json` and publishes. PulseMCP and other directories read the registry | none (GitHub OIDC grants `io.github.traceroost/*` to this repo's workflows) |
 | VS Code Marketplace + Open VSX | **`agentlens.agentlens-dashboard`** | `vsce-identity.json`; the `package` job patches `name`/`publisher` into `package.json` for the VSIX build only | `VSCE_PAT` / `OVSX_PAT` (the existing AgentLens publisher tokens) |
 
 **Why the extension keeps the old id:** the marketplace id is sticky infrastructure users never
@@ -268,7 +269,7 @@ When the TraceRoost brand is established and you want the marketplace URL to say
 - `gh run list --workflow=release.yml --limit 1`: shows `completed` / `success`, and the
   `package` job's "Check the … edition bundles" step names the edition you meant to ship.
 - If the marketplace/npm publish steps matter for this release (they usually do), spot-check
-  `publish-vsce`, `publish-npm`, `publish-homebrew`, `docker`, `desktop` and `publish-winget` job
+  `publish-vsce`, `publish-npm`, `publish-mcp-registry`, `publish-homebrew`, `docker`, `desktop` and `publish-winget` job
   logs specifically; `package` succeeding only means the VSIX
   built, not that it published anywhere.
 - traceroost.com's download strip names the new version (step 8's `curl`). If it still shows the
