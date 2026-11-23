@@ -294,6 +294,67 @@ jobs:
         # NODE_AUTH_TOKEN must not be set; npm falls back to OIDC when it is absent.
         run: npm publish --access public --provenance
 
+  # The official MCP Registry (registry.modelcontextprotocol.io) entry `io.github.traceroost/traceroost`,
+  # from server.json at the version npm just published. The registry checks that the npm package's
+  # `mcpName` matches, so it runs after publish-npm, and retries while npm's metadata catches up.
+  # GitHub OIDC grants the io.github.traceroost/* namespace to this repository's workflows: no
+  # secret. PulseMCP and other directories ingest from the registry. runbooks/RELEASING.md.
+  publish-mcp-registry:
+    needs: publish-npm
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      id-token: write  # mcp-publisher login github-oidc
+      contents: read
+    env:
+      # Pinned and verified against its Sigstore bundle, like every tool in a publishing job.
+      MCP_PUBLISHER_VERSION: v1.8.15
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+          rm -f "$archive" "$archive.sigstore.json"
+
+      - name: Set server.json to the published version
+        run: |
+          node -e '
+            const fs = require("fs")
+            const v = require("./package.json").version
+            const s = JSON.parse(fs.readFileSync("server.json", "utf8"))
+            s.version = v
+            for (const p of s.packages) p.version = v
+            fs.writeFileSync("server.json", JSON.stringify(s, null, 2) + "\n")
+            console.log("server.json version", v)
+          '
+
+      - name: Authenticate to the MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to the MCP Registry
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            ./mcp-publisher publish && exit 0
+            echo "Attempt $attempt failed; npm's metadata may not show the new version yet. Retrying in 30s."
+            sleep 30
+          done
+          exit 1
+
   # The Homebrew formula (`brew install traceroost/tap/traceroost`), regenerated from the tarball
   # npm now serves and committed to the traceroost/homebrew-tap repository. Skipped until the
   # HOMEBREW_TAP_TOKEN secret exists (a fine-grained token with Contents: write on that repo only),

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.traceroost/traceroost",
+  "title": "TraceRoost",
+  "description": "Lets your coding agent query its own trace history: recent sessions, cost, loops, instruction fixes",
+  "websiteUrl": "https://traceroost.com/install",
+  "repository": {
+    "url": "https://github.com/traceroost/core",
+    "source": "github"
+  },
+  "version": "1.1.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "traceroost",
+      "version": "1.1.1",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:{--mcp-port}/mcp"
+      },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--mcp-port",
+          "description": "Port the MCP server listens on. Already running TraceRoost (desktop app, VS Code extension or background service)? Use its port, 4316 unless you changed it.",
+          "default": "4316"
+        }
+      ]
+    }
+  ]
+}
