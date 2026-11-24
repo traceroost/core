@@ -49,8 +49,8 @@ type Section = 'overview' | 'waterfall' | 'files' | 'flow' | 'tools'
 // heading), then what it means, then (where available) the specific per-session reason.
 export const OUTCOME_META: Partial<Record<FileOutcome, { icon: string; letter: string; color: string; label: string; description: string }>> = {
   merged:    { icon: '✓', letter: 'M', color: 'var(--tr-merged)', label: 'Merged',    description: "Changed files are committed and match the tip of this repo's trunk branch (main/master), per git history." },
-  committed: { icon: '●', letter: 'C', color: 'var(--accent)',    label: 'Committed', description: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch), or no trunk branch could be resolved locally." },
-  abandoned: { icon: '◑', letter: 'U', color: 'var(--vscode-editorWarning-foreground, #f6a623)', label: 'Uncommitted', description: "Changed files haven't been committed yet (not necessarily abandoned, may still be in progress)." },
+  committed: { icon: '●', letter: 'C', color: 'var(--tr-committed)', label: 'Committed', description: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch), or no trunk branch could be resolved locally." },
+  abandoned: { icon: '◑', letter: 'U', color: 'var(--tr-uncommitted)', label: 'Uncommitted', description: "Changed files haven't been committed yet (not necessarily abandoned, may still be in progress)." },
 }
 
 // Small one-letter badge for the session's overall git outcome — same visual language as the

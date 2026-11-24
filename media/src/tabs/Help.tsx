@@ -813,7 +813,7 @@ function AnalyticsSection() {
     <div class="help-section" id="help-analytics">
       <h3 class="help-heading">{HELP_SECTIONS.analytics.heading}</h3>
       <div class="help-overview-body">
-        <p>The Analytics tab shows what happened, one view at a time, picked from its left menu: <strong>Cost &amp; limits</strong> (plan limits and estimated cost), <strong>Output</strong> (outcome &amp; token spend, code changes, by language), <strong>Efficiency</strong> (efficiency map, hot files, context growth, token usage per trace) and <strong>Agents</strong> (a side-by-side comparison). Every view charts the traces in the active time range that match the filter bar, so narrowing the filters narrows every section. The menu never changes with the data: a section with nothing to show says why. What to do about any of it is under the <a href="#help-advisor">Advisor</a>.</p>
+        <p>The Analytics tab shows what happened, one view at a time, picked from its left menu: <strong>Cost &amp; limits</strong> (plan limits, estimated cost and tokens per day), <strong>Output</strong> (outcome &amp; token spend, code changes, by language), <strong>Efficiency</strong> (efficiency map, hot files, context growth) and <strong>Agents</strong> (a side-by-side comparison). Every view charts the traces in the active time range that match the filter bar, so narrowing the filters narrows every section. The menu never changes with the data: a section with nothing to show says why. What to do about any of it is under the <a href="#help-advisor">Advisor</a>.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Agents</dt>
@@ -836,8 +836,8 @@ function AnalyticsSection() {
             <dd class="glossary-def" style="display:block">Lines added (green, above the line) and removed (red, below) per day (or week), with files changed as a dashed line on the right axis. Counts the agent's own edit and write tool calls: agent-authored edits, not git commit stats (see <a href="#help-changes">Change size</a>). Traces with no recorded line counts (stored before change tracking, or from an agent that doesn't record edit contents) aren't counted, and the chart says how many were left out.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
-            <dt class="glossary-term">Estimated Cost</dt>
-            <dd class="glossary-def" style="display:block">A bar chart of daily spend with a green total-per-day overlay line and inline date labels at day boundaries. Below the chart: a day-grouped cost table (date → agent → model) and a model breakdown table. The <strong>↓ CSV</strong> button exports the cost data.</dd>
+            <dt class="glossary-term">Estimated Cost per Day</dt>
+            <dd class="glossary-def" style="display:block">On Cost &amp; limits: estimated cost per day (per week past 56 days), each bar stacked by agent, on one axis with real dates, so a quiet day shows as an empty day rather than disappearing. The line above it gives the total and the cost per trace, compared with the same-length period just before when your traces reach back that far (none for All). Below the chart: a day-grouped cost table (date → agent → model); <strong>↓ CSV</strong> exports it.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Efficiency Map</dt>
@@ -848,8 +848,8 @@ function AnalyticsSection() {
             <dd class="glossary-def" style="display:block">Files the agent accessed most frequently across traces, ranked by trace count. Switch between Read, Changed, Written, and Both modes. Frequently read files cost tokens every trace and are strong candidates for your instruction file; frequently changed files benefit from explicit constraints. The Advisor turns these into suggestions.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
-            <dt class="glossary-term">Token Usage Per Trace</dt>
-            <dd class="glossary-def" style="display:block">Slim horizontal bars, one per trace, ordered oldest to newest. Each bar is colored by agent. Useful for spotting runaway traces at a glance.</dd>
+            <dt class="glossary-term">Tokens per Day</dt>
+            <dd class="glossary-def" style="display:block">On Cost &amp; limits, under the cost: input and output tokens per day, stacked on one scale, over the same days as the cost chart.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Context Growth</dt>
