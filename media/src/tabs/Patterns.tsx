@@ -3,7 +3,7 @@ import { computed } from '@preact/signals'
 import { filteredSessions, currentWorkspace, vscode, availableWorkspaces, workspaceFilter, filtersOpen, filtersFocusField, selectedAgentFilter, advisorView, setAdvisorView, type AdvisorView } from '../state'
 import { Instructions, instructionFiles, instructionsAcrossWorkspaces, pendingInstructionCount } from './Instructions'
 import { getCostSavingActions, type CostSavingAction } from '../costSavingActions'
-import { planUsage, forAgentFilter, hasPlanData } from '../planUsage'
+import { planUsage, forAgentFilter, chart2Rollups } from '../planUsage'
 import { showLimitTraces, PlanFixesChart } from './PlanLimits'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SignalBadge } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
@@ -205,14 +205,14 @@ export function Patterns() {
         {view === 'results' && (
           <div data-view-panel="results">
             <ViewHeader title="Results" question="Did the suggestions I applied work?" />
-            {hasPlanData(plan) && (
-              <ViewSection id="advisor-fixes-chart" title="Did my fixes work?">
+            <ViewSection id="advisor-applied" title="Each change, before and after">
+              <Instructions part="results" />
+            </ViewSection>
+            {plan && chart2Rollups(plan).length > 0 && (
+              <ViewSection id="advisor-fixes-chart" title="Weekly plan limit, week by week">
                 <PlanFixesChart snapshot={plan} />
               </ViewSection>
             )}
-            <ViewSection id="advisor-applied" title="Applied suggestions">
-              <Instructions part="results" />
-            </ViewSection>
           </div>
         )}
       </ViewNav>

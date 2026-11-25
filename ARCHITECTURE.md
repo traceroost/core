@@ -879,7 +879,7 @@ graph TD
 - `availableLanguages` / `availableAgents`: the Language dropdown's options and the Agent pills: only languages (primary or secondary) and agents (`source`) that at least one loaded session has, in allowlist / `AGENT_FILTER_ORDER` order, read from every loaded session rather than the filtered set; a selected value stays listed even with no data. `showAgentFilter` hides the pill row when only one agent has data and nothing is selected.
 - `displaySessions`: `agentFilteredSessions` sliced to `sessionLimit` (most recent N). Used for the Traces table.
 - `rangedSessions`: for bounded presets (7d/30d/…): merges `rangedSearchResults` (DB) with in-memory sessions that fall in the window. For "All": returns `agentFilteredSessions` directly.
-- `filteredSessions`: `rangedSessions` with the text filter (or an Insights/Instructions evidence set, `evidenceSessionIds`), the initiator and outcome filters, and sort applied (`preOutcomeFilteredSessions` is the same cut before the outcome filter; it feeds the outcome filter's own counts). Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (Estimated cost, Token usage per trace, Context growth) source from `rangedSessions` directly.
+- `filteredSessions`: `rangedSessions` with the text filter (or an Insights/Instructions evidence set, `evidenceSessionIds`), the initiator and outcome filters, and sort applied (`preOutcomeFilteredSessions` is the same cut before the outcome filter; it feeds the outcome filter's own counts). Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (Context growth) re-sort it by start time; Cost & limits' per-day charts bin it by UTC day.
 
 **Workspace field flow:** `workspace` is stored in the `sessions` SQLite table (always present, `NOT NULL`). `project_path` is an optional secondary path some OTEL exporters populate. Both are mapped by `DatabaseReader.listSessions` into `SessionSummaryCard`. For OTEL-sourced sessions, `workspace` is stamped onto the card by `DatabaseWriter.enqueue` (the summarizers produce `workspace: ''` as a placeholder). For log-sourced sessions, `_buildCard` receives and records the workspace at parse time.
 
@@ -899,9 +899,9 @@ graph LR
     T1 --> D5[Files sub-tab<br/>files changed · open in editor<br/>one-shot/retry-rate summary<br/>git outcome banner + per-file badges]
 
     T2[Analytics, one view at a time<br/>Cost & limits · Output<br/>Efficiency · Agents]
-    T2 --> A1[CostBarChart — per-session bars<br/>daily total overlay · pricing mode toggle<br/>CSV export download button]
+    T2 --> A1[Cost per day — TimeBarChart stacked by agent<br/>headline vs previous period · cost table + CSV]
     T2 --> A2[AgentCard per agent with data — stat tiles<br/>incl. One-shot rate and Lines +/− tiles]
-    T2 --> A3[SessionTokenChart — input/output bars<br/>day boundary highlights]
+    T2 --> A3[Tokens per day — TimeBarChart<br/>input + output on one scale]
     T2 --> A4[ContextGrowthChart — animated<br/>per-session spotlight · play/pause/speed]
     T2 --> A5[CodeChangesChart — lines +/− per day or week<br/>files-changed line · agent-authored edits]
 
@@ -916,7 +916,7 @@ graph LR
     GEAR[Gear icon<br/>ConfigPanel — slide-in<br/>ingestion toggles · agent setup · page size]
 ```
 
-**Chart data isolation:** Analytics charts (`CostBarChart`, `SessionTokenChart`, `ContextGrowthChart`) source from `rangedSessions` (always newest-first by time) so the Traces table sort key has no effect on their order.
+**Chart data isolation:** Analytics charts bin or re-sort `filteredSessions` by time themselves (cost and tokens per day, `costTrend.ts`; `ContextGrowthChart`), so the Traces table sort key has no effect on them.
 
 ### DashboardPanel ↔ Webview message protocol
 
@@ -1571,8 +1571,9 @@ traceroost/
 │   │       ├── outcomeTrend.ts   # Day/week binning (dayBins) for OUTCOME & TOKEN SPEND OVER TIME
 │   │       ├── codeChanges.ts    # CODE CHANGES OVER TIME bins — agent-authored lines/files, traces without line data excluded
 │   │       ├── Insights.tsx      # InsightCard component + generateInsights; clipboard copy icon
-│   │       ├── Cost.tsx          # CostBarChart (canvas, used by Analytics), fmtUsd re-export
-│   │       ├── SessionCharts.tsx # ContextGrowthChart (animated), SessionTokenChart, OutcomeTrendChart, CodeChangesChart, TurnsLink
+│   │       ├── Cost.tsx          # fmtUsd re-export
+│   │       ├── TimeBarChart.tsx  # Stacked bars over time, one axis (Cost & limits: cost and tokens per day)
+│   │       ├── SessionCharts.tsx # ContextGrowthChart (animated), OutcomeTrendChart, CodeChangesChart, TurnsLink
 │   │       ├── Traces.tsx        # Waterfall rows (Step/StepRow), background span groups
 │   │       ├── Flow.tsx          # Turn-to-tool semantic graph (canvas), FlowCanvas component
 │   │       ├── Agents.tsx        # computeStats helper used by Analytics AgentCard

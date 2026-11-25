@@ -38,6 +38,11 @@
    * leans close enough to teal to be easy to misread). GitHub's own green, light/dark split
    * below. */
   --tr-merged: #3fb950;
+  /* Git outcome palette, one for every outcome mark (trend chart, badges, filter pills), the same
+     roles as cloud's: committed is merged's green mixed toward the text colour (paler on dark,
+     darker on light, still readable as text), uncommitted the theme's warning amber. */
+  --tr-committed: color-mix(in srgb, var(--tr-merged) 60%, var(--fg));
+  --tr-uncommitted: var(--vscode-editorWarning-foreground, #f6a623);
 
   /* Bridge for pills.css's shared `.tr-pill` — see that file's header. Keep these five in sync
    * with traceroost-cloud's own bridge in globals.css whenever either theme changes. */

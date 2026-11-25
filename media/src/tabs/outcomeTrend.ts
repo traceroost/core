@@ -13,14 +13,12 @@ import { dayKeyUtc } from '../sessionMetrics'
  */
 export const TREND_OUTCOMES: FileOutcome[] = ['merged', 'committed', 'abandoned']
 
-/** Literal, not OUTCOME_META's colors (Sessions.tsx) — deliberately matches cloud's
- *  TREND_COLOR (analytics/outcome-trend.ts in the cloud repo) exactly, so this one chart looks
- *  identical in both apps regardless of either app's own theme palette. OUTCOME_META's colors
- *  stay untouched for every other consumer (badges, filter pills). */
+/** The one outcome palette (base.css's --tr-* tokens): the same colours as OUTCOME_META's badges
+ *  and the Outcome filter pills, and the same roles as cloud's outcome colours. */
 export const TREND_COLOR: Record<FileOutcome, string> = {
-  merged: '#3fb950',
-  committed: '#58a6ff',
-  abandoned: '#f6a623',
+  merged: 'var(--tr-merged)',
+  committed: 'var(--tr-committed)',
+  abandoned: 'var(--tr-uncommitted)',
   ambiguous: 'var(--muted)',
 }
 

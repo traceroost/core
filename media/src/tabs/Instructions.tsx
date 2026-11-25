@@ -2,10 +2,14 @@ import { useState, useEffect, useRef } from 'preact/hooks'
 import { signal, computed } from '@preact/signals'
 import {
   currentWorkspace, filteredSessions, activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt, vscode,
-  repoInfo, repoDisplayName, repoTooltipName, sessionSummary, goToHelp,
+  repoInfo, repoDisplayName, repoTooltipName, sessionSummary, goToHelp, gitOutcomes, requestGitOutcomesFor,
 } from '../state'
 import { calcSessionCost } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
+import {
+  changeWindows, windowStats, measureChange, improved, fmtMeasure, changeVerdict, changeHeadline, verdictSummary,
+  type ChangeMeasurement, type MeasureRow, type Confidence,
+} from '../changeMeasures'
 import { getAgentSourceLabel } from '../utils'
 import { openAgentSetup } from './Settings'
 import { activeTraceFilters, clearTraceFilters } from '../traceFilters'
@@ -185,18 +189,7 @@ function getDiagnostics(sessions: SessionSummaryCard[]): Diagnostics {
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
-function changePctLabel(pct: number | null): string | null {
-  if (pct === null) return null
-  const sign = pct < 0 ? '↓' : pct > 0 ? '↑' : '→'
-  return `${sign} ${Math.abs(Math.round(pct))}%`
-}
 
-function changePctColor(pct: number | null): string {
-  if (pct === null) return 'var(--muted)'
-  if (pct < -10) return 'var(--vscode-charts-green, #81c784)'
-  if (pct >  10) return 'var(--vscode-errorForeground, #e57373)'
-  return 'var(--muted)'
-}
 
 // ── Components ────────────────────────────────────────────────────────────────
 
@@ -380,114 +373,128 @@ function SuggestionCardView({
   )
 }
 
-function ConfidenceBar({ postCount }: { postCount: number }) {
-  const filled = postCount < 3 ? 0 : postCount < 8 ? 1 : postCount < 15 ? 2 : 3
-  const label = postCount < 3 ? 'Collecting data…'
-    : postCount < 8  ? 'Low confidence'
-    : postCount < 15 ? 'Medium confidence'
-    : 'High confidence'
-  const segs = [0, 1, 2]
+
+/** An applied suggestion's number, 1 = the earliest applied: the same on its Results card and on
+ *  the weekly-limit chart's marker (PlanLimits.tsx), so the two can be matched at a glance. */
+export function appliedNumber(rec: { id: string; workspace: string }): number {
+  const ordered = [...appliedSuggestions.value].sort((a, b) => a.appliedAtMs - b.appliedAtMs)
+  return ordered.findIndex(a => a.id === rec.id && a.workspace === rec.workspace) + 1
+}
+
+const GOOD = 'var(--vscode-charts-green, #81c784)'
+const BAD = 'var(--vscode-errorForeground, #e57373)'
+const measureColor = (m: MeasureRow) => (m.flat ? 'var(--muted)' : improved(m) ? GOOD : BAD)
+
+/** One measure as a dumbbell (cloud's change-cards.tsx): a hollow dot before, a filled dot after,
+ *  the bar between them coloured by direction, the values printed at both ends. */
+function Dumbbell({ m }: { m: MeasureRow }) {
+  const W = 160
+  const max = m.format === 'pct' ? 1 : Math.max(m.before, m.after) * 1.15 || 1
+  const x = (v: number) => 6 + (Math.max(0, v) / max) * (W - 12)
+  const color = measureColor(m)
   return (
-    <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
-      <div style="display:flex;gap:2px">
-        {segs.map(i => (
-          <div key={i} style={`width:14px;height:4px;border-radius:2px;background:${i < filled ? '#4fc3f7' : 'var(--border)'}`} />
-        ))}
-      </div>
-      <span style="font-size:var(--fs-xs);color:var(--muted)">{label} ({postCount} traces since)</span>
-    </div>
+    <svg width={W} height={14} role="img" aria-label={`${m.label}: ${fmtMeasure(m, m.before)} before, ${fmtMeasure(m, m.after)} after`} style="display:block">
+      <line x1={6} x2={W - 6} y1={7} y2={7} stroke="var(--border)" stroke-width={2} stroke-linecap="round" />
+      <line x1={x(m.before)} x2={x(m.after)} y1={7} y2={7} stroke={color} stroke-width={4} stroke-linecap="round" />
+      <circle cx={x(m.before)} cy={7} r={4} fill="var(--bg, #1e1e1e)" stroke="var(--muted)" stroke-width={1.5} />
+      <circle cx={x(m.after)} cy={7} r={4} fill={color} />
+    </svg>
   )
+}
+
+const CONFIDENCE_LABEL: Record<Confidence, string> = { insufficient: 'measuring', medium: 'medium confidence', high: 'high confidence' }
+
+/** The traces one applied suggestion is measured on: this repo's loaded traces (every one, not just
+ *  the filtered view, like cloud's change windows) from the agents that read the file it went into. */
+function changeSessions(record: AppliedRecord): SessionSummaryCard[] {
+  const all = (sessionSummary.value?.sessions ?? []).filter(s => (s.workspace ?? '') === record.workspace)
+  const file = (instructionFilesByWorkspace.value[record.workspace]?.files ?? []).find(f => f.relativePath === record.appliedTo)
+  const readers = file ? new Set(file.agents ?? [file.agent]) : null
+  return readers ? all.filter(s => readers.has(s.source)) : all
+}
+
+export function measureApplied(record: AppliedRecord): { measurement: ChangeMeasurement; before: SessionSummaryCard[]; after: SessionSummaryCard[] } {
+  const { before, after } = changeWindows(changeSessions(record), record.appliedAtMs)
+  const outcomes = gitOutcomes.value
+  const outcomeOf = (s: SessionSummaryCard) => outcomes[s.sessionId]?.overall
+  return { measurement: measureChange(windowStats(before, outcomeOf), windowStats(after, outcomeOf)), before, after }
 }
 
 function AppliedCard({
   record,
-  sessions,
   onRemove,
   onViewBefore,
   onViewAfter,
 }: {
   record: AppliedRecord
-  sessions: SessionSummaryCard[]
   onRemove: (id: string) => void
   onViewBefore: (ids: Set<string>) => void
   onViewAfter: (ids: Set<string>) => void
 }) {
   const catColor = CAT_COLOR[(record.category as SuggestionCategory)] ?? '#888'
-  const appliedAtMs = record.appliedAtMs
-
-  const afterSessions  = sessions.filter(s => s.startTime && Date.parse(s.startTime) >= appliedAtMs)
-  const beforeSessions = sessions.filter(s => s.startTime && Date.parse(s.startTime) < appliedAtMs).slice(0, 20)
-
-  const avgOf = (arr: SessionSummaryCard[], fn: (s: SessionSummaryCard) => number) =>
-    arr.length === 0 ? null : arr.reduce((a, s) => a + fn(s), 0) / arr.length
-
-  const hasBefore = !record.baselineInsufficient && beforeSessions.length > 0
-  const hasAfter  = afterSessions.length >= 3
-
-  const beforeCost   = hasBefore ? avgOf(beforeSessions, sessionCostUsd) : null
-  const afterCost    = hasAfter  ? avgOf(afterSessions,  sessionCostUsd) : null
-  const beforeTurns  = hasBefore ? avgOf(beforeSessions, s => s.totalLlmCalls) : null
-  const afterTurns   = hasAfter  ? avgOf(afterSessions,  s => s.totalLlmCalls) : null
-  const beforeErrors = hasBefore ? avgOf(beforeSessions, s => s.errors) : null
-  const afterErrors  = hasAfter  ? avgOf(afterSessions,  s => s.errors) : null
-  const beforeLoops  = hasBefore ? avgOf(beforeSessions, s => (s.loopSignals?.length ?? 0) > 0 ? 1 : 0) : null
-  const afterLoops   = hasAfter  ? avgOf(afterSessions,  s => (s.loopSignals?.length ?? 0) > 0 ? 1 : 0) : null
-
-  const diffPct = (b: number | null, a: number | null) =>
-    b && a ? ((a - b) / b) * 100 : null
-
-  const MetricRow = ({ label, before, after, pct, fmt = (v: number) => v.toFixed(2) }: {
-    label: string; before: number | null; after: number | null; pct: number | null
-    fmt?: (v: number) => string
-  }) => before === null || after === null ? null : (
-    <div style="font-size:11px;display:flex;gap:4px;align-items:center">
-      <span style="color:var(--muted);min-width:52px">{label}</span>
-      <span>{fmt(before)}</span>
-      <span style="color:var(--muted)">→</span>
-      <span>{fmt(after)}</span>
-      {pct !== null && <span style={`color:${changePctColor(pct)};font-weight:600`}>{changePctLabel(pct)}</span>}
-    </div>
-  )
+  const { measurement: c, before, after } = measureApplied(record)
+  // "Landed" needs each trace's git outcome; ask for the ones not fetched yet.
+  const ids = [...before, ...after].map(s => s.sessionId).join('|')
+  useEffect(() => { requestGitOutcomesFor([...before, ...after]) }, [ids])
+  const verdict = changeVerdict(c)
 
   return (
-    <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden">
+    <div data-applied-id={record.id} data-verdict={verdict} style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden">
       <div style="padding:10px 12px;display:flex;align-items:flex-start;gap:8px">
         <span style={`font-size:var(--fs-xs);padding:2px 6px;border-radius:8px;background:${catColor}22;color:${catColor};text-transform:uppercase;letter-spacing:.3px;flex-shrink:0;margin-top:1px`}>
           {record.category}
         </span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:12px;font-weight:600;color:var(--fg)">{record.title}</div>
-          <div style="font-size:11px;color:var(--muted)">Applied to {record.appliedTo} on {record.appliedAt.slice(0, 10)}</div>
-          <div style="font-size:var(--fs-xs);font-family:monospace;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.4;max-height:48px;overflow:hidden">
-            {record.appliedText}
+          <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+            <span style="font-size:12px;font-weight:600;color:var(--fg)"><span style="color:var(--muted);font-variant-numeric:tabular-nums">{appliedNumber(record)}.</span> {record.title}</span>
+            <span data-confidence={c.confidence} style={`margin-left:auto;font-size:var(--fs-xs);padding:1px 6px;border-radius:10px;border:1px solid var(--border);color:${c.confidence === 'insufficient' ? 'var(--muted)' : 'var(--fg)'}`}>
+              {CONFIDENCE_LABEL[c.confidence]}
+            </span>
           </div>
+          <div style="font-size:11px;color:var(--muted)">Applied to {record.appliedTo} on {record.appliedAt.slice(0, 10)}</div>
+          <p data-change-headline style="font-size:12px;color:var(--fg);margin:6px 0 0">{changeHeadline(c)}</p>
 
-          {!hasAfter && (
-            <div style="font-size:11px;color:var(--muted);margin-top:6px">Collecting data… (need 3 post-application traces)</div>
-          )}
-
-          {hasAfter && (
-            <div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">
-              <MetricRow label="Estimated cost" before={beforeCost} after={afterCost} pct={diffPct(beforeCost, afterCost)} fmt={v => `$${v.toFixed(2)}`} />
-              <MetricRow label="Turns" before={beforeTurns} after={afterTurns} pct={diffPct(beforeTurns, afterTurns)} fmt={v => v.toFixed(1)} />
-              <MetricRow label="Errors" before={beforeErrors} after={afterErrors} pct={diffPct(beforeErrors, afterErrors)} fmt={v => v.toFixed(2)} />
-              <MetricRow label="Loop %" before={beforeLoops} after={afterLoops} pct={diffPct(beforeLoops, afterLoops)} fmt={v => `${(v * 100).toFixed(0)}%`} />
-              <ConfidenceBar postCount={afterSessions.length} />
+          {c.measures.length > 0 && (
+            <div class="h-scroll-hint" style="margin-top:6px">
+              <table style="border-collapse:collapse">
+                <tbody>
+                  {c.measures.map(m => (
+                    <tr key={m.id} data-measure={m.id}>
+                      <td style="padding:2px 10px 2px 0;font-size:11px;white-space:nowrap">{m.label}</td>
+                      <td style="padding:2px 6px;font-size:11px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtMeasure(m, m.before)}</td>
+                      <td style="padding:2px"><Dumbbell m={m} /></td>
+                      <td style="padding:2px 6px;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums">{fmtMeasure(m, m.after)}</td>
+                      <td style={`padding:2px 0 2px 6px;font-size:var(--fs-xs);color:${measureColor(m)}`}>{m.flat ? 'about the same' : improved(m) ? 'better' : 'worse'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:2px">Hollow dot: before (up to 60 days). Filled dot: after. Per trace, so a lighter week doesn't count as a saving.</div>
             </div>
           )}
+          {c.modelShift && (
+            <p style="font-size:11px;color:var(--vscode-editorWarning-foreground, #cca700);margin:6px 0 0">
+              Model mix also changed: {c.modelShift.model} went from {Math.round(c.modelShift.before * 100)}% to {Math.round(c.modelShift.after * 100)}% of these traces, so part of any difference may be the model, not the file.
+            </p>
+          )}
+
+          <details style="margin-top:6px">
+            <summary style="cursor:pointer;font-size:var(--fs-xs);color:var(--muted)">What was added</summary>
+            <div style="font-size:var(--fs-xs);font-family:monospace;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.4">{record.appliedText}</div>
+          </details>
 
           <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
-            {beforeSessions.length > 0 && (
+            {before.length > 0 && (
               <button
-                onClick={() => onViewBefore(new Set(beforeSessions.map(s => s.sessionId)))}
+                onClick={() => onViewBefore(new Set(before.map(s => s.sessionId)))}
                 style="padding:2px 8px;font-size:var(--fs-xs);border-radius:4px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted)"
-              >View before ↗</button>
+              >View {before.length} before ↗</button>
             )}
-            {afterSessions.length > 0 && (
+            {after.length > 0 && (
               <button
-                onClick={() => onViewAfter(new Set(afterSessions.map(s => s.sessionId)))}
+                onClick={() => onViewAfter(new Set(after.map(s => s.sessionId)))}
                 style="padding:2px 8px;font-size:var(--fs-xs);border-radius:4px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted)"
-              >View after ↗</button>
+              >View {after.length} after ↗</button>
             )}
           </div>
         </div>
@@ -562,53 +569,11 @@ function sectionLabel(text: string, count: number) {
   )
 }
 
-function ImpactSummary({ applied, sessions }: { applied: AppliedRecord[]; sessions: SessionSummaryCard[] }) {
-  const measured = applied.filter(rec => {
-    const after = sessions.filter(s => s.startTime && Date.parse(s.startTime) >= rec.appliedAtMs)
-    return after.length >= 3 && !rec.baselineInsufficient
-  })
-  if (measured.length < 2) return null
-  const avgChange = (fn: (rec: AppliedRecord) => { before: number | null; after: number | null }) => {
-    const pairs = measured.map(fn).filter(p => p.before !== null && p.after !== null) as {before:number;after:number}[]
-    if (pairs.length === 0) return null
-    return pairs.reduce((a, p) => a + (p.after - p.before) / p.before, 0) / pairs.length * 100
-  }
-  const avgOf = (arr: SessionSummaryCard[], fn: (s: SessionSummaryCard) => number) =>
-    arr.length === 0 ? null : arr.reduce((a, s) => a + fn(s), 0) / arr.length
-  const split = (rec: AppliedRecord) => ({
-    before: sessions.filter(s => s.startTime && Date.parse(s.startTime) < rec.appliedAtMs).slice(0, 20),
-    after: sessions.filter(s => s.startTime && Date.parse(s.startTime) >= rec.appliedAtMs),
-  })
-  const costChange = avgChange(rec => {
-    const { before, after } = split(rec)
-    return { before: avgOf(before, sessionCostUsd), after: avgOf(after, sessionCostUsd) }
-  })
-  const turnsChange = avgChange(rec => {
-    const { before, after } = split(rec)
-    return { before: avgOf(before, s => s.totalLlmCalls), after: avgOf(after, s => s.totalLlmCalls) }
-  })
-  const improved = measured.filter(rec => {
-    const { before, after } = split(rec)
-    const b = avgOf(before, sessionCostUsd); const a = avgOf(after, sessionCostUsd)
-    if (!b || !a) return false
-    return (a - b) / b < -0.1
-  }).length
-  return (
-    <div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px;background:var(--card-bg)">
-      <div style="font-size:11px;font-weight:600;color:var(--fg);margin-bottom:6px">
-        Impact summary: {applied.length} applied · {measured.length} with data
-      </div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px">
-        {costChange !== null && (
-          <span>Avg cost <span style={`font-weight:600;color:${changePctColor(costChange)}`}>{changePctLabel(costChange)}</span></span>
-        )}
-        {turnsChange !== null && (
-          <span>Avg turns <span style={`font-weight:600;color:${changePctColor(turnsChange)}`}>{changePctLabel(turnsChange)}</span></span>
-        )}
-        <span style="color:var(--muted)">{improved} improving · {measured.length - improved} flat/worse</span>
-      </div>
-    </div>
-  )
+/** The top of a repo's applied list: how many changes measured better, flat or worse. */
+function VerdictSummary({ applied }: { applied: AppliedRecord[] }) {
+  const text = verdictSummary(applied.map(rec => changeVerdict(measureApplied(rec).measurement)))
+  if (!text) return null
+  return <p data-verdict-summary style="font-size:12px;font-weight:600;color:var(--fg);margin:0 0 8px">{text}</p>
 }
 
 /** One workspace's pending suggestions (Advisor › Recommendations) or applied ones (Advisor ›
@@ -673,12 +638,11 @@ function WorkspaceSuggestions({ view, canApply, repoPill, show }: { view: Worksp
       {show === 'applied' && applied.length > 0 && (
         <div>
           {sectionLabel('Applied', applied.length)}
-          <ImpactSummary applied={applied} sessions={sessions} />
+          <VerdictSummary applied={applied} />
           {applied.map(rec => (
             <AppliedCard
               key={rec.id}
               record={rec}
-              sessions={sessions}
               onRemove={handleRemove}
               onViewBefore={viewTraces}
               onViewAfter={viewTraces}

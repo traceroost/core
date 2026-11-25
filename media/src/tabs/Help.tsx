@@ -813,7 +813,7 @@ function AnalyticsSection() {
     <div class="help-section" id="help-analytics">
       <h3 class="help-heading">{HELP_SECTIONS.analytics.heading}</h3>
       <div class="help-overview-body">
-        <p>The Analytics tab shows what happened, one view at a time, picked from its left menu: <strong>Cost &amp; limits</strong> (plan limits and estimated cost), <strong>Output</strong> (outcome &amp; token spend, code changes, by language), <strong>Efficiency</strong> (efficiency map, hot files, context growth, token usage per trace) and <strong>Agents</strong> (a side-by-side comparison). Every view charts the traces in the active time range that match the filter bar, so narrowing the filters narrows every section. The menu never changes with the data: a section with nothing to show says why. What to do about any of it is under the <a href="#help-advisor">Advisor</a>.</p>
+        <p>The Analytics tab shows what happened, one view at a time, picked from its left menu: <strong>Cost &amp; limits</strong> (plan limits, estimated cost and tokens per day), <strong>Output</strong> (outcome &amp; token spend, code changes, by language), <strong>Efficiency</strong> (efficiency map, hot files, context growth) and <strong>Agents</strong> (a side-by-side comparison). Every view charts the traces in the active time range that match the filter bar, so narrowing the filters narrows every section. The menu never changes with the data: a section with nothing to show says why. What to do about any of it is under the <a href="#help-advisor">Advisor</a>.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Agents</dt>
@@ -836,8 +836,8 @@ function AnalyticsSection() {
             <dd class="glossary-def" style="display:block">Lines added (green, above the line) and removed (red, below) per day (or week), with files changed as a dashed line on the right axis. Counts the agent's own edit and write tool calls: agent-authored edits, not git commit stats (see <a href="#help-changes">Change size</a>). Traces with no recorded line counts (stored before change tracking, or from an agent that doesn't record edit contents) aren't counted, and the chart says how many were left out.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
-            <dt class="glossary-term">Estimated Cost</dt>
-            <dd class="glossary-def" style="display:block">A bar chart of daily spend with a green total-per-day overlay line and inline date labels at day boundaries. Below the chart: a day-grouped cost table (date → agent → model) and a model breakdown table. The <strong>↓ CSV</strong> button exports the cost data.</dd>
+            <dt class="glossary-term">Estimated Cost per Day</dt>
+            <dd class="glossary-def" style="display:block">On Cost &amp; limits: estimated cost per day (per week past 56 days), each bar stacked by agent, on one axis with real dates, so a quiet day shows as an empty day rather than disappearing. The line above it gives the total and the cost per trace, compared with the same-length period just before when your traces reach back that far (none for All). Below the chart: a day-grouped cost table (date → agent → model); <strong>↓ CSV</strong> exports it.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Efficiency Map</dt>
@@ -848,8 +848,8 @@ function AnalyticsSection() {
             <dd class="glossary-def" style="display:block">Files the agent accessed most frequently across traces, ranked by trace count. Switch between Read, Changed, Written, and Both modes. Frequently read files cost tokens every trace and are strong candidates for your instruction file; frequently changed files benefit from explicit constraints. The Advisor turns these into suggestions.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
-            <dt class="glossary-term">Token Usage Per Trace</dt>
-            <dd class="glossary-def" style="display:block">Slim horizontal bars, one per trace, ordered oldest to newest. Each bar is colored by agent. Useful for spotting runaway traces at a glance.</dd>
+            <dt class="glossary-term">Tokens per Day</dt>
+            <dd class="glossary-def" style="display:block">On Cost &amp; limits, under the cost: input and output tokens per day, stacked on one scale, over the same days as the cost chart.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Context Growth</dt>
@@ -866,7 +866,7 @@ function PatternsSection() {
     <div class="help-section" id="help-advisor">
       <h3 class="help-heading">{HELP_SECTIONS.patterns.heading}</h3>
       <div class="help-overview-body">
-        <p>The Advisor tab says what to change and whether it worked, in three views picked from its left menu. <strong>Recommendations</strong> holds the ranked "How to spend less" list and the pending instruction-file suggestions, with a count in the menu. <strong>Instruction files</strong> shows which instruction files each repo has for the agents working in it. <strong>Results</strong> lists the suggestions you applied with how traces changed after each, and, on a Claude or ChatGPT plan, the "Did my fixes work?" chart of peak weekly usage with a marker where each was applied. The data these are built from is charted under <a href="#help-analytics">Analytics</a>, Efficiency. All views respect the shared filter bar. Instruction-file suggestions are always worked out per repo, from that repo's traces only: in VS Code they cover the folder the window has open; in standalone/npx mode they cover every repo in your traces, one group per repo (repo name and path), and the Repo filter narrows which groups show.</p>
+        <p>The Advisor tab says what to change and whether it worked, in three views picked from its left menu. <strong>Recommendations</strong> holds the ranked "How to spend less" list and the pending instruction-file suggestions, with a count in the menu. <strong>Instruction files</strong> shows which instruction files each repo has for the agents working in it. <strong>Results</strong> answers "did it work?" for each suggestion you applied: the repo's traces from the agents that read that file, up to 60 days before against the ones after, compared per trace (turns, cost, prompt-cache reuse, struggle signals, errors, and how much work landed), so a lighter week can't pass for a saving. Each measure shows as a hollow dot (before) and a filled dot (after), marked better, worse or about the same (under 5%, or 3 points for rates). Nothing is judged until there are 10 traces on each side, and a note appears when the model mix moved too. On a Claude or ChatGPT plan, a chart below shows how full the weekly limit got each week, with each applied suggestion named on it. The data these are built from is charted under <a href="#help-analytics">Analytics</a>, Efficiency. All views respect the shared filter bar. Instruction-file suggestions are always worked out per repo, from that repo's traces only: in VS Code they cover the folder the window has open; in standalone/npx mode they cover every repo in your traces, one group per repo (repo name and path), and the Repo filter narrows which groups show.</p>
 
         <h4 style={subHeadStyle}>How to Spend Less</h4>
         <p style={mutedP}>When there's something to act on, the Advisor opens with one ranked list of the biggest savings (loop signals, hot files, and cache problems combined), ranked by priority, with an estimated dollar (or weekly plan-limit) saving where one can be priced, so you can start at the top.</p>

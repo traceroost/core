@@ -789,48 +789,54 @@ export const rangedSessions = computed<SessionSummaryCard[]>(() => {
 // candidate set OutcomeFilterBar (App.tsx) eagerly requests git outcomes for, since it's the
 // largest set the Outcome filter could ever need to narrow (before that filter itself removes
 // anything). Exported so that candidate list and the actual filter step can't drift apart.
-export const preOutcomeFilteredSessions = computed<SessionSummaryCard[]>(() => {
-  let sessions = rangedSessions.value
+/** The text (or evidence-set) and initiator filters, as one test per trace: what narrows
+ *  rangedSessions into preOutcomeFilteredSessions, and the previous-period set below the same way. */
+function matchesTextAndInitiator(s: SessionSummaryCard): boolean {
   const evIds = evidenceSessionIds.value
   if (evIds !== null) {
-    sessions = sessions.filter(s => evIds.has(s.sessionId))
+    if (!evIds.has(s.sessionId)) return false
   } else {
     const text = sessionTextFilter.value.toLowerCase().trim()
-    if (text) {
-      // Matches prompt text, or a Trace ID pasted in either form: the raw underlying id
-      // (traceId, or sessionId for sources with no separate trace id) and the normalized
-      // display hash shown/copied from the trace's expanded detail (formatTraceIdHash) —
-      // copying either one from anywhere in the app should find the trace here.
-      sessions = sessions.filter(s =>
-        (s.userRequest ?? '').toLowerCase().includes(text)
-        || s.sessionId.toLowerCase().includes(text)
-        || (s.traceId ?? '').toLowerCase().includes(text)
-        || formatTraceIdHash(s.traceId || s.sessionId).includes(text)
-      )
-    }
+    // Matches prompt text, or a Trace ID pasted in either form: the raw underlying id
+    // (traceId, or sessionId for sources with no separate trace id) and the normalized
+    // display hash shown/copied from the trace's expanded detail (formatTraceIdHash) —
+    // copying either one from anywhere in the app should find the trace here.
+    if (text && !(
+      (s.userRequest ?? '').toLowerCase().includes(text)
+      || s.sessionId.toLowerCase().includes(text)
+      || (s.traceId ?? '').toLowerCase().includes(text)
+      || formatTraceIdHash(s.traceId || s.sessionId).includes(text)
+    )) return false
   }
   const iFilter = initiatorFilter.value
   if (iFilter !== 'all') {
-    sessions = sessions.filter(s => {
-      const init = s.initiator ?? 'user'
-      return iFilter === 'agent' ? (init === 'agent' || init === 'api') : init === iFilter
-    })
+    const init = s.initiator ?? 'user'
+    if (iFilter === 'agent' ? !(init === 'agent' || init === 'api') : init !== iFilter) return false
   }
-  return sessions
-})
+  return true
+}
+
+/** The Outcome filter, as one test per trace (a trace whose outcome hasn't resolved is left out
+ *  while a specific outcome is picked: it appears once its outcome loads). */
+function matchesOutcome(s: SessionSummaryCard): boolean {
+  const oFilter = outcomeFilter.value
+  if (oFilter === 'all') return true
+  const go = gitOutcomes.value[s.sessionId]
+  if (go === undefined) return false
+  return outcomeToFilterBucket(go?.overall ?? null) === oFilter
+}
+
+// Text- + initiator-filtered view of rangedSessions, ahead of the Outcome filter — this is the
+// candidate set OutcomeFilterBar (App.tsx) eagerly requests git outcomes for, since it's the
+// largest set the Outcome filter could ever need to narrow (before that filter itself removes
+// anything). Exported so that candidate list and the actual filter step can't drift apart.
+export const preOutcomeFilteredSessions = computed<SessionSummaryCard[]>(() =>
+  rangedSessions.value.filter(matchesTextAndInitiator))
 
 // Outcome-filtered + sorted view — used by Efficiency, Cost, Traces, Search, Insights
 export const filteredSessions = computed<SessionSummaryCard[]>(() => {
   let sessions = preOutcomeFilteredSessions.value
-  const oFilter = outcomeFilter.value
-  if (oFilter !== 'all') {
-    const outcomes = gitOutcomes.value
-    sessions = sessions.filter(s => {
-      const go = outcomes[s.sessionId]
-      if (go === undefined) return false // not yet resolved — appears once its outcome loads
-      return outcomeToFilterBucket(go?.overall ?? null) === oFilter
-    })
-  }
+  if (outcomeFilter.value !== 'all') sessions = sessions.filter(matchesOutcome)
   const key = sessionSortKey.value
   const dir = sessionSortDir.value
   if (key === 'start_time') return dir === 'asc' ? [...sessions].reverse() : sessions
@@ -859,6 +865,35 @@ export const filteredSessions = computed<SessionSummaryCard[]>(() => {
       }
     }
     return dir === 'asc' ? -cmp : cmp
+  })
+})
+
+/**
+ * The traces of the window just before the time filter's, the same length, under every other
+ * filter: what Analytics' "vs the previous period" compares against. Null when the filter has no
+ * lower bound (All), or when the loaded traces don't reach back over that whole window. They are
+ * the newest N, so a window older than the oldest loaded trace would be undercounted, and a wrong
+ * comparison is worse than none.
+ */
+export const previousPeriodSessions = computed<SessionSummaryCard[] | null>(() => {
+  const range = timeRange.value
+  if (range.preset === 'all' || range.since === undefined) return null
+  // A specific set of traces (an insight's or a suggestion's evidence) has no previous period.
+  if (evidenceSessionIds.value !== null) return null
+  const until = range.since
+  const since = until - ((range.until ?? Date.now()) - range.since)
+  const loaded = sessionSummary.value?.sessions ?? []
+  let oldest = Infinity
+  for (const s of loaded) {
+    const ms = s.startTime ? Date.parse(s.startTime) : NaN
+    if (ms < oldest) oldest = ms
+  }
+  const lifetime = lifetimeStats.value
+  const everything = lifetime !== null && loaded.length >= lifetime.totalSessions
+  if (!everything && !(oldest <= since)) return null
+  return agentFilteredSessions.value.filter(s => {
+    const ms = s.startTime ? Date.parse(s.startTime) : NaN
+    return ms >= since && ms < until && matchesTextAndInitiator(s) && matchesOutcome(s)
   })
 })
 

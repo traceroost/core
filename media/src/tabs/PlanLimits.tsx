@@ -7,7 +7,7 @@
 import { useState } from 'preact/hooks'
 import { activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt, goToAdvisor } from '../state'
 import { getAgentColorVar } from '../utils'
-import { appliedSuggestions } from './Instructions'
+import { appliedSuggestions, appliedNumber } from './Instructions'
 import {
   planUsage, limitUsedLabel, planLimitWindows,
   PROVIDER_LABEL, PROVIDER_SOURCE, WINDOW_LABEL, chart1Views, chart2Rollups, defaultChart1View, fiveHourHits,
@@ -308,7 +308,7 @@ function LimitLineChart({ view, snapshot, now }: { view: Chart1View; snapshot: P
   )
 }
 
-// ── Chart 2: "Did my fixes work?" ─────────────────────────────────────────────
+// ── Chart 2: weekly limit, week by week ─────────────────────────────────────────────
 
 /** Local midnight on the Monday starting the week that `ms` falls in. */
 function weekOf(ms: number): number {
@@ -326,41 +326,52 @@ function WeeklyPeaksChart({ rollups }: { rollups: WindowRollup[] }) {
   const ends = [...new Set(rollups.map(r => weekOf(r.windowEnd)))].sort((a, b) => a - b)
   const inSlot = (r: WindowRollup, end: number) => weekOf(r.windowEnd) === end
   const applied = appliedSuggestions.value
-  const chartW = W - PAD.left - PAD.right
-  const H = PAD.top + PLOT_H + PAD.bottom
+  // Room above the plot for each change's printed name, and on the left for the axis title.
+  const P = { ...PAD, top: 30, left: 48 }
+  const chartW = W - P.left - P.right
+  const H = P.top + PLOT_H + P.bottom
   const slotW = chartW / ends.length
   const barW = Math.max(4, Math.min(22, (slotW * 0.7) / providers.length))
-  const y = (pct: number) => PAD.top + PLOT_H - (Math.min(100, Math.max(0, pct)) / 100) * PLOT_H
+  const y = (pct: number) => P.top + PLOT_H - (Math.min(100, Math.max(0, pct)) / 100) * PLOT_H
   const hovered = hover ? rollups.find(r => `${r.provider}${r.windowEnd}` === hover) : undefined
   const appliedIn = (slot: number) => applied.filter(a => weekOf(a.appliedAtMs) === slot)
 
   return (
     <div style="position:relative">
-      <svg viewBox={`0 0 ${W} ${H}`} style="width:100%;height:auto;display:block" role="img"
-        aria-label="Peak weekly plan usage per week" onMouseLeave={() => setHover(null)}>
+      {/* Capped at 1.4× its drawn size: past that the 11px labels grow too, and the week labels collide. */}
+      <svg viewBox={`0 0 ${W} ${H}`} style={`width:100%;max-width:${Math.round(W * 1.4)}px;height:auto;display:block`} role="img"
+        aria-label="Weekly plan limit used at its fullest, per week, with applied suggestions marked" onMouseLeave={() => setHover(null)}>
         <defs>
           <pattern id="plan-partial" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <rect width="4" height="4" fill="transparent" />
             <line x1="0" y1="0" x2="0" y2="4" stroke="var(--fg,#ccc)" stroke-width="1.5" opacity="0.35" />
           </pattern>
         </defs>
+        <text x={P.left - 6} y={10} text-anchor="start" font-size="11" fill={MUTED}>Weekly limit used, at its fullest</text>
         {[0, 25, 50, 75, 100].map(v => (
           <g key={v}>
-            <line x1={PAD.left} y1={y(v)} x2={W - PAD.right} y2={y(v)} stroke={GRID} stroke-width="0.5" />
-            <text x={PAD.left - 6} y={y(v)} text-anchor="end" dominant-baseline="middle" font-size="11" fill={MUTED}>{v}%</text>
+            <line x1={P.left} y1={y(v)} x2={W - P.right} y2={y(v)} stroke={GRID} stroke-width="0.5" />
+            <text x={P.left - 6} y={y(v)} text-anchor="end" dominant-baseline="middle" font-size="11" fill={MUTED}>{v}%</text>
+            {v === 100 && <text x={W - P.right + 4} y={y(v)} dominant-baseline="middle" font-size="10" fill={MUTED}>blocked</text>}
           </g>
         ))}
         {ends.map((end, i) => {
-          const cx = PAD.left + (i + 0.5) * slotW
+          const cx = P.left + (i + 0.5) * slotW
           const fixes = appliedIn(end)
           return (
             <g key={end}>
               {fixes.length > 0 && (
                 <g>
-                  <line x1={cx - slotW / 2} y1={PAD.top} x2={cx - slotW / 2} y2={PAD.top + PLOT_H} stroke="var(--accent,#4fc3f7)" stroke-width="1" stroke-dasharray="3 2" />
-                  <path d={`M${cx - slotW / 2},${PAD.top - 10} l4,4 l-4,4 l-4,-4 Z`} fill="var(--accent,#4fc3f7)">
-                    <title>{fixes.map(f => `Applied: ${f.title}`).join('\n')}</title>
-                  </path>
+                  <line x1={cx - slotW / 2} y1={P.top} x2={cx - slotW / 2} y2={P.top + PLOT_H} stroke="var(--accent,#4fc3f7)" stroke-width="1" stroke-dasharray="3 2" />
+                  {fixes.map((f, fi) => (
+                    <g key={f.id}>
+                      <circle cx={cx - slotW / 2 + fi * 14} cy={P.top - 8} r={6} fill="var(--accent,#4fc3f7)" />
+                      <text x={cx - slotW / 2 + fi * 14} y={P.top - 8} text-anchor="middle" dominant-baseline="central" font-size="9" font-weight="600" fill="var(--bg,#1e1e1e)">
+                        {appliedNumber(f)}
+                        <title>{`Applied: ${f.title}`}</title>
+                      </text>
+                    </g>
+                  ))}
                 </g>
               )}
               {providers.map((p, pi) => {
@@ -371,23 +382,23 @@ function WeeklyPeaksChart({ rollups }: { rollups: WindowRollup[] }) {
                 const key = `${r.provider}${r.windowEnd}`
                 return (
                   <g key={p} onMouseEnter={() => setHover(key)}>
-                    <rect x={bx} y={top} width={barW - 2} height={Math.max(1, PAD.top + PLOT_H - top)} rx="2"
+                    <rect x={bx} y={top} width={barW - 2} height={Math.max(1, P.top + PLOT_H - top)} rx="2"
                       fill={colorOf(p)} opacity={hover === key ? 1 : 0.85} />
-                    {r.coverage === 'partial' && <rect x={bx} y={top} width={barW - 2} height={Math.max(1, PAD.top + PLOT_H - top)} fill="url(#plan-partial)" />}
+                    {r.coverage === 'partial' && <rect x={bx} y={top} width={barW - 2} height={Math.max(1, P.top + PLOT_H - top)} fill="url(#plan-partial)" />}
                     {r.hit && <circle cx={bx + (barW - 2) / 2} cy={top - 6} r="3" fill={CRITICAL} />}
-                    <rect x={bx - 2} y={PAD.top} width={barW + 2} height={PLOT_H} fill="transparent" />
+                    <rect x={bx - 2} y={P.top} width={barW + 2} height={PLOT_H} fill="transparent" />
                   </g>
                 )
               })}
               {(ends.length <= 8 || i % 2 === 0 || i === ends.length - 1) && (
-                <text x={cx} y={PAD.top + PLOT_H + 12} text-anchor="middle" font-size="11" fill={MUTED}>Wk of {fmtDay(end)}</text>
+                <text x={cx} y={P.top + PLOT_H + 12} text-anchor="middle" font-size="11" fill={MUTED}>{fmtDay(end)}</text>
               )}
             </g>
           )
         })}
       </svg>
       {hovered && (
-        <div style={`${TOOLTIP_STYLE};top:${PAD.top}px;right:64px`}>
+        <div style={`${TOOLTIP_STYLE};top:${P.top}px;right:64px`}>
           <div style="color:var(--muted)">Window ending {fmtWhen(hovered.windowEnd)}</div>
           <div>
             <span style={`display:inline-block;width:10px;height:2px;background:${colorOf(hovered.provider)};vertical-align:middle;margin-right:6px`} />
@@ -404,10 +415,20 @@ function WeeklyPeaksChart({ rollups }: { rollups: WindowRollup[] }) {
             <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${colorOf(p)}`} />{PROVIDER_LABEL[p]}
           </span>
         ))}
+        <span>Weeks start Monday</span>
         {rollups.some(r => r.coverage === 'partial') && <span>Hatched: lower bound (partial readings)</span>}
         {rollups.some(r => r.hit) && <span><span style={`color:${CRITICAL}`}>●</span> limit hit</span>}
-        {applied.some(a => ends.includes(weekOf(a.appliedAtMs))) && <span><span style="color:var(--accent,#4fc3f7)">◆</span> instruction change applied</span>}
       </div>
+      {applied.some(a => ends.includes(weekOf(a.appliedAtMs))) && (
+        <ol data-applied-key style="list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11px;color:var(--muted)">
+          {[...applied].filter(a => ends.includes(weekOf(a.appliedAtMs))).sort((a, b) => a.appliedAtMs - b.appliedAtMs).map(a => (
+            <li key={a.id} style="display:inline-flex;align-items:center;gap:5px">
+              <span aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:var(--accent,#4fc3f7);color:var(--bg,#1e1e1e);font-size:9px;font-weight:600">{appliedNumber(a)}</span>
+              <span><span class="sr-only">Change {appliedNumber(a)}: </span>{a.title} <span style="opacity:.8">({fmtDay(a.appliedAtMs)})</span></span>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   )
 }
@@ -497,15 +518,17 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
   )
 }
 
-/** Advisor › Results' "Did my fixes work?": peak weekly plan usage per week, with a marker where an
- *  instruction-file suggestion was applied. Null when no plan has a full week recorded yet. */
+/** Advisor › Results' weekly-limit chart: how full the weekly window got each week, with each
+ *  applied instruction-file suggestion named in the week it went in. Null when no plan has a full
+ *  week recorded yet. */
 export function PlanFixesChart({ snapshot }: { snapshot: PlanUsageSnapshot | null }) {
   const rollups = snapshot ? chart2Rollups(snapshot) : []
   if (rollups.length === 0) return null
   return (
     <>
       <p style="font-size:11px;color:var(--muted);margin:0 0 6px">
-        Peak weekly plan usage per week. Markers show when an instruction-file suggestion was applied; a lower peak after one is the saving.
+        Each bar is how full your plan's weekly limit got that week, at its fullest (100% means you were blocked until it reset). Lower is better.
+        A lighter week lowers the bar too, so read it next to the per-trace comparisons above, which don't depend on how much you worked.
       </p>
       <WeeklyPeaksChart rollups={rollups} />
     </>

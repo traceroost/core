@@ -6,20 +6,22 @@ import {
   CHART_MAX, requestSessionTimeline, goToHelp,
 } from '../state'
 import { getAgentColorVar, getAgentSourceLabel, formatMs, formatCompact } from '../utils'
-import { buildDailyCostMap, calcSessionCost } from '../sessionMetrics'
+import { buildDailyCostMap } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 import { PRICING_LAST_UPDATED } from '../pricing'
 
-import { ContextGrowthChart, SessionTokenChart, OutcomeTrendChart, CodeChangesChart, CHANGE_COLOR, buildOutcomeTokenBuckets } from './SessionCharts'
+import { ContextGrowthChart, OutcomeTrendChart, CodeChangesChart, CHANGE_COLOR, buildOutcomeTokenBuckets } from './SessionCharts'
 import { buildCodeChangeBins } from './codeChanges'
-import { CostBarChart, fmtUsd } from './Cost'
+import { fmtUsd } from './Cost'
+import { TimeBarChart, TimeBarLegend, type StackSeries, type StackBin } from './TimeBarChart'
+import { buildDayBins, periodTotals, costHeadline } from '../costTrend'
 import { computeStats } from './Agents'
 import { ViewNav, ViewHeader, ViewSection, ViewEmpty, type ViewNavItem } from '../ViewNav'
 import { EfficiencyMap, HotFiles } from './Efficiency'
 import { advisorPendingCount } from './Patterns'
 import { buildTrendBins, summarize, TREND_OUTCOMES, TREND_COLOR } from './outcomeTrend'
 import { OUTCOME_META } from './Sessions'
-import { gitOutcomes, selectedAgentFilter, analyticsView, setAnalyticsView, goToAdvisor, type AnalyticsView } from '../state'
+import { gitOutcomes, selectedAgentFilter, timeRange, previousPeriodSessions, analyticsView, setAnalyticsView, goToAdvisor, type AnalyticsView } from '../state'
 import { planUsage, hasPlanData, forAgentFilter, PROVIDER_LABEL } from '../planUsage'
 import { PlanLimitsSection } from './PlanLimits'
 import { NoTracesYet } from './GettingStarted'
@@ -192,10 +194,6 @@ export function Analytics() {
   const timeOrdered = [...filteredSessions.value].sort((a, b) =>
     Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0')
   )
-  const pricedChartSess = timeOrdered.filter(s => s.source === 'copilot' || s.source === 'codex' || s.source === 'claude_code' || s.source === 'opencode')
-  // One legend entry per agent that has a bar in the chart (CostBarChart skips unpriced traces),
-  // drawn with the same colour the bars use.
-  const costChartAgents = BREAKDOWN_SOURCES.filter(src => pricedChartSess.some(s => s.source === src && !calcSessionCost(s).modelUnknown))
 
   // Most recent CHART_MAX sessions (newest-first slice, then reversed to oldest-first for charts)
   const chartSessions = timeOrdered.slice(0, CHART_MAX).reverse()
@@ -410,30 +408,57 @@ export function Analytics() {
             : 'No plan usage recorded yet. Claude Code and Codex write it while you work on a subscription plan; usage through an API key has no plan limit.'}</ViewEmpty>}
     </ViewSection>
   )
+  // ── Cost and tokens per day (one axis each, a real time axis; costTrend.ts) ──
+  const days = buildDayBins(sessions)
+  const costSeries: StackSeries[] = BREAKDOWN_SOURCES
+    .filter(src => days.bins.some(b => (b.costBySource[src] ?? 0) > 0))
+    .map(src => ({ key: src, label: getAgentSourceLabel(src) + (src === 'copilot' && copilotSess.length > 0 ? ' (token-based)' : ''), color: getAgentColorVar(src) }))
+  const costBins: StackBin[] = days.bins.map(b => ({ start: b.start, end: b.end, values: b.costBySource, note: `${b.pricedTraces} trace${b.pricedTraces === 1 ? '' : 's'}` }))
+  const current = periodTotals(sessions)
+  const prev = previousPeriodSessions.value
+  const headline = costHeadline(timeRange.value, current, prev ? periodTotals(prev) : null, fmtUsd)
+  const unpriced = sessions.length - current.pricedTraces
+  const usdTick = (v: number) => (v === 0 ? '$0' : fmtUsd(v))
+  const tokenSeries: StackSeries[] = [
+    { key: 'in', label: 'Input tokens', color: 'var(--accent)' },
+    { key: 'out', label: 'Output tokens', color: 'color-mix(in srgb, var(--accent) 45%, var(--bg))' },
+  ]
+  const tokenBins: StackBin[] = days.bins.map(b => ({ start: b.start, end: b.end, values: { in: b.tokensIn, out: b.tokensOut }, note: `${b.traces} trace${b.traces === 1 ? '' : 's'}` }))
+  const hasTokens = days.bins.some(b => b.tokensIn + b.tokensOut > 0)
+
   const costSection = (
-    <ViewSection id="analytics-cost" title="Estimated cost" helpAnchor="help-costs" onHelp={help}>
-      {pricedSess.length === 0 ? (
+    <ViewSection id="analytics-cost" title={`Estimated cost per ${days.unit}`} helpAnchor="help-costs" onHelp={help}>
+      {pricedSess.length === 0 || current.pricedTraces === 0 ? (
         <ViewEmpty>No trace in view can be priced. Cost is estimated for Copilot, Claude Code, Codex and OpenCode traces from their token counts.</ViewEmpty>
       ) : (
         <>
+          <p data-testid="cost-headline" style="font-size:12px;margin:0 0 6px"><strong>{headline}</strong></p>
           {disclaimer}
-          {/* Legend: each bar is one trace, coloured by its agent; the line is the daily total. */}
-          <div data-testid="cost-chart-legend" style="display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;font-size:var(--fs-xs);color:var(--muted);margin-bottom:6px">
-            {costChartAgents.map(src => (
-              <span key={src} style="display:inline-flex;align-items:center;gap:4px">
-                <span aria-hidden="true" style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${getAgentColorVar(src)};box-shadow:0 0 0 1px var(--border)`} />
-                {getAgentSourceLabel(src)}{src === 'copilot' && copilotSess.length > 0 ? ' (token-based)' : ''}
-              </span>
-            ))}
-            <span style="display:inline-flex;align-items:center;gap:4px">
-              <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true">
-                <line x1="0" y1="4" x2="16" y2="4" stroke="var(--vscode-charts-green, #81c784)" stroke-width="1.5" />
-              </svg>
-              Daily total (right axis)
-            </span>
-          </div>
-          <CostBarChart sessions={pricedChartSess} />
-          {dayRows.length > 0 && costTable}
+          <div data-testid="cost-chart-legend"><TimeBarLegend series={costSeries} /></div>
+          <TimeBarChart testId="cost-chart" bins={costBins} unit={days.unit} series={costSeries}
+            yTitle={`Estimated cost (USD) per ${days.unit}`} format={usdTick}
+            ariaLabel={`Estimated cost per ${days.unit}, stacked by agent: ${headline}`} />
+          {(unpriced > 0 || days.unit === 'week') && (
+            <p style="font-size:11px;color:var(--muted);margin:6px 0 0">
+              {unpriced > 0 && `${unpriced.toLocaleString()} trace${unpriced === 1 ? '' : 's'} with an unrecognised model ${unpriced === 1 ? 'is' : 'are'} not in the cost.`}
+              {days.unit === 'week' ? `${unpriced > 0 ? ' ' : ''}Grouped by week (Monday start, UTC).` : ''}
+            </p>
+          )}
+          {dayRows.length > 0 && <div style="margin-top:10px">{costTable}</div>}
+        </>
+      )}
+    </ViewSection>
+  )
+  const tokenSection = (
+    <ViewSection id="analytics-token-usage" title={`Tokens per ${days.unit}`}>
+      {!hasTokens ? (
+        <ViewEmpty>No trace in view recorded token counts.</ViewEmpty>
+      ) : (
+        <>
+          <TimeBarLegend series={tokenSeries} />
+          <TimeBarChart testId="token-chart" bins={tokenBins} unit={days.unit} series={tokenSeries}
+            yTitle={`Tokens (input + output) per ${days.unit}`} format={formatCompact}
+            ariaLabel={`Tokens per ${days.unit}, input and output stacked.`} />
         </>
       )}
     </ViewSection>
@@ -571,14 +596,6 @@ export function Analytics() {
       <ViewSection id="analytics-context-growth" title="Context growth">
         <ContextGrowthChart sessions={chartSessions} timelines={timelines} />
       </ViewSection>
-      <ViewSection id="analytics-token-usage" title="Token usage per trace">
-        <div style="display:flex;gap:12px;margin-bottom:6px;font-size:var(--fs-xs);color:var(--muted)">
-          <span><span style="display:inline-block;width:10px;height:3px;background:#FFB74D;border-radius:1px;vertical-align:middle" /> Input tokens</span>
-          <span><span style="display:inline-block;width:10px;height:3px;background:#81C784;border-radius:1px;vertical-align:middle" /> Output tokens</span>
-        </div>
-        {/* Always pass newest-first (rangedSessions); chart reverses internally to oldest-first */}
-        <SessionTokenChart sessions={timeOrdered} />
-      </ViewSection>
     </>
   )
 
@@ -590,6 +607,7 @@ export function Analytics() {
             <ViewHeader title="Cost & limits" question="How much am I spending, and how close am I to my plan limits?" />
             {hasPlan && planSection}
             {costSection}
+            {tokenSection}
             {!hasPlan && planSection}
           </div>
         )}
