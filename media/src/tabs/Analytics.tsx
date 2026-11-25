@@ -409,7 +409,7 @@ export function Analytics() {
     </ViewSection>
   )
   // ── Cost and tokens per day (one axis each, a real time axis; costTrend.ts) ──
-  const days = buildDayBins(sessions)
+  const days = buildDayBins(sessions, timeRange.value)
   const costSeries: StackSeries[] = BREAKDOWN_SOURCES
     .filter(src => days.bins.some(b => (b.costBySource[src] ?? 0) > 0))
     .map(src => ({ key: src, label: getAgentSourceLabel(src) + (src === 'copilot' && copilotSess.length > 0 ? ' (token-based)' : ''), color: getAgentColorVar(src) }))
@@ -479,7 +479,7 @@ export function Analytics() {
             <strong>{pct(trendSummary.uncommittedShare)}</strong> to work still uncommitted.
           </p>
           <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
-            Tokens are input + output, excluding cache reads. Only traces with a merged,
+            Tokens are input (including any read from the prompt cache) plus output. Only traces with a merged,
             committed, or uncommitted outcome are counted.
             {trend.unit === 'week' ? ' Grouped by week (Monday start, UTC).' : ''}
           </p>
@@ -593,7 +593,7 @@ export function Analytics() {
       <ViewSection id="analytics-hot-files" title="Hot files">
         <HotFiles sessions={sessions} />
       </ViewSection>
-      <ViewSection id="analytics-context-growth" title="Context growth">
+      <ViewSection id="analytics-context-growth" title="Context growth" window={`Latest ${chartSessions.length} trace${chartSessions.length === 1 ? '' : 's'}`}>
         <ContextGrowthChart sessions={chartSessions} timelines={timelines} />
       </ViewSection>
     </>

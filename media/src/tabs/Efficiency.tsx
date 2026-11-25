@@ -37,6 +37,9 @@ export function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) 
   const [tooltip, setTooltip] = useState<{ x: number; y: number; s: SessionSummaryCard } | null>(null)
   const [sort, setSort] = useState<{ col: MatchSort; dir: 'asc' | 'desc' }>({ col: 'cost', dir: 'desc' })
   const [clicked, setClicked] = useState<string | null>(null)
+  // The one trace highlighted on the map: the row (or dot) under the pointer or keyboard focus.
+  // Nothing is highlighted otherwise, so re-sorting the table never changes how the map looks.
+  const [hovered, setHovered] = useState<string | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
 
   const points = sessions
@@ -85,23 +88,27 @@ export function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) 
   const toggleSort = (col: MatchSort) =>
     setSort(s => s.col === col ? { col, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { col, dir: 'desc' })
 
-  const topMatchIds = new Set(sortedMatches.map(p => p.s.traceId))
+  // The SVG scales to its panel (viewBox), so a dot's SVG coordinates are scaled to CSS pixels to
+  // place the tooltip, which sits outside the SVG.
+  const scale = () => { const w = svgRef.current?.getBoundingClientRect().width; return w ? w / W : 1 }
 
   return (
     <div>
       <div style="margin-bottom:8px;padding:8px 10px;font-size:11px;color:var(--muted);line-height:1.6;background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
-        Each dot is one trace. <strong style="color:var(--fg)">Right</strong> = more expensive. <strong style="color:var(--fg)">Up</strong> = more turns (model calls). <strong style="color:var(--fg)">Top-right</strong> dots cost the most and required the most back-and-forth, so start there. <strong style="color:var(--vscode-charts-green, #81c784)">Green</strong> = model reused cached context between calls (efficient). <strong style="color:var(--vscode-errorForeground, #f44747)">Red</strong> = model reprocessed everything from scratch on every call (wasteful).
+        Each dot is one trace. <strong style="color:var(--fg)">Right</strong> = more expensive. <strong style="color:var(--fg)">Up</strong> = more turns (model calls). <strong style="color:var(--fg)">Top-right</strong> dots cost the most and took the most back-and-forth; start there. Colour is prompt-cache reuse, the share of input tokens read from cache: <strong style={`color:${CACHE_GOOD}`}>green</strong> 60% or more, <strong style={`color:${CACHE_MID}`}>amber</strong> 20 to 60%, <strong style={`color:${CACHE_BAD}`}>red</strong> under 20%. Point at a row in the table to find its dot.
       </div>
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
         <span style="font-size:var(--fs-xs);color:var(--muted)">{points.length} trace{points.length !== 1 ? "s" : ""}{filter.trim() ? ' matching filter' : ''}</span>
         <span style="display:flex;align-items:center;gap:4px;font-size:var(--fs-xs);color:var(--muted)">
-          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_GOOD}`} /> cache ≥60%
-          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_MID};margin-left:6px`} /> 20–60%
-          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_BAD};margin-left:6px`} /> &lt;20%
+          Cache reuse:
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_GOOD};margin-left:4px`} /> 60% or more
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_MID};margin-left:6px`} /> 20 to 60%
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_BAD};margin-left:6px`} /> under 20%
         </span>
       </div>
       <div style="position:relative">
-        <svg ref={svgRef} width={W} height={H} style="overflow:hidden;max-width:100%">
+        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width="100%" style={`display:block;overflow:hidden;max-width:${W * 1.5}px;height:auto`}
+          role="img" aria-label={`Estimated cost against turns for ${points.length} trace${points.length === 1 ? '' : 's'}, coloured by prompt-cache reuse. The table below lists the top ${sortedMatches.length}.`}>
           <defs>
             <clipPath id="plot-area">
               <rect x={PAD.left} y={PAD.top} width={cw} height={ch} />
@@ -131,15 +138,15 @@ export function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) 
           ))}
           <g clip-path="url(#plot-area)">
             {points.map((p, i) => {
-              const inTop = topMatchIds.has(p.s.traceId)
+              const lit = hovered === p.s.traceId || clicked === p.s.traceId
               const cx = xPos(p.cost), cy = yPos(p.turns)
               const color = p.cacheHitRate >= 0.6 ? CACHE_GOOD : p.cacheHitRate >= 0.2 ? CACHE_MID : CACHE_BAD
               return (
-                <circle key={i} cx={cx} cy={cy} r={inTop ? 5 : 4}
-                  opacity={inTop ? 1 : 0.6} style={`cursor:pointer;fill:${color};stroke:${clicked === p.s.traceId ? 'var(--fg)' : 'none'}`}
+                <circle key={i} cx={cx} cy={cy} r={lit ? 6 : 4} data-trace-dot={p.s.traceId} data-lit={lit ? 'true' : undefined}
+                  opacity={lit ? 1 : 0.7} style={`cursor:pointer;fill:${color};stroke:${lit ? 'var(--fg)' : 'none'}`}
                   stroke-width="2"
-                  onMouseEnter={() => setTooltip({ x: cx, y: cy, s: p.s })}
-                  onMouseLeave={() => setTooltip(null)}
+                  onMouseEnter={() => { const k = scale(); setHovered(p.s.traceId); setTooltip({ x: cx * k, y: cy * k, s: p.s }) }}
+                  onMouseLeave={() => { setHovered(null); setTooltip(null) }}
                   onClick={() => {
                     const next = clicked === p.s.traceId ? null : p.s.traceId
                     setClicked(next)
@@ -152,8 +159,9 @@ export function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) 
         </svg>
         {tooltip && (() => {
           const s = tooltip.s
-          const left = tooltip.x > W * 0.6 ? tooltip.x - 220 : tooltip.x + 12
-          const top  = tooltip.y > H * 0.6 ? tooltip.y - 90  : tooltip.y + 8
+          const k = scale()
+          const left = tooltip.x > W * k * 0.6 ? tooltip.x - 220 : tooltip.x + 12
+          const top  = tooltip.y > H * k * 0.6 ? tooltip.y - 90  : tooltip.y + 8
           return (
             <div style={`position:absolute;left:${left}px;top:${top}px;background:var(--vscode-editorWidget-background,#252526);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-size:11px;pointer-events:none;z-index:10;max-width:210px`}>
               <div style="font-weight:600;color:var(--fg);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
@@ -189,8 +197,12 @@ export function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) 
               <tbody>
                 {sortedMatches.map((p, i) => {
                   const isClicked = clicked === p.s.traceId
+                  const isLit = isClicked || hovered === p.s.traceId
                   return (
-                  <tr key={i} style={`border-bottom:1px solid var(--border);${isClicked ? 'background:rgba(79,195,247,0.08);box-shadow:inset 3px 0 0 var(--accent)' : ''}`}>
+                  <tr key={i} data-trace-row={p.s.traceId}
+                    onMouseEnter={() => setHovered(p.s.traceId)} onMouseLeave={() => setHovered(null)}
+                    onFocusIn={() => setHovered(p.s.traceId)} onFocusOut={() => setHovered(null)}
+                    style={`border-bottom:1px solid var(--border);${isClicked ? 'background:rgba(79,195,247,0.08);box-shadow:inset 3px 0 0 var(--accent)' : isLit ? 'background:color-mix(in srgb, var(--accent) 6%, transparent)' : ''}`}>
                     <td style="padding:4px 8px 4px 0;white-space:nowrap;font-size:var(--fs-xs);font-variant-numeric:tabular-nums">
                       <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${agentDotColor(p.s.source)};margin-right:5px;flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(p.s.source)} />
                       <button type="button" class="link-btn"

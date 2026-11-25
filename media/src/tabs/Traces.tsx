@@ -252,6 +252,25 @@ function LongTextSection({ heading, text, id: _id, isJson }: { heading: string; 
   )
 }
 
+/**
+ * The waterfall's time ruler: six marks from 0 to the trace's duration, laid over the same column
+ * as the rows' bars (past the 260px label, short of the 90px info column, with the bar area's 8px
+ * margins), each label centred on its moment, so a bar that starts at 2s starts under "2s".
+ */
+export function WfTimeRuler({ sessionDur }: { sessionDur: number }) {
+  return (
+    <div class="wf-time-ruler">
+      <span class="wf-time-ruler-pad" />
+      <div class="wf-time-ruler-area">
+        {Array.from({ length: 6 }, (_, t) => (
+          <span key={t} style={`left:${t * 20}%;transform:translateX(${t === 0 ? '0' : t === 5 ? '-100%' : '-50%'})`}>{t === 0 ? '0s' : formatMs(sessionDur * t / 5)}</span>
+        ))}
+      </div>
+      <span class="wf-time-ruler-info" />
+    </div>
+  )
+}
+
 export function StepRow({ step, idx, sessIdx, sessionDur, sessionModel, tlIndex, mark }: {
   step: Step; idx: number; sessIdx: number; sessionDur: number; sessionModel: string
   /** Position in the session's full timeline — what signal evidence points at; the row carries it
@@ -453,9 +472,7 @@ function SessionBlock({ sess, sessIdx, sessNum, isFirst }: {
             <div style="padding:12px 16px;font-size:11px;color:var(--muted)">Loading timeline…</div>
           ) : (
             <>
-              <div class="wf-time-ruler">
-                {Array.from({ length: 6 }, (_, t) => <span key={t}>{formatMs(sessionDur * t / 5)}</span>)}
-              </div>
+              <WfTimeRuler sessionDur={sessionDur} />
               {steps.map((step, si) => <StepRow key={step.entry.spanId + si} step={step} idx={si} sessIdx={sessIdx} sessionDur={sessionDur} sessionModel={sess.model ?? ''} />)}
             </>
           )}

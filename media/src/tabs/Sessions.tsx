@@ -18,7 +18,7 @@ import { calcSessionCost, oneShotRate, avgEditsPerFile } from '../sessionMetrics
 import { fmtUsd } from './Cost'
 import { generateInsights, InsightCard, InsightIcon } from './Insights'
 import { buildDisplaySummary } from '../utils'
-import { Step, StepRow, type StepMark } from './Traces'
+import { Step, StepRow, WfTimeRuler, type StepMark } from './Traces'
 import { hasEvidence, insightColor, insightShortName, resolveStepIndex } from '../signalEvidence'
 import { FlowCanvas } from './Flow'
 import { ToolsChart } from './Tools'
@@ -666,9 +666,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                     />
                   )}
                   <div class="waterfall" ref={waterfallRef}>
-                    <div class="wf-time-ruler">
-                      {Array.from({ length: 6 }, (_, t) => <span key={t}>{formatMs(sessionDur * t / 5)}</span>)}
-                    </div>
+                    <WfTimeRuler sessionDur={sessionDur} />
                     {evidence.length > 0 && (
                       <EvidenceTrack
                         evidence={focused ? [focused] : evidence}

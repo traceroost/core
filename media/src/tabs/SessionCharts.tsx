@@ -40,18 +40,24 @@ function formatGrowthLabel(sess: { startTime?: string }): string {
 
 const BASE_MS = 900 // ms per session at 1× speed
 
+const prefersReducedMotion = (): boolean => {
+  try { return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false } catch { return false }
+}
+
 export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionSummaryCard[]; timelines: Record<string, import('../types').TimelineEntry[]> }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const focusedId = focusedSessionId.value
   const focusedIdRef = useRef<string | null>(null)
   focusedIdRef.current = focusedId
 
-  const [paused, setPaused] = useState(false)
+  // Cycling through the traces is motion nobody asked for: with reduced motion set, start paused
+  // (the play button still starts it).
+  const [paused, setPaused] = useState(prefersReducedMotion)
   const [hasData, setHasData] = useState(false)
   const [loading, setLoading] = useState(false)
   const [seriesCount, setSeriesCount] = useState(0)
   const [speed, setSpeed] = useState(1)
-  const pausedRef = useRef(false)
+  const pausedRef = useRef(paused)
   const speedRef = useRef(1)
   const activeIdxRef = useRef(0)
   const seriesCountRef = useRef(0)
@@ -120,10 +126,10 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
 
     const maxTurns = Math.max(...seriesData.map(s => s.points.length), 2)
     const allTokens = seriesData.flatMap(s => s.points.map(p => p.tokens))
-    const rawMin = Math.min(...allTokens), rawMax = Math.max(...allTokens)
-    const spread = rawMax - rawMin || rawMax * 0.1 || 1
-    const yMin = Math.max(0, rawMin - spread * 0.1)
-    const yMax = rawMax + spread * 0.1
+    // Zero-based, so a trace whose context grew 10% doesn't look as steep as one that doubled.
+    const rawMax = Math.max(...allTokens)
+    const yMin = 0
+    const yMax = rawMax * 1.1 || 1
 
     const cs = getComputedStyle(document.body)
     const gridColor = cs.getPropertyValue('--vscode-panel-border').trim() || '#333'

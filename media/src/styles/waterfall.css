@@ -12,8 +12,12 @@
 .wf-header-chevron { margin-right: 6px; font-size: var(--fs-xs); }
 .wf-trace-body { border: 1px solid var(--border); border-radius: 0 0 4px 4px; }
 .wf-trace-body.collapsed { display: none; }
-.wf-time-ruler { display: flex; font-size: var(--fs-xs); color: var(--muted); padding: 2px 0 2px 260px; border-bottom: 1px solid var(--border); }
-.wf-time-ruler span { flex: 1; text-align: center; }
+.wf-time-ruler { display: flex; font-size: var(--fs-xs); color: var(--muted); padding: 2px 0; border-bottom: 1px solid var(--border); }
+/* The same columns as a .wf-row: label, bar area (8px margins), info, so marks sit over the bars. */
+.wf-time-ruler-pad { width: 260px; min-width: 260px; }
+.wf-time-ruler-info { width: 90px; min-width: 90px; }
+.wf-time-ruler-area { flex: 1; position: relative; margin: 0 8px; height: 1.4em; }
+.wf-time-ruler-area span { position: absolute; top: 0; white-space: nowrap; }
 .wf-row { display: flex; align-items: center; min-height: 28px; border-bottom: 1px solid var(--border); font-size: 11px; cursor: pointer; }
 .wf-row:last-child { border-bottom: none; }
 .wf-row:hover { background: var(--hover); }
