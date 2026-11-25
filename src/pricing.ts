@@ -1,6 +1,6 @@
 // Pricing data for extension-host cost computation (cost_usd stored in sessions table).
 // Rate table is kept in sync with media/src/pricing.ts — update both when rates change.
-// PRICING_LAST_UPDATED: 2026-11-09
+// PRICING_LAST_UPDATED: 2026-11-24
 
 export interface ModelRates {
   inputPerMTok: number
@@ -117,6 +117,16 @@ const RATES: Record<string, ModelRates> = {
   'gpt-6.1-terra':      { inputPerMTok: 1.00,  cacheReadPerMTok: 0.05,   cacheWritePerMTok: 1.25, outputPerMTok: 5.00, contextWindowTokens: 0,
                           longContextThresholdTokens: 272_000,
                           inputAboveThresholdPerMTok: 2.00, cacheReadAboveThresholdPerMTok: 0.10, cacheWriteAboveThresholdPerMTok: 2.50, outputAboveThresholdPerMTok: 7.50 },
+  // gpt-6.2-astra, gpt-6.2-sol: added 2026-11-24 — three-way confirmed (Copilot's pricing page, OpenAI's own API
+  // pricing page, and the Codex CLI credits page: 200/10/1000 and 50/2.5/250 credits ÷25). Same shape as the
+  // GPT-6.1 family: cache-write 1.25x input, cache-read 0.05x input, long-context surcharge above 272K (2x input,
+  // cache and cache-write, 1.5x output). Context window not stated on any of the three pages, so left at 0.
+  'gpt-6.2-astra':      { inputPerMTok: 8.00,  cacheReadPerMTok: 0.40,   cacheWritePerMTok: 10.00, outputPerMTok: 40.00, contextWindowTokens: 0,
+                          longContextThresholdTokens: 272_000,
+                          inputAboveThresholdPerMTok: 16.00, cacheReadAboveThresholdPerMTok: 0.80, cacheWriteAboveThresholdPerMTok: 20.00, outputAboveThresholdPerMTok: 60.00 },
+  'gpt-6.2-sol':        { inputPerMTok: 2.00,  cacheReadPerMTok: 0.10,   cacheWritePerMTok: 2.50, outputPerMTok: 10.00, contextWindowTokens: 0,
+                          longContextThresholdTokens: 272_000,
+                          inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 0.20, cacheWriteAboveThresholdPerMTok: 5.00, outputAboveThresholdPerMTok: 15.00 },
   // daybreak-blue, daybreak-red: added 2026-11-08 — codenamed models listed only on the Codex CLI credits page
   // (100/10/500 and 312.5/31.25/1875 credits ÷25 = $4.00/$0.40/$20.00 and $12.50/$1.25/$75.00). Neither is on
   // OpenAI's API pricing page or Copilot's, so the slugs are guessed from the display names and the cache-write
@@ -128,6 +138,16 @@ const RATES: Record<string, ModelRates> = {
   // reachable through Codex, and OpenAI's API page lists the same $5.00/$0.50/$25.00. Neither page gives a
   // cache-write rate or a long-context tier, so none is modeled. Context window not stated, left at 0 (unknown).
   'gpt-rosalind-research': { inputPerMTok: 5.00, cacheReadPerMTok: 0.50, cacheWritePerMTok: 0, outputPerMTok: 25.00, contextWindowTokens: 0 },
+  // gpt-rosalind-discovery: added 2026-11-24 — the Codex CLI credits page lists "GPT-5.5 Rosalind Discovery" at
+  // 125/12.5/625 credits ÷25, the same as gpt-rosalind-research, and OpenAI's API page lists gpt-rosalind-discovery
+  // at the same $5.00/$0.50/$25.00. No cache-write rate or long-context tier published.
+  'gpt-rosalind-discovery': { inputPerMTok: 5.00, cacheReadPerMTok: 0.50, cacheWritePerMTok: 0, outputPerMTok: 25.00, contextWindowTokens: 0 },
+  // gpt-6-rosalind: added 2026-11-24 — "GPT-6 Rosalind Research" on the Codex CLI credits page (250/25/1250 credits
+  // ÷25) and gpt-6-rosalind on OpenAI's API page at the same $10.00/$1.00/$50.00, with a $12.50 cache write and the
+  // GPT-6 long-context tier above 272K. Both pages call it promotional pricing "at least through December 31, 2026".
+  'gpt-6-rosalind':     { inputPerMTok: 10.00, cacheReadPerMTok: 1.00,   cacheWritePerMTok: 12.50, outputPerMTok: 50.00, contextWindowTokens: 0,
+                          longContextThresholdTokens: 272_000,
+                          inputAboveThresholdPerMTok: 20.00, cacheReadAboveThresholdPerMTok: 2.00, cacheWriteAboveThresholdPerMTok: 25.00, outputAboveThresholdPerMTok: 75.00 },
   // gpt-4.1-nano, gpt-5-nano, gpt-5 (base): added 2026-08-26 — confirmed on OpenAI's general API pricing page, but
   // not independently confirmed as reachable through Copilot or Codex CLI specifically (neither's own docs
   // mentioned them this pass). Added on this file's existing philosophy that a model which never appears in
@@ -157,6 +177,11 @@ const RATES: Record<string, ModelRates> = {
   'mai-code-1-flash':   { inputPerMTok: 0.75,  cacheReadPerMTok: 0.075,  cacheWritePerMTok: 0, outputPerMTok: 4.50,  contextWindowTokens: 0 },
   // mai-code-1.1-flash: added 2026-08-12 — new on the Copilot pricing page this refresh.
   'mai-code-1.1-flash': { inputPerMTok: 0.20,  cacheReadPerMTok: 0.02,   cacheWritePerMTok: 0, outputPerMTok: 1.20,  contextWindowTokens: 0 },
+  // mai-code-2, mai-code-2-flash: added 2026-11-24 — new on the Copilot pricing page ("MAI Code 2", "MAI Code 2
+  // Flash"). mai-code-2-flash is the slug Copilot CLI's auto mode reports; mai-code-2 follows the same convention.
+  // Both are promotional until 2027-05-17, when they double ($1.00/$0.05/$5.00 and $0.10/$0.01/$0.50).
+  'mai-code-2':         { inputPerMTok: 0.50,  cacheReadPerMTok: 0.025,  cacheWritePerMTok: 0, outputPerMTok: 2.50,  contextWindowTokens: 0 },
+  'mai-code-2-flash':   { inputPerMTok: 0.05,  cacheReadPerMTok: 0.005,  cacheWritePerMTok: 0, outputPerMTok: 0.25,  contextWindowTokens: 0 },
   // ── Codex-only ─────────────────────────────────────────────────────────────
   // codex-mini-latest: deprecated per OpenAI docs; kept for historical sessions.
   'codex-mini-latest':  { inputPerMTok: 1.50,  cacheReadPerMTok: 0.375,  cacheWritePerMTok: 0, outputPerMTok: 6.00,  contextWindowTokens: 200_000 },
@@ -268,6 +293,14 @@ const RATES: Record<string, ModelRates> = {
   // 2026-12-01**; it is the one rate in the table with a known, first-party expiry inside a month.
   // (Copilot's page and OpenCode Zen both show the $2.00 figure too, Zen labeling it "50% off".)
   'gemini-4-argon':  { inputPerMTok: 2.00, cacheReadPerMTok: 0.10,  cacheWritePerMTok: 0, outputPerMTok: 10.00, contextWindowTokens: 0 },
+  // gemini-4-carbon: added 2026-11-24 — on Google's own pricing page and Copilot's, with the same schedule as
+  // gemini-4-argon: $2.00/$0.10/$10.00 through 2026-11-30, then $4.00/$0.20/$20.00 from 2026-12-01. Carried at
+  // today's rate, so **double this row on or after 2026-12-01**, together with gemini-4-argon.
+  'gemini-4-carbon': { inputPerMTok: 2.00, cacheReadPerMTok: 0.10,  cacheWritePerMTok: 0, outputPerMTok: 10.00, contextWindowTokens: 0 },
+  // gemini-4-hydrogen, gemini-4-neon: added 2026-11-24 — on Google's own pricing page and Copilot's at the same
+  // rates, with no promotion, prompt-length tier or cache-write charge.
+  'gemini-4-hydrogen': { inputPerMTok: 1.50, cacheReadPerMTok: 0.075, cacheWritePerMTok: 0, outputPerMTok: 7.50, contextWindowTokens: 0 },
+  'gemini-4-neon':   { inputPerMTok: 3.00, cacheReadPerMTok: 0.15,  cacheWritePerMTok: 0, outputPerMTok: 15.00, contextWindowTokens: 0 },
   // ── Fine-tuned ─────────────────────────────────────────────────────────────
   // raptor-mini: no longer an included/$0 model as of the 2026-07-19 Copilot pricing page — now billed at standard rates.
   'raptor-mini': { inputPerMTok: 0.25, cacheReadPerMTok: 0.025, cacheWritePerMTok: 0, outputPerMTok:  2.00,  contextWindowTokens: 0 },
@@ -319,6 +352,9 @@ const RATES: Record<string, ModelRates> = {
   // longcat-2.5-free: added 2026-11-09 — slug confirmed from the Zen page's model ID column. Likely the GA
   // successor of longcat-2.5-preview-free (kept above, $0 either way).
   'longcat-2.5-free':            { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  // tidepool-alpha-free, hy4-flash-free: added 2026-11-24 — slugs confirmed from the Zen page's model ID column.
+  'tidepool-alpha-free':         { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  'hy4-flash-free':              { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
 }
 
 // Exported so callers that build a model ID by appending their own suffix (e.g.

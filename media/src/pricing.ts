@@ -1,6 +1,6 @@
 // Pricing data for Copilot cost estimation.
 // Token rates: https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing
-export const PRICING_LAST_UPDATED = '2026-11-09'
+export const PRICING_LAST_UPDATED = '2026-11-24'
 
 export interface ModelRates {
   inputPerMTok: number              // USD per 1M input tokens
@@ -118,6 +118,14 @@ export const RATES: Record<string, ModelRates> = {
   'gpt-6.1-terra':       { inputPerMTok: 1.00,  cacheReadPerMTok: 0.05,   cacheWritePerMTok: 1.25, outputPerMTok: 5.00,
                            longContextThresholdTokens: 272_000,
                            inputAboveThresholdPerMTok: 2.00, cacheReadAboveThresholdPerMTok: 0.10, cacheWriteAboveThresholdPerMTok: 2.50, outputAboveThresholdPerMTok: 7.50 },
+  // gpt-6.2-astra, gpt-6.2-sol: added 2026-11-24 — three-way confirmed (Copilot, OpenAI's API page, Codex credits
+  // 200/10/1000 and 50/2.5/250 ÷25). GPT-6.1 shape: cache-write 1.25x, cache-read 0.05x, surcharge above 272K.
+  'gpt-6.2-astra':       { inputPerMTok: 8.00,  cacheReadPerMTok: 0.40,   cacheWritePerMTok: 10.00, outputPerMTok: 40.00,
+                           longContextThresholdTokens: 272_000,
+                           inputAboveThresholdPerMTok: 16.00, cacheReadAboveThresholdPerMTok: 0.80, cacheWriteAboveThresholdPerMTok: 20.00, outputAboveThresholdPerMTok: 60.00 },
+  'gpt-6.2-sol':         { inputPerMTok: 2.00,  cacheReadPerMTok: 0.10,   cacheWritePerMTok: 2.50, outputPerMTok: 10.00,
+                           longContextThresholdTokens: 272_000,
+                           inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 0.20, cacheWriteAboveThresholdPerMTok: 5.00, outputAboveThresholdPerMTok: 15.00 },
   // daybreak-blue, daybreak-red: added 2026-11-08 — codenamed models listed only on the Codex CLI credits page
   // (100/10/500 and 312.5/31.25/1875 credits ÷25). Slugs guessed from the display names; cache-write is derived at
   // the family's 1.25x input, not read off a table. Their rates match gpt-5.6-sol and gpt-5.6-cyber exactly, so
@@ -127,6 +135,15 @@ export const RATES: Record<string, ModelRates> = {
   // gpt-rosalind-research: added 2026-11-09 — now on the Codex CLI credits page (125/12.5/625 credits ÷25) and
   // OpenAI's API page at the same $5.00/$0.50/$25.00. No cache-write rate or long-context tier published.
   'gpt-rosalind-research': { inputPerMTok: 5.00, cacheReadPerMTok: 0.50, cacheWritePerMTok: 0, outputPerMTok: 25.00 },
+  // gpt-rosalind-discovery: added 2026-11-24 — Codex credits page (GPT-5.5 Rosalind Discovery, 125/12.5/625 ÷25)
+  // and OpenAI's API page agree on $5.00/$0.50/$25.00.
+  'gpt-rosalind-discovery': { inputPerMTok: 5.00, cacheReadPerMTok: 0.50, cacheWritePerMTok: 0, outputPerMTok: 25.00 },
+  // gpt-6-rosalind: added 2026-11-24 — Codex credits page (GPT-6 Rosalind Research, 250/25/1250 ÷25) and OpenAI's
+  // API page agree; $12.50 cache write, GPT-6 long-context tier above 272K.
+  'gpt-6-rosalind':      { inputPerMTok: 10.00, cacheReadPerMTok: 1.00,   cacheWritePerMTok: 12.50, outputPerMTok: 50.00,
+                           longContextThresholdTokens: 272_000,
+                           inputAboveThresholdPerMTok: 20.00, cacheReadAboveThresholdPerMTok: 2.00, cacheWriteAboveThresholdPerMTok: 25.00, outputAboveThresholdPerMTok: 75.00,
+                           promoNote: 'OpenAI: promotional pricing, at least through Dec 31, 2026' },
   // gpt-4.1-nano, gpt-5-nano, gpt-5 (base): added 2026-08-26 — confirmed on OpenAI's general API pricing page, not
   // independently confirmed as reachable through Copilot specifically this pass.
   'gpt-4.1-nano':        { inputPerMTok: 0.10,  cacheReadPerMTok: 0.025,  cacheWritePerMTok: 0, outputPerMTok: 0.40 },
@@ -239,6 +256,13 @@ export const RATES: Record<string, ModelRates> = {
   // after 2026-12-01** (no date-driven logic by convention).
   'gemini-4-argon':   { inputPerMTok: 2.00, cacheReadPerMTok: 0.10,  cacheWritePerMTok: 0, outputPerMTok: 10.00,
                         promoNote: 'Google: $2.00/$0.10/$10.00 through Nov 30, 2026; $4.00/$0.20/$20.00 from Dec 1, 2026' },
+  // gemini-4-carbon: added 2026-11-24 — same schedule as gemini-4-argon on Google's page (and Copilot's); **double
+  // this row on or after 2026-12-01** together with argon.
+  'gemini-4-carbon':  { inputPerMTok: 2.00, cacheReadPerMTok: 0.10,  cacheWritePerMTok: 0, outputPerMTok: 10.00,
+                        promoNote: 'Google: $2.00/$0.10/$10.00 through Nov 30, 2026; $4.00/$0.20/$20.00 from Dec 1, 2026' },
+  // gemini-4-hydrogen, gemini-4-neon: added 2026-11-24 — Google's page and Copilot's agree; no promotion or tier.
+  'gemini-4-hydrogen': { inputPerMTok: 1.50, cacheReadPerMTok: 0.075, cacheWritePerMTok: 0, outputPerMTok: 7.50 },
+  'gemini-4-neon':    { inputPerMTok: 3.00, cacheReadPerMTok: 0.15,  cacheWritePerMTok: 0, outputPerMTok: 15.00 },
   // ── Fine-tuned ─────────────────────────────────────────────────────────────────────────────────
   // raptor-mini: no longer included/$0 as of 2026-07-19 — now billed at the same standard rate as gpt-5-mini.
   'raptor-mini': { inputPerMTok: 0.25, cacheReadPerMTok: 0.025, cacheWritePerMTok: 0, outputPerMTok: 2.00 },
@@ -247,6 +271,11 @@ export const RATES: Record<string, ModelRates> = {
   'mai-code-1-flash': { inputPerMTok: 0.75, cacheReadPerMTok: 0.075, cacheWritePerMTok: 0, outputPerMTok: 4.50 },
   // mai-code-1.1-flash: added 2026-08-12 — new on the Copilot pricing page this refresh.
   'mai-code-1.1-flash': { inputPerMTok: 0.20, cacheReadPerMTok: 0.02,  cacheWritePerMTok: 0, outputPerMTok: 1.20 },
+  // mai-code-2, mai-code-2-flash: added 2026-11-24 — new on the Copilot pricing page; promotional until 2027-05-17.
+  'mai-code-2':       { inputPerMTok: 0.50, cacheReadPerMTok: 0.025, cacheWritePerMTok: 0, outputPerMTok: 2.50,
+                        promoNote: 'Copilot: promotional pricing until May 17, 2027; $1.00/$0.05/$5.00 after' },
+  'mai-code-2-flash': { inputPerMTok: 0.05, cacheReadPerMTok: 0.005, cacheWritePerMTok: 0, outputPerMTok: 0.25,
+                        promoNote: 'Copilot: promotional pricing until May 17, 2027; $0.10/$0.01/$0.50 after' },
   'kimi-k2.7-code':   { inputPerMTok: 0.95, cacheReadPerMTok: 0.19,  cacheWritePerMTok: 0, outputPerMTok: 4.00 },
   // ── Other third-party (new to Copilot marketplace as of 2026-08-07) ───────────────────────────────
   // Exact telemetry model-ID slug unconfirmed (guessed from
@@ -310,6 +339,9 @@ export const RATES: Record<string, ModelRates> = {
   // longcat-2.5-free: added 2026-11-09 — slug confirmed from the Zen page. Likely the GA successor of
   // longcat-2.5-preview-free (kept, $0 either way).
   'longcat-2.5-free':            { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
+  // tidepool-alpha-free, hy4-flash-free: added 2026-11-24 — slugs confirmed from the Zen page.
+  'tidepool-alpha-free':         { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
+  'hy4-flash-free':              { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
 }
 
 // ── UI display grouping ──────────────────────────────────────────────────────────
@@ -327,7 +359,7 @@ export interface PricingSection {
 export const PRICING_SECTIONS: PricingSection[] = [
   {
     label: 'OpenAI (GPT / Codex family)',
-    verified: '2026-11-09',
+    verified: '2026-11-24',
     sources: [
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
       { label: 'OpenAI API pricing', url: 'https://developers.openai.com/api/docs/pricing' },
@@ -339,12 +371,13 @@ export const PRICING_SECTIONS: PricingSection[] = [
       'gpt-5.2', 'gpt-5.2-codex', 'gpt-5.3-codex', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano',
       'gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-5.6-cyber',
       'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6-cyber', 'gpt-6.1-sol', 'gpt-6.1-terra',
-      'daybreak-blue', 'daybreak-red', 'gpt-rosalind-research', 'codex-mini-latest',
+      'gpt-6.2-astra', 'gpt-6.2-sol', 'daybreak-blue', 'daybreak-red', 'gpt-rosalind-research',
+      'gpt-rosalind-discovery', 'gpt-6-rosalind', 'codex-mini-latest',
     ],
   },
   {
     label: 'Anthropic (Claude)',
-    verified: '2026-11-09',
+    verified: '2026-11-24',
     sources: [
       { label: 'Anthropic API pricing', url: 'https://platform.claude.com/docs/en/about-claude/pricing' },
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
@@ -360,7 +393,7 @@ export const PRICING_SECTIONS: PricingSection[] = [
   },
   {
     label: 'Google (Gemini)',
-    verified: '2026-11-09',
+    verified: '2026-11-24',
     sources: [
       { label: 'Google Gemini API pricing', url: 'https://aistudio.google.com/docs/pricing' },
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
@@ -368,20 +401,21 @@ export const PRICING_SECTIONS: PricingSection[] = [
     modelKeys: [
       'gemini-2.5-pro', 'gemini-3-flash', 'gemini-3-flash-preview', 'gemini-3-pro',
       'gemini-3.1-pro', 'gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-3.6-flash',
-      'gemini-3.7-flash', 'gemini-3.8-flash', 'gemini-4-argon',
+      'gemini-3.7-flash', 'gemini-3.8-flash', 'gemini-4-argon', 'gemini-4-carbon',
+      'gemini-4-hydrogen', 'gemini-4-neon',
     ],
   },
   {
     label: 'Fine-tuned & other Copilot-marketplace models',
-    verified: '2026-11-09',
+    verified: '2026-11-24',
     sources: [
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
     ],
-    modelKeys: ['raptor-mini', 'goldeneye', 'mai-code-1-flash', 'mai-code-1.1-flash', 'kimi-k2.7-code', 'grok-4.5', 'grok-4.6', 'grok-4.7', 'kimi-k3'],
+    modelKeys: ['raptor-mini', 'goldeneye', 'mai-code-1-flash', 'mai-code-1.1-flash', 'mai-code-2', 'mai-code-2-flash', 'kimi-k2.7-code', 'grok-4.5', 'grok-4.6', 'grok-4.7', 'kimi-k3'],
   },
   {
     label: 'OpenCode Zen (free evaluation models)',
-    verified: '2026-11-09',
+    verified: '2026-11-24',
     sources: [
       { label: 'OpenCode Zen docs', url: 'https://opencode.ai/docs/zen/' },
     ],
@@ -393,7 +427,7 @@ export const PRICING_SECTIONS: PricingSection[] = [
       'exo-free', 'step-5-preview-free', 'ling-3.1-flash-free',
       'iceman-free', 'inkling-2-small-free', 'crouton-alpha-free', 'glm-5.3-flash-free',
       'deepseek-v4.1-flash-free', 'beam-free', 'flint-40b-free', 'nemotron-3.5-super-vl-free',
-      'longcat-2.5-free',
+      'longcat-2.5-free', 'tidepool-alpha-free', 'hy4-flash-free',
     ],
   },
 ]
