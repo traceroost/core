@@ -30,6 +30,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **Context growth starts its y-axis at zero,** so a trace whose context grew by a tenth no longer looks as steep as one that doubled, and it no longer cycles through traces on its own when your system asks for reduced motion
 - **Estimated cost and tokens per day cover the whole time range you pick,** so days before the first trace and after the last show as empty days, as in TraceRoost Cloud
 - **The outcome chart's note about tokens is correct.** It said tokens exclude cache reads; they include them
+- **Copilot CLI 1.0.115 no longer shows as *Unrecognized data* in ⚙ Settings → Agents.** Copilot CLI 1.0.115 writes three new kinds of records (its git context, which moved out of the session start record, an informational notice and the list of tools offered to the model), and TraceRoost counted them as records it didn't recognize. Your Copilot CLI traces were not affected: tokens, the model, tool calls, changed files and the workspace were all read correctly. TraceRoost now knows the new records and is verified against 1.0.115 (#458)
 
 ## [1.1.1] (2026-11-22)
 

@@ -1,0 +1,15 @@
+{
+  "source": "capture",
+  "captured": "2026-11-24",
+  "os": "ubuntu-latest",
+  "redaction": "tests/e2e/captures-to-fixtures.mjs: <REPO>, <HOME>, <EMAIL>, <REDACTED>, <SYSTEM PROMPT OMITTED>, <CALL-ID-n>",
+  "adapter": "copilot",
+  "agentVersion": "1.0.115",
+  "cliVersion": "1.0.115.",
+  "files": [
+    {
+      "path": "files/.copilot/session-state/4bd26c55-2bf0-41d9-b803-9424ceeb5b28/events.jsonl",
+      "logKey": "copilot"
+    }
+  ]
+}

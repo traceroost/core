@@ -1256,6 +1256,8 @@ export class LogReader {
   //
   // Key event types:
   //   session.start        → data.sessionId, data.selectedModel (before 1.0.107), data.startTime, data.context.cwd
+  //   session.context_changed → data.cwd (1.0.115+; also gitRoot, branch, headCommit, which
+  //                          session.start's context carried before; none of them is read)
   //   session.model_change → data.newModel ('auto' when Copilot picks); session.auto_mode_resolved → data.chosenModel
   //   user.message         → data.transformedContent (user request text)
   //   assistant.message    → data.outputTokens (before 1.0.107), data.toolRequests, data.model
@@ -1342,6 +1344,9 @@ export class LogReader {
         if (ctx?.['cwd']) workspace = String(ctx['cwd'])
         if (data['startTime']) sessionStart = String(data['startTime'])
       }
+      // 1.0.115+: the git context moved out of session.start into this event; session.start still
+      // names the cwd, so this only fills it in when session.start didn't.
+      if (type === 'session.context_changed' && !workspace && data['cwd']) workspace = String(data['cwd'])
 
       // 1.0.107+: session.start names no model. The first concrete one is the session's fallback
       // for a turn with no model of its own ('auto' is Copilot choosing, resolved just after).

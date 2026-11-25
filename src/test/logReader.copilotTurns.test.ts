@@ -110,6 +110,47 @@ suite('LogReader — Copilot CLI, one trace per prompt', () => {
     assert.deepStrictEqual(cards[0].filesChanged, ['/work/repo/a.ts'])
     assert.ok(cards.every(c => c.derived && c.workspace === '/work/repo'))
   })
+  test('1.0.115: per-call usage records without apiCallId/responseModel still give tokens and the model; session.context_changed fills in the cwd', () => {
+    const dir = path.join(tmpDir, 'b1c2d3e4-0000-4000-8000-000000000003')
+    const file = path.join(dir, 'events.jsonl')
+    // The 1.0.115 shapes: the git context left session.start for session.context_changed, and
+    // usage records dropped apiCallId, responseModel, numToolCalls and toolCounts.
+    const usage = (model: string, inputTokens: number, outputTokens: number, cacheReadTokens: number, usageId: string) => ({
+      type: 'session.usage_record', timestamp: '2026-11-24T10:00:02.000Z',
+      data: { apiCallIdFromUsageId: true, usage: { accounting: { sequence: 1, usageId }, model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens: 0, reasoningTokens: 0 } },
+    })
+    writeJsonl(file, [
+      { type: 'session.start', id: 'ev-0', timestamp: '2026-11-24T10:00:00.000Z', data: { copilotVersion: '1.0.115', startTime: '2026-11-24T10:00:00.000Z', context: {} } },
+      { type: 'session.context_changed', id: 'ev-1', timestamp: '2026-11-24T10:00:00.100Z', data: { cwd: '/work/repo', gitRoot: '/work/repo', branch: 'main', headCommit: '0'.repeat(40) } },
+      { type: 'session.model_change', id: 'ev-2', timestamp: '2026-11-24T10:00:00.200Z', data: { newModel: 'auto' } },
+      { type: 'session.info', id: 'ev-3', timestamp: '2026-11-24T10:00:00.300Z', data: { infoType: 'x', message: 'y' } },
+      { type: 'user.message', id: 'ev-4', timestamp: '2026-11-24T10:00:01.000Z', data: { transformedContent: 'add a file' } },
+      { type: 'session.tool_baseline', id: 'ev-5', timestamp: '2026-11-24T10:00:01.500Z', data: { model: 'mai-code-2-flash', surface: 's', tools: [{ name: 'bash', deferred: false }] } },
+      usage('mai-code-2-flash', 1000, 30, 400, 'call-1'),
+      { type: 'assistant.message', id: 'ev-6', timestamp: '2026-11-24T10:00:03.000Z', data: { model: 'mai-code-2-flash', apiCallId: 'call-1', toolRequests: [{ toolCallId: 't1', name: 'create', arguments: { path: '/work/repo/a.txt' } }] } },
+      usage('mai-code-2-flash', 1100, 5, 1000, 'call-2'),
+      { type: 'assistant.message', id: 'ev-7', timestamp: '2026-11-24T10:00:04.000Z', data: { model: 'mai-code-2-flash', apiCallId: 'call-2', toolRequests: [] } },
+    ])
+    const cards = new LogReader().parseFile(file, 'copilot').map(r => r.card)
+    assert.strictEqual(cards.length, 1)
+    const [c] = cards
+    assert.strictEqual(c.workspace, '/work/repo')
+    assert.strictEqual(c.model, 'mai-code-2-flash')
+    assert.deepStrictEqual([c.outputTokens, c.cacheReadTokens, c.turns], [35, 1400, 2])
+    assert.deepStrictEqual(c.toolCounts, { create: 1 })
+    assert.deepStrictEqual(c.filesChanged, ['/work/repo/a.txt'])
+  })
+  test('session.start\'s cwd wins over a later session.context_changed (the session\'s workspace is where it started)', () => {
+    const dir = path.join(tmpDir, 'b1c2d3e4-0000-4000-8000-000000000004')
+    const file = path.join(dir, 'events.jsonl')
+    writeJsonl(file, [
+      { type: 'session.start', id: 'ev-0', timestamp: '2026-11-24T10:00:00.000Z', data: { context: { cwd: '/work/repo' } } },
+      { type: 'session.context_changed', id: 'ev-1', timestamp: '2026-11-24T10:00:00.100Z', data: { cwd: '/work/elsewhere' } },
+      { type: 'user.message', id: 'ev-2', timestamp: '2026-11-24T10:00:01.000Z', data: { transformedContent: 'hi' } },
+      { type: 'assistant.message', id: 'ev-3', timestamp: '2026-11-24T10:00:02.000Z', data: { outputTokens: 3 } },
+    ])
+    assert.strictEqual(new LogReader().parseFile(file, 'copilot')[0].card.workspace, '/work/repo')
+  })
   test('apply_patch counts the files in its patch headers as changed (the arguments are the patch text)', () => {
     const dir = path.join(tmpDir, 'b1c2d3e4-0000-4000-8000-000000000002')
     const file = path.join(dir, 'events.jsonl')
