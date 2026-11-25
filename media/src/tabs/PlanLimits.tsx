@@ -157,12 +157,14 @@ function valueAt(points: SeriesPoint[], t: number): SeriesPoint | undefined {
 function LimitLineChart({ view, snapshot, now }: { view: Chart1View; snapshot: PlanUsageSnapshot; now: number }) {
   const [hoverT, setHoverT] = useState<number | null>(null)
   const since = now - (view === 'weekly' ? 14 : 7) * DAY
+  // Room above the plot for the axis title (above the limit-hit markers), as on WeeklyPeaksChart.
+  const P = { ...PAD, top: 30 }
   const series: LimitSeries[] = view === 'weekly' ? snapshot.series.weekly.filter(s => s.points.length > 0) : fiveHourLines(snapshot)
   const hits: LimitHit[] = view === 'weekly' ? snapshot.hits.filter(h => h.windowKind === 'weekly') : fiveHourHits(snapshot)
-  const chartW = W - PAD.left - PAD.right
-  const H = PAD.top + PLOT_H + PAD.bottom
-  const x = (t: number) => PAD.left + ((Math.max(since, Math.min(now, t)) - since) / (now - since)) * chartW
-  const y = (pct: number) => PAD.top + PLOT_H - (Math.min(100, Math.max(0, pct)) / 100) * PLOT_H
+  const chartW = W - P.left - P.right
+  const H = P.top + PLOT_H + P.bottom
+  const x = (t: number) => P.left + ((Math.max(since, Math.min(now, t)) - since) / (now - since)) * chartW
+  const y = (pct: number) => P.top + PLOT_H - (Math.min(100, Math.max(0, pct)) / 100) * PLOT_H
 
   const stepPath = (pts: SeriesPoint[]) => {
     const visible = pts.filter(p => p.t >= since)
@@ -199,8 +201,8 @@ function LimitLineChart({ view, snapshot, now }: { view: Chart1View; snapshot: P
     const svg = e.currentTarget as SVGSVGElement
     const rect = svg.getBoundingClientRect()
     const px = ((e.clientX - rect.left) / rect.width) * W
-    if (px < PAD.left || px > W - PAD.right) { setHoverT(null); return }
-    setHoverT(since + ((px - PAD.left) / chartW) * (now - since))
+    if (px < P.left || px > W - P.right) { setHoverT(null); return }
+    setHoverT(since + ((px - P.left) / chartW) * (now - since))
   }
 
   const risesTip = nearestRise?.p.sessions ?? []
@@ -213,24 +215,25 @@ function LimitLineChart({ view, snapshot, now }: { view: Chart1View; snapshot: P
         onMouseMove={onMove} onMouseLeave={() => setHoverT(null)}
         onClick={() => { if (risesTip.length) showLimitTraces(risesTip.map(r => r.sessionId), 'that used this plan window') }}
       >
+        <text x={4} y={10} text-anchor="start" font-size="11" fill={MUTED}>{view === 'weekly' ? 'Weekly' : '5-hour'} limit used (%)</text>
         {[0, 25, 50, 75, 100].map(v => (
           <g key={v}>
-            <line x1={PAD.left} y1={y(v)} x2={W - PAD.right} y2={y(v)} stroke={GRID} stroke-width="0.5" />
-            <text x={PAD.left - 6} y={y(v)} text-anchor="end" dominant-baseline="middle" font-size="11" fill={MUTED}>{v}%</text>
+            <line x1={P.left} y1={y(v)} x2={W - P.right} y2={y(v)} stroke={GRID} stroke-width="0.5" />
+            <text x={P.left - 6} y={y(v)} text-anchor="end" dominant-baseline="middle" font-size="11" fill={MUTED}>{v}%</text>
           </g>
         ))}
         {dayTicks.map(t => (
-          <text key={t} x={x(t)} y={PAD.top + PLOT_H + 12} text-anchor="middle" font-size="11" fill={MUTED}>{fmtDay(t)}</text>
+          <text key={t} x={x(t)} y={P.top + PLOT_H + 12} text-anchor="middle" font-size="11" fill={MUTED}>{fmtDay(t)}</text>
         ))}
 
         {/* Blocked time: hit → reset (5-hour view only; a weekly block would cover most of the chart). */}
         {view === 'five_hour' && hits.map(h => (
-          <rect key={`b${h.provider}${h.hitAt}`} x={x(h.hitAt)} y={PAD.top} width={Math.max(2, x(h.resetsAt ?? h.hitAt) - x(h.hitAt))}
+          <rect key={`b${h.provider}${h.hitAt}`} x={x(h.hitAt)} y={P.top} width={Math.max(2, x(h.resetsAt ?? h.hitAt) - x(h.hitAt))}
             height={PLOT_H} fill={CRITICAL} opacity="0.12" />
         ))}
 
         {resets.map(r => (
-          <line key={`r${r.provider}${r.t}`} x1={x(r.t)} y1={PAD.top} x2={x(r.t)} y2={PAD.top + PLOT_H}
+          <line key={`r${r.provider}${r.t}`} x1={x(r.t)} y1={P.top} x2={x(r.t)} y2={P.top + PLOT_H}
             stroke={MUTED} stroke-width="1" stroke-dasharray="2 3" opacity="0.6" />
         ))}
 
@@ -253,27 +256,27 @@ function LimitLineChart({ view, snapshot, now }: { view: Chart1View; snapshot: P
             .sort((a, b) => a.y - b.y)
           for (let i = 1; i < labels.length; i++) if (labels[i].y - labels[i - 1].y < 12) labels[i].y = labels[i - 1].y + 12
           return labels.map(l => {
-            const right = l.x > W - PAD.right - 60
+            const right = l.x > W - P.right - 60
             return (
-              <text key={l.provider} x={right ? W - PAD.right + 4 : l.x + 6} y={l.y} dominant-baseline="middle" font-size="11" fill="var(--fg,#ccc)">{l.text}</text>
+              <text key={l.provider} x={right ? W - P.right + 4 : l.x + 6} y={l.y} dominant-baseline="middle" font-size="11" fill="var(--fg,#ccc)">{l.text}</text>
             )
           })
         })()}
 
         {hits.map(h => (
           <g key={`h${h.provider}${h.hitAt}`}>
-            <line x1={x(h.hitAt)} y1={PAD.top} x2={x(h.hitAt)} y2={PAD.top + PLOT_H} stroke={CRITICAL} stroke-width="1.5" />
-            <path d={`M${x(h.hitAt) - 5},${PAD.top - 9} L${x(h.hitAt) + 5},${PAD.top - 9} L${x(h.hitAt)},${PAD.top - 2} Z`} fill={CRITICAL} />
+            <line x1={x(h.hitAt)} y1={P.top} x2={x(h.hitAt)} y2={P.top + PLOT_H} stroke={CRITICAL} stroke-width="1.5" />
+            <path d={`M${x(h.hitAt) - 5},${P.top - 9} L${x(h.hitAt) + 5},${P.top - 9} L${x(h.hitAt)},${P.top - 2} Z`} fill={CRITICAL} />
           </g>
         ))}
 
         {hover !== null && (
-          <line x1={x(hover)} y1={PAD.top} x2={x(hover)} y2={PAD.top + PLOT_H} stroke="var(--fg,#ccc)" stroke-width="1" opacity="0.4" />
+          <line x1={x(hover)} y1={P.top} x2={x(hover)} y2={P.top + PLOT_H} stroke="var(--fg,#ccc)" stroke-width="1" opacity="0.4" />
         )}
       </svg>
 
       {hover !== null && (hoverRows.length > 0 || nearHits.length > 0) && (
-        <div style={`${TOOLTIP_STYLE};top:${PAD.top}px;${tipLeft ? 'left' : 'right'}:${tipLeft ? 44 : 64}px`}>
+        <div style={`${TOOLTIP_STYLE};top:${P.top}px;${tipLeft ? 'left' : 'right'}:${tipLeft ? 44 : 64}px`}>
           <div style="color:var(--muted)">{fmtWhen(hover)}</div>
           {hoverRows.map(({ s, p }) => (
             <div key={s.provider}>
@@ -490,6 +493,7 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
         <>
           <div style="display:flex;align-items:center;gap:8px;margin:6px 0 4px">
             <span style="font-size:12px"><strong>Where did my {view === 'weekly' ? 'week' : '5-hour windows'} go?</strong></span>
+            <span class="view-section-window">{view === 'weekly' ? 'Last 14 days' : 'Last 7 days'}</span>
             <span style="flex:1" />
             {views.length > 1 && (
               <div role="tablist" aria-label="Plan window" style="display:inline-flex;border:1px solid var(--border);border-radius:4px;overflow:hidden">

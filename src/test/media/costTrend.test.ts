@@ -26,6 +26,18 @@ suite('media — Cost & limits: cost and tokens per day', () => {
     assert.strictEqual(bins[0].tokensOut, 100)
   })
 
+  test('a bounded range covers the whole range, not just the traces in it', () => {
+    const since = Date.UTC(2026, 10, 18)
+    const now = Date.UTC(2026, 10, 24, 12)
+    const { bins } = buildDayBins([trace(1, '2026-11-20T10:00:00Z')], { since }, now)
+    assert.strictEqual(bins[0].start, '2026-11-18')
+    assert.strictEqual(bins[bins.length - 1].start, '2026-11-24')
+    assert.strictEqual(bins.length, 7)
+    assert.strictEqual(bins.filter(b => b.traces > 0).length, 1)
+    // All (no lower bound): the traces' own span.
+    assert.strictEqual(buildDayBins([trace(1, '2026-11-20T10:00:00Z')], {}, now).bins.length, 1)
+  })
+
   test('past 56 days the bins are whole Monday-start weeks', () => {
     const { unit, bins } = buildDayBins([trace(1, '2026-08-01T10:00:00Z'), trace(2, '2026-11-01T10:00:00Z')])
     assert.strictEqual(unit, 'week')

@@ -29,11 +29,23 @@ const dayOf = (s: SessionSummaryCard): string | null => {
   return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : null
 }
 
-/** Dense day (or week) bins over the sessions' own span, holding cost by agent and tokens. */
-export function buildDayBins(sessions: SessionSummaryCard[]): { bins: DayBin[]; unit: 'day' | 'week' } {
+const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+
+/**
+ * Dense day (or week) bins holding cost by agent and tokens. With a bounded time filter (`range`
+ * has `since`) the bins cover the whole range, to `until` or today, so days before the first trace
+ * and after the last show as empty days, as on cloud's Cost charts; with no lower bound (All) they
+ * cover the traces' own span.
+ */
+export function buildDayBins(
+  sessions: SessionSummaryCard[],
+  range?: { since?: number; until?: number },
+  now: number = Date.now(),
+): { bins: DayBin[]; unit: 'day' | 'week' } {
   const dated = sessions.map(s => ({ s, day: dayOf(s) })).filter((x): x is { s: SessionSummaryCard; day: string } => x.day !== null)
   if (dated.length === 0) return { bins: [], unit: 'day' }
-  const layout = dayBins(dated.map(x => x.day))
+  const ends = range?.since !== undefined ? [isoDay(range.since), isoDay(range.until ?? now)] : []
+  const layout = dayBins([...dated.map(x => x.day), ...ends])
   const bins: DayBin[] = layout.bins.map(b => ({ ...b, costBySource: {}, cost: 0, pricedTraces: 0, tokensIn: 0, tokensOut: 0, traces: 0 }))
   const index = new Map(bins.map(b => [b.start, b]))
   for (const { s, day } of dated) {

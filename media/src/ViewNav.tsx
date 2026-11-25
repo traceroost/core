@@ -72,10 +72,12 @@ export function ViewHeader({ title, question }: { title: string; question: strin
 }
 
 /** A section's heading inside a view. `id` keeps deep links and tests stable. */
-export function ViewSection({ id, title, tip, helpAnchor, onHelp, children }: {
+export function ViewSection({ id, title, tip, window: span, helpAnchor, onHelp, children }: {
   id: string
   title: string
   tip?: string
+  /** The section's own window, when it doesn't follow the time filter: "Last 14 days". */
+  window?: string
   helpAnchor?: string
   onHelp?: (anchor: string) => void
   children: ComponentChildren
@@ -88,6 +90,7 @@ export function ViewSection({ id, title, tip, helpAnchor, onHelp, children }: {
           data-tip={tip}
           tabIndex={tip ? 0 : undefined}
         >{title}</h3>
+        {span && <span class="view-section-window">{span}</span>}
         {helpAnchor && onHelp && (
           <button type="button" class="view-section-help" onClick={() => onHelp(helpAnchor)} title="Learn more" aria-label={`Learn more about ${title}`}>?</button>
         )}

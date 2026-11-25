@@ -209,7 +209,7 @@ export function Patterns() {
               <Instructions part="results" />
             </ViewSection>
             {plan && chart2Rollups(plan).length > 0 && (
-              <ViewSection id="advisor-fixes-chart" title="Weekly plan limit, week by week">
+              <ViewSection id="advisor-fixes-chart" title="Weekly plan limit, week by week" window="All recorded weeks">
                 <PlanFixesChart snapshot={plan} />
               </ViewSection>
             )}

@@ -21,6 +21,16 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **The desktop app's window opens at a size that fits, and remembers yours.** It used to open at 1280×860 every time, which left an empty band under the Traces table and could run behind the Dock or taskbar on a smaller screen. It now opens at 1280×770 (a full page of traces and its pager), shrunk to fit any screen too small for that, and centred on the display the pointer is on. After that it reopens at the size and position you left it, maximised if it was. A window last seen on a monitor that is no longer attached, or larger than the screen after a resolution change, is moved and shrunk back onto the screen
 - **The Traces table fills the window.** A new page size, **Fit**, is now the default: it shows as many traces as fit between the table's header and its pager, so a page ends at the bottom of the window with no empty band under it and nothing to scroll, and it re-fits when you resize the window. The fixed sizes (20 to 500 per page) are still in the menu beside the pager and in Settings, and a size you picked before is kept
 
+### Fixed
+
+- **The cost vs turns map no longer changes when you re-sort its table.** The ten rows under it drew bigger, brighter dots, so re-sorting the table changed the map without saying why. Every dot now draws the same, and pointing at (or tabbing to) a row lights up that trace's dot. The colour key now says what it measures (the share of input tokens read from the prompt cache: 60% or more, 20 to 60%, under 20%) instead of claiming red dots "reprocessed everything from scratch". The map also scales with a narrow panel instead of being cut off
+- **The waterfall's time marks line up with the bars.** The marks were spread across the info column on the right as well, and each was centred in its own slot rather than on its moment, so a call that started at 2s did not start under "2s"
+- **Steps flagged on a signal's token chart are drawn to scale.** A flagged model call was drawn about a fifth shorter than an unflagged one with the same tokens
+- **Charts with their own time window say so.** "Where did my week go?" now shows "Last 14 days" (or "Last 7 days" for 5-hour windows) and has a y-axis title, Context growth shows how many of the latest traces it covers, and Results' weekly plan chart says it shows all recorded weeks
+- **Context growth starts its y-axis at zero,** so a trace whose context grew by a tenth no longer looks as steep as one that doubled, and it no longer cycles through traces on its own when your system asks for reduced motion
+- **Estimated cost and tokens per day cover the whole time range you pick,** so days before the first trace and after the last show as empty days, as in TraceRoost Cloud
+- **The outcome chart's note about tokens is correct.** It said tokens exclude cache reads; they include them
+
 ## [1.1.1] (2026-11-22)
 
 ### Fixed

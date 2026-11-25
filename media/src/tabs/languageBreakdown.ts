@@ -19,7 +19,7 @@ export interface CodeChangeTotals {
  *  By language card (traceroost/cloud src/lib/rollups/analytics.ts). */
 export interface LanguageBreakdownRow extends CodeChangeTotals {
   language: SessionLanguage | null
-  /** Input + output tokens, excluding cache reads — same measure as the outcome trend. */
+  /** Input (as stored: including cache reads and writes) + output tokens, the same measure as the outcome trend. */
   tokens: number
   costUsd: number
 }
