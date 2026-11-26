@@ -41,7 +41,7 @@ test('each agent has one theme-aware colour across pills, cards and the cost leg
     expect(contrast(pillColor[src], bg), `${src} ${pillColor[src]} on ${bg}`).toBeGreaterThanOrEqual(2.5)
   }
 
-  // Analytics opens on Cost & limits, with the cost chart's legend.
+  // Analytics opens on Cost, with the cost chart's legend.
   await page.locator('.tabs').getByRole('button', { name: 'Analytics', exact: true }).click()
   const legend = page.locator('[data-testid=cost-chart-legend]')
   await expect(legend).toBeVisible()

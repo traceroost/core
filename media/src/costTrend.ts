@@ -1,5 +1,5 @@
 /**
- * Analytics › Cost & limits' two over-time charts and its headline: estimated cost per day stacked
+ * Analytics › Cost's two over-time charts and its headline: estimated cost per day stacked
  * by agent, and tokens (input + output) per day, on a real time axis (dense UTC day bins, whole
  * Monday weeks past 56 days: the same `dayBins` the Output charts use), each on ONE y-axis. The
  * headline compares the range with the same-length period just before it. Pure, so it's testable

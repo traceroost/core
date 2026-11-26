@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Plan limits are hidden by default.** The readings are approximate (Claude Code's can be days old), so nothing about plan limits shows until you turn on **Show plan limits** in Settings (`traceRoost.showPlanLimits` in VS Code). That covers the Plan limits section, the Traces Limit column, limit points in the Advisor, the plan-limit alerts and the sidebar card. Readings are still recorded while it's off. With it on, Plan limits now sits at the bottom of Analytics › Cost, marked Approximate, and the menu item is just **Cost**
+
 ## [1.2.0] (2026-11-24)
 
 ### Added

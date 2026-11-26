@@ -22,7 +22,7 @@ import { advisorPendingCount } from './Patterns'
 import { buildTrendBins, summarize, TREND_OUTCOMES, TREND_COLOR } from './outcomeTrend'
 import { OUTCOME_META } from './Sessions'
 import { gitOutcomes, selectedAgentFilter, timeRange, previousPeriodSessions, analyticsView, setAnalyticsView, goToAdvisor, type AnalyticsView } from '../state'
-import { planUsage, hasPlanData, forAgentFilter, PROVIDER_LABEL } from '../planUsage'
+import { planUsage, hasPlanData, forAgentFilter, showPlanLimits, PROVIDER_LABEL } from '../planUsage'
 import { PlanLimitsSection } from './PlanLimits'
 import { NoTracesYet } from './GettingStarted'
 import { buildLanguageBreakdown, LANGUAGE_NOT_REPORTED_LABEL, type CodeChangeTotals, type LanguageBreakdownRow } from './languageBreakdown'
@@ -391,15 +391,17 @@ export function Analytics() {
   const pendingRecs = advisorPendingCount.value
 
   const items: ViewNavItem<AnalyticsView>[] = [
-    { id: 'cost',       label: 'Cost & limits', hint: 'Spend and plan windows' },
+    { id: 'cost',       label: 'Cost',          hint: 'Spend by day and agent' },
     { id: 'output',     label: 'Output',        hint: 'Outcomes, code changes, languages' },
     { id: 'efficiency', label: 'Efficiency',    hint: 'Wasted turns, hot files, context' },
     { id: 'agents',     label: 'Agents',        hint: 'Side-by-side comparison' },
   ]
 
-  // ── Cost & limits ──
+  // ── Cost ──
+  // Plan limits sit last and only with Settings → Show plan limits on (media/src/planUsage.ts):
+  // the readings are approximate, so they don't lead the view or name it.
   const planSection = (
-    <ViewSection id="analytics-plan-limits" title="Plan limits" helpAnchor="help-plan-limits" onHelp={help}
+    <ViewSection id="analytics-plan-limits" title="Plan limits" window="Approximate" helpAnchor="help-plan-limits" onHelp={help}
       tip="How much of your Claude or ChatGPT plan's 5-hour and weekly windows you've used, read from files Claude Code and Codex write themselves. No credentials are read and nothing is sent anywhere.">
       {hasPlan
         ? <PlanLimitsSection snapshot={plan} />
@@ -604,11 +606,10 @@ export function Analytics() {
       <ViewNav label="Analytics views" title="Analytics" items={items} active={view} onSelect={setAnalyticsView}>
         {view === 'cost' && (
           <div data-view-panel="cost">
-            <ViewHeader title="Cost & limits" question="How much am I spending, and how close am I to my plan limits?" />
-            {hasPlan && planSection}
+            <ViewHeader title="Cost" question="How much am I spending, and where does it go?" />
             {costSection}
             {tokenSection}
-            {!hasPlan && planSection}
+            {showPlanLimits.value && planSection}
           </div>
         )}
         {view === 'output' && (

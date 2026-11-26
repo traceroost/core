@@ -31,9 +31,10 @@ test('each tab lists fixed views and shows only the chosen one', async ({ page }
   // Opens on the first view, marked current, and nothing from the other views renders.
   await expect(rail(page, 'Analytics views').locator('[aria-current=page]')).toHaveAttribute('data-view', 'cost')
   await expect(page.locator('[data-view-panel]')).toHaveCount(1)
-  await expect(page.locator('[data-view-panel=cost]')).toContainText('Cost & limits')
-  // The fixtures have no plan data: Plan limits says why instead of vanishing.
-  await expect(page.locator('#analytics-plan-limits')).toContainText('No plan usage recorded yet')
+  await expect(rail(page, 'Analytics views').locator('[data-view=cost]')).toContainText('Cost')
+  await expect(rail(page, 'Analytics views')).not.toContainText('limits')
+  // Settings › Show plan limits is off by default, so Cost has no Plan limits section.
+  await expect(page.locator('#analytics-plan-limits')).toHaveCount(0)
 
   for (const view of ANALYTICS) {
     await rail(page, 'Analytics views').locator(`[data-view=${view}]`).click()

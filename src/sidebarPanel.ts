@@ -21,10 +21,14 @@ export function tokenAverages(all: SessionSummaryCard[]): { avgInputTokens: numb
 }
 
 /** The live Plan limit card for the latest trace, and the compact meter line — both absent when
- *  there's no plan-limit data (see src/planUsage/). */
+ *  there's no plan-limit data (see src/planUsage/), or while traceRoost.showPlanLimits is off (the
+ *  default; the readings are approximate). The sidebar refreshes every few seconds, so turning the
+ *  setting on or off shows here without a reload. */
 function planLimitFields(latest: SessionSummaryCard | null, burnRate: { costPerHour: number } | null) {
   const svc = getPlanUsageService()
-  if (!svc) return { planLimit: null, planMeters: [] }
+  if (!svc || !vscode.workspace.getConfiguration('traceRoost').get<boolean>('showPlanLimits', false)) {
+    return { planLimit: null, planMeters: [] }
+  }
   try {
     return { planLimit: svc.liveCard(latest ?? undefined, burnRate) ?? null, planMeters: svc.meters() }
   } catch {

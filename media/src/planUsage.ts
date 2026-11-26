@@ -10,7 +10,7 @@
  * appears for Copilot, Cursor or OpenCode.
  */
 
-import { signal } from '@preact/signals'
+import { signal, computed } from '@preact/signals'
 import type { SessionSummaryCard } from './types'
 
 export type LimitProvider = 'claude' | 'codex'
@@ -96,8 +96,42 @@ export interface PlanUsageSnapshot {
   weeklyPtsPerDollar: Partial<Record<LimitProvider, number>>
 }
 
-/** Null until the host sends one — and hosts without a database never do. */
-export const planUsage = signal<PlanUsageSnapshot | null>(null)
+/** The snapshot as the host sent it. Null until the host sends one, and hosts without a
+ *  database never do. Only App.tsx's message handler reads or writes this; everything that
+ *  renders reads `planUsage` below. */
+export const planUsageSnapshot = signal<PlanUsageSnapshot | null>(null)
+
+// Settings → Show plan limits, off by default. Plan-limit readings are hard to get right (Claude's
+// figure is a cached reading that can lag, and some plans report no window at all), so nothing
+// about limits shows until the user asks for it. VS Code keeps the choice in the
+// traceRoost.showPlanLimits setting, so the sidebar's card follows it too; standalone keeps it in
+// this browser's localStorage.
+const SHOW_PLAN_LIMITS_STORAGE_KEY = 'traceroost-show-plan-limits'
+
+function readShowPlanLimits(): boolean {
+  if (typeof window === 'undefined') return false
+  if (typeof window.__SHOW_PLAN_LIMITS__ === 'boolean') return window.__SHOW_PLAN_LIMITS__
+  try {
+    return window.localStorage.getItem(SHOW_PLAN_LIMITS_STORAGE_KEY) === 'true'
+  } catch { /* localStorage unavailable: the default, off */ }
+  return false
+}
+
+export const showPlanLimits = signal<boolean>(readShowPlanLimits())
+
+/** Updates the signal and, standalone, this browser's copy. The VS Code setting is written by
+ *  Settings.tsx, which owns the message to the host. */
+export function setShowPlanLimits(show: boolean): void {
+  showPlanLimits.value = show
+  if (typeof window === 'undefined' || typeof window.__SHOW_PLAN_LIMITS__ === 'boolean') return
+  try {
+    window.localStorage.setItem(SHOW_PLAN_LIMITS_STORAGE_KEY, String(show))
+  } catch { /* localStorage unavailable: the choice lasts until reload */ }
+}
+
+/** What every view renders from: the snapshot, or null while Show plan limits is off, so each
+ *  view's own "no data, no UI" rule hides it. */
+export const planUsage = computed<PlanUsageSnapshot | null>(() => showPlanLimits.value ? planUsageSnapshot.value : null)
 
 export const PROVIDER_LABEL: Record<LimitProvider, string> = { claude: 'Claude', codex: 'Codex' }
 export const PROVIDER_SOURCE: Record<LimitProvider, SessionSummaryCard['source']> = { claude: 'claude_code', codex: 'codex' }

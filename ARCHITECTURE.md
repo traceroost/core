@@ -879,7 +879,7 @@ graph TD
 - `availableLanguages` / `availableAgents`: the Language dropdown's options and the Agent pills: only languages (primary or secondary) and agents (`source`) that at least one loaded session has, in allowlist / `AGENT_FILTER_ORDER` order, read from every loaded session rather than the filtered set; a selected value stays listed even with no data. `showAgentFilter` hides the pill row when only one agent has data and nothing is selected.
 - `displaySessions`: `agentFilteredSessions` sliced to `sessionLimit` (most recent N). Used for the Traces table.
 - `rangedSessions`: for bounded presets (7d/30d/…): merges `rangedSearchResults` (DB) with in-memory sessions that fall in the window. For "All": returns `agentFilteredSessions` directly.
-- `filteredSessions`: `rangedSessions` with the text filter (or an Insights/Instructions evidence set, `evidenceSessionIds`), the initiator and outcome filters, and sort applied (`preOutcomeFilteredSessions` is the same cut before the outcome filter; it feeds the outcome filter's own counts). Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (Context growth) re-sort it by start time; Cost & limits' per-day charts bin it by UTC day.
+- `filteredSessions`: `rangedSessions` with the text filter (or an Insights/Instructions evidence set, `evidenceSessionIds`), the initiator and outcome filters, and sort applied (`preOutcomeFilteredSessions` is the same cut before the outcome filter; it feeds the outcome filter's own counts). Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (Context growth) re-sort it by start time; Cost's per-day charts bin it by UTC day.
 
 **Workspace field flow:** `workspace` is stored in the `sessions` SQLite table (always present, `NOT NULL`). `project_path` is an optional secondary path some OTEL exporters populate. Both are mapped by `DatabaseReader.listSessions` into `SessionSummaryCard`. For OTEL-sourced sessions, `workspace` is stamped onto the card by `DatabaseWriter.enqueue` (the summarizers produce `workspace: ''` as a placeholder). For log-sourced sessions, `_buildCard` receives and records the workspace at parse time.
 
@@ -898,7 +898,7 @@ graph LR
     T1 --> D4[Tools sub-tab<br/>donut chart + call table]
     T1 --> D5[Files sub-tab<br/>files changed · open in editor<br/>one-shot/retry-rate summary<br/>git outcome banner + per-file badges]
 
-    T2[Analytics, one view at a time<br/>Cost & limits · Output<br/>Efficiency · Agents]
+    T2[Analytics, one view at a time<br/>Cost · Output<br/>Efficiency · Agents]
     T2 --> A1[Cost per day — TimeBarChart stacked by agent<br/>headline vs previous period · cost table + CSV]
     T2 --> A2[AgentCard per agent with data — stat tiles<br/>incl. One-shot rate and Lines +/− tiles]
     T2 --> A3[Tokens per day — TimeBarChart<br/>input + output on one scale]
@@ -1563,7 +1563,7 @@ traceroost/
 │   │       │                     #   changing the sort returns to page 1
 │   │       │                     #   sub-tabs: Overview (InsightCards) · Waterfall · Flow · Tools ·
 │   │       │                     #   Files (one-shot/retry-rate summary + git outcome banner/badges)
-│   │       ├── Analytics.tsx     # Views: Cost & limits (plan limits, estimated cost) · Output (outcome & token spend, code changes, by language) · Efficiency (efficiency map, hot files, context growth, token usage) · Agents (comparison incl. one-shot rate)
+│   │       ├── Analytics.tsx     # Views: Cost (estimated cost, then plan limits when Settings › Show plan limits is on) · Output (outcome & token spend, code changes, by language) · Efficiency (efficiency map, hot files, context growth, token usage) · Agents (comparison incl. one-shot rate)
 │   │       ├── PlanLimits.tsx    # Analytics' PLAN LIMITS section (5-hour / weekly plan windows)
 │   │       ├── languageBreakdown.ts # BY LANGUAGE cut + agent-authored change-size totals (traces without line data never count as 0)
 │   │       ├── GettingStarted.tsx # "Nothing recorded yet" empty state's next steps, shared by Traces and Analytics
@@ -1572,7 +1572,7 @@ traceroost/
 │   │       ├── codeChanges.ts    # CODE CHANGES OVER TIME bins — agent-authored lines/files, traces without line data excluded
 │   │       ├── Insights.tsx      # InsightCard component + generateInsights; clipboard copy icon
 │   │       ├── Cost.tsx          # fmtUsd re-export
-│   │       ├── TimeBarChart.tsx  # Stacked bars over time, one axis (Cost & limits: cost and tokens per day)
+│   │       ├── TimeBarChart.tsx  # Stacked bars over time, one axis (Cost: cost and tokens per day)
 │   │       ├── SessionCharts.tsx # ContextGrowthChart (animated), OutcomeTrendChart, CodeChangesChart, TurnsLink
 │   │       ├── Traces.tsx        # Waterfall rows (Step/StepRow), background span groups
 │   │       ├── Flow.tsx          # Turn-to-tool semantic graph (canvas), FlowCanvas component

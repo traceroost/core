@@ -246,8 +246,24 @@ function primaryWindows(windows: PlanMeterWindow[]): PlanMeterWindow[] {
   return windows.filter(w => w.windowKind === 'five_hour' || w.windowKind === 'weekly')
 }
 
+/** Settings → Show plan limits (off by default; see media/src/planUsage.ts). In VS Code the host
+ *  leaves planLimit and planMeters out while it's off. Standalone shares the dashboard's page, so
+ *  it reads the dashboard's stored choice instead, on every render so a change shows on the next
+ *  update. */
+function planLimitsShown(): boolean {
+  if ((window as { __STANDALONE__?: boolean }).__STANDALONE__ !== true) return true
+  try {
+    return window.localStorage.getItem('traceroost-show-plan-limits') === 'true'
+  } catch {
+    return false
+  }
+}
+
 function renderPlan() {
-  const { planLimit, planMeters, isActive } = state
+  const shown = planLimitsShown()
+  const planLimit = shown ? state.planLimit : null
+  const planMeters = shown ? state.planMeters : []
+  const { isActive } = state
 
   // Compact meter line — only when there's data and no live card is showing it already.
   const metersEl = document.getElementById('sb-plan-meters')

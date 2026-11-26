@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks'
 import { movedDashboardUrl } from '../dashboardPortCarry'
+import { showPlanLimits, setShowPlanLimits } from '../planUsage'
 import { scrollBehavior } from '../a11y'
 import { configOpen, enableOtelIngestion, enableLogIngestion, otlpPort, vscode, otelReconfigureResult, type OtelReconfigureResult, themePreference, setThemePreference, type ThemePreference, sessionsPage, sessionsPageSizeChoice, fitPageSize, setSessionsPageSize, parseSessionsPageSizeChoice, SESSIONS_PAGE_SIZE_OPTIONS } from '../state'
 
@@ -129,6 +130,23 @@ export function SessionsPageSizeControl() {
         <option value="fit">Fit to window</option>
         {SESSIONS_PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n} per page</option>)}
       </select>
+    </div>
+  )
+}
+
+// Off by default: plan-limit readings are approximate (media/src/planUsage.ts). Off hides the
+// Plan limits section, the Traces Limit column, limit points in the Advisor, the plan-limit alerts
+// and, in VS Code, the sidebar's Plan limit card. The readings are still recorded, so turning it on
+// shows the history.
+export function ShowPlanLimitsToggle() {
+  return (
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border)" data-setting="show-plan-limits">
+      <ToggleRow
+        label="Show plan limits"
+        description="How full your Claude or ChatGPT plan's 5-hour and weekly windows are, read from files Claude Code and Codex write. These readings are approximate and can lag."
+        checked={showPlanLimits.value}
+        onChange={v => { setShowPlanLimits(v); sendConfig('showPlanLimits', v) }}
+      />
     </div>
   )
 }
