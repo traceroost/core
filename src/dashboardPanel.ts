@@ -838,6 +838,7 @@ export class DashboardPanel {
 
     const mcpEnabled = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableMcpServer', true)
     const mcpPort    = DashboardPanel.boundMcpPort ?? vscode.workspace.getConfiguration('traceRoost').get<number>('mcpPort', 4316)
+    const showPlanLimits = vscode.workspace.getConfiguration('traceRoost').get<boolean>('showPlanLimits', false)
 
     const initialData = `<script nonce="${nonce}">
         window.__INITIAL_TOOL_CALLS__ = ${safeJsonForScript(summary.toolCalls)};
@@ -847,6 +848,7 @@ export class DashboardPanel {
         window.__VERSION__ = ${safeJsonForScript(this.context.extension.packageJSON.version)};
         window.__MCP_ENABLED__ = ${mcpEnabled};
         window.__MCP_PORT__ = ${mcpPort};
+        window.__SHOW_PLAN_LIMITS__ = ${showPlanLimits === true};
       </script>`
 
     return `<!DOCTYPE html>

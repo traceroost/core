@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import { niceMax } from './outcomeTrend'
 
-// The stacked bars-over-time chart Analytics › Cost & limits draws twice (estimated cost per day by
+// The stacked bars-over-time chart Analytics › Cost draws twice (estimated cost per day by
 // agent; tokens per day, input and output). One y-axis with a title, a real time axis (one slot per
 // day or week bin, empty bins included), "Nov 3" dates, a hover tooltip per bin. The chart
 // standard both products share: one measure per axis, colours named in a legend drawn from the

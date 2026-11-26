@@ -523,7 +523,7 @@ function SessionsSection() {
     <div class="help-section" id="help-traces">
       <h3 class="help-heading">{HELP_SECTIONS.traces.heading}</h3>
       <div class="help-overview-body">
-        <p>The Traces tab lists every recorded <a href="#gl-trace">trace</a> (one prompt-to-response cycle) in a sortable table. Each row shows the agent, start time, data source and initiator, then <strong>Model</strong>, <strong>Lang</strong> (<a href="#help-language">language</a>), <strong>Changes</strong> (<a href="#help-changes">change size</a>), <strong>Prompt</strong>, <strong>Repo</strong>, <strong>Out</strong> (<a href="#help-outcome">git outcome</a>), <strong>Sig</strong> (<a href="#help-signals">signals</a>), <strong>Turns</strong>, <strong>Duration</strong>, <strong>Tokens</strong>, <strong>Est Cost</strong> and, on a Claude or ChatGPT plan, <strong>Limit</strong> (see <a href="#help-plan-limits">Plan limits</a>). Repo, Out and Limit appear only when they have something to show. Click a column header to sort; changing the sort returns to page 1.</p>
+        <p>The Traces tab lists every recorded <a href="#gl-trace">trace</a> (one prompt-to-response cycle) in a sortable table. Each row shows the agent, start time, data source and initiator, then <strong>Model</strong>, <strong>Lang</strong> (<a href="#help-language">language</a>), <strong>Changes</strong> (<a href="#help-changes">change size</a>), <strong>Prompt</strong>, <strong>Repo</strong>, <strong>Out</strong> (<a href="#help-outcome">git outcome</a>), <strong>Sig</strong> (<a href="#help-signals">signals</a>), <strong>Turns</strong>, <strong>Duration</strong>, <strong>Tokens</strong>, <strong>Est Cost</strong> and, with Show plan limits on in Settings, <strong>Limit</strong> (see <a href="#help-plan-limits">Plan limits</a>). Repo, Out and Limit appear only when they have something to show. Click a column header to sort; changing the sort returns to page 1.</p>
         <p>The filter bar narrows the table by time range and <strong>Agent</strong>. The <strong>Filters</strong> button beside them opens the rest: <strong>Prompt</strong> text, <strong>Language</strong>, <strong>Repo</strong>, <strong>Outcome</strong>, <strong>Source</strong> (OTel / Log) and <strong>From</strong> (User / Agent; Agent also covers non-interactive <code>claude -p</code> runs; see <a href="#help-initiator">Initiator</a>). Its count says how many of those are on, and each one that is shows as a chip next to the button; click a chip's × to turn just that filter off. The Agent pills and the Language list offer only the agents and languages your loaded traces contain; the Agent pills are hidden when only one agent has traces. <strong>Clear Filters</strong> resets everything, and the menu beside the pager sets how many traces show per page. The default, <strong>Fit</strong>, shows as many as fit the window and adjusts when you resize it; pick a number for a fixed page size.</p>
         <p>Each row is one prompt and everything the agent did for it. Rows from the same <a href="#gl-conversation">conversation</a> get a matching colored bar on the left edge. Hover the bar for its position (e.g. "Part 2 of 5"); click it to show only that conversation, with a banner naming its first prompt and a <strong>Show all traces</strong> button (or click the bar again). Only rows visible under the current filters get a bar, so a lone colored row never hints at a hidden sibling. Work Claude delegates to subagents is part of the prompt that started it: their tokens and tool calls are in that row, not rows of their own.</p>
         <p>Click any row to expand it in-place. Five sub-tabs appear beneath the row:</p>
@@ -813,7 +813,7 @@ function AnalyticsSection() {
     <div class="help-section" id="help-analytics">
       <h3 class="help-heading">{HELP_SECTIONS.analytics.heading}</h3>
       <div class="help-overview-body">
-        <p>The Analytics tab shows what happened, one view at a time, picked from its left menu: <strong>Cost &amp; limits</strong> (plan limits, estimated cost and tokens per day), <strong>Output</strong> (outcome &amp; token spend, code changes, by language), <strong>Efficiency</strong> (efficiency map, hot files, context growth) and <strong>Agents</strong> (a side-by-side comparison). Every view charts the traces in the active time range that match the filter bar, so narrowing the filters narrows every section. The menu never changes with the data: a section with nothing to show says why. What to do about any of it is under the <a href="#help-advisor">Advisor</a>.</p>
+        <p>The Analytics tab shows what happened, one view at a time, picked from its left menu: <strong>Cost</strong> (estimated cost and tokens per day, then plan limits if you've turned them on in Settings), <strong>Output</strong> (outcome &amp; token spend, code changes, by language), <strong>Efficiency</strong> (efficiency map, hot files, context growth) and <strong>Agents</strong> (a side-by-side comparison). Every view charts the traces in the active time range that match the filter bar, so narrowing the filters narrows every section. The menu never changes with the data: a section with nothing to show says why. What to do about any of it is under the <a href="#help-advisor">Advisor</a>.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Agents</dt>
@@ -825,7 +825,7 @@ function AnalyticsSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Plan Limits</dt>
-            <dd class="glossary-def" style="display:block">On Cost &amp; limits: how full your Claude Pro/Max and ChatGPT plan's 5-hour and weekly windows are, and when they reset. Until Claude Code or Codex has recorded a reading, or when the agent filter excludes both, the section says why it's empty; see <a href="#help-plan-limits">Plan limits</a>.</dd>
+            <dd class="glossary-def" style="display:block">At the bottom of Cost, only with <strong>Show plan limits</strong> on in Settings (it's off by default because the readings are approximate): how full your Claude Pro/Max and ChatGPT plan's 5-hour and weekly windows are, and when they reset. Until Claude Code or Codex has recorded a reading, or when the agent filter excludes both, the section says why it's empty; see <a href="#help-plan-limits">Plan limits</a>.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Outcome &amp; Token Spend Over Time</dt>
@@ -837,7 +837,7 @@ function AnalyticsSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Estimated Cost per Day</dt>
-            <dd class="glossary-def" style="display:block">On Cost &amp; limits: estimated cost per day (per week past 56 days), each bar stacked by agent, on one axis with real dates, so a quiet day shows as an empty day rather than disappearing. The line above it gives the total and the cost per trace, compared with the same-length period just before when your traces reach back that far (none for All). Below the chart: a day-grouped cost table (date → agent → model); <strong>↓ CSV</strong> exports it.</dd>
+            <dd class="glossary-def" style="display:block">On Cost: estimated cost per day (per week past 56 days), each bar stacked by agent, on one axis with real dates, so a quiet day shows as an empty day rather than disappearing. The line above it gives the total and the cost per trace, compared with the same-length period just before when your traces reach back that far (none for All). Below the chart: a day-grouped cost table (date → agent → model); <strong>↓ CSV</strong> exports it.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Efficiency Map</dt>
@@ -849,7 +849,7 @@ function AnalyticsSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Tokens per Day</dt>
-            <dd class="glossary-def" style="display:block">On Cost &amp; limits, under the cost: input and output tokens per day, stacked on one scale, over the same days as the cost chart.</dd>
+            <dd class="glossary-def" style="display:block">On Cost, under the cost: input and output tokens per day, stacked on one scale, over the same days as the cost chart.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Context Growth</dt>
@@ -913,14 +913,15 @@ function CostSection() {
       <div class="help-overview-body">
 
         <h4 style={subHeadStyle} id="help-plan-limits">Plan limits: your 5-hour and weekly windows</h4>
-        <p>On a Claude Pro/Max or ChatGPT plan you don't pay per token; what runs out is the plan's <strong>5-hour</strong> and <strong>weekly</strong> usage windows. TraceRoost shows how full each window is (Analytics › Cost &amp; limits, and the sidebar), how much of it each trace used (the Traces table's <em>Limit</em> column shows the 5-hour window, or weekly when there's no 5-hour reading; expand a trace for both windows and any limit hits), when a limit blocked you, and how much of your weekly limit the Advisor's fixes would save.</p>
+        <p><strong>Off by default.</strong> Plan-limit readings are approximate: Claude Code's can be days old, and some plans report no window at all. So nothing about limits shows until you turn on <strong>Show plan limits</strong> in Settings (in VS Code, the <code style={codeStyle}>traceRoost.showPlanLimits</code> setting). Readings are still recorded while it's off, so turning it on shows the history.</p>
+        <p>On a Claude Pro/Max or ChatGPT plan you don't pay per token; what runs out is the plan's <strong>5-hour</strong> and <strong>weekly</strong> usage windows. With it on, TraceRoost shows how full each window is (at the bottom of Analytics › Cost, and in the sidebar), how much of it each trace used (the Traces table's <em>Limit</em> column shows the 5-hour window, or weekly when there's no 5-hour reading; expand a trace for both windows and any limit hits), when a limit blocked you, and how much of your weekly limit the Advisor's fixes would save.</p>
         <p>It reads only files Claude Code and Codex already write on your machine:</p>
         <ul style="font-size:12px;color:var(--muted);padding-left:18px;line-height:1.8">
           <li><strong style="color:var(--fg)">Codex</strong>: the plan data Codex records on every turn in <code style={codeStyle}>~/.codex/sessions/…/rollout-*.jsonl</code>, so its meter is exact and updates with each turn. Some plans, such as <strong style="color:var(--fg)">ChatGPT Business</strong>, report no 5-hour or weekly window because usage is billed in credits. For those, Plan limits shows a Codex card with the plan and its credit state instead of a meter, and turns it red if Codex reports a spend limit.</li>
           <li><strong style="color:var(--fg)">Claude Code</strong>: the usage reading Claude Code caches for itself in <code style={codeStyle}>~/.claude.json</code> (only <code style={codeStyle}>cachedUsageUtilization</code> and your account's id, which is hashed before it's stored), plus the limit-refusal records in its session logs. Claude Code refreshes that reading rarely, sometimes days apart, so Claude figures are marked ≈ and show how old they are. Run <code style={codeStyle}>/usage</code> in Claude Code to refresh it; TraceRoost picks up the new reading within 30 seconds.</li>
         </ul>
         <p style="font-size:12px;color:var(--muted)">No credential or token is read, no network call is made, and none of this leaves your machine. Copilot, Cursor and OpenCode don't record plan limits locally, so nothing about limits appears for them.</p>
-        <p style="font-size:12px;color:var(--muted)"><strong style="color:var(--fg)">Plan limits not showing?</strong> You haven't used Claude Code or Codex on a subscription plan since installing TraceRoost, you're signed in with an API key rather than a plan, or TraceRoost is running in Docker, which can't see these files.</p>
+        <p style="font-size:12px;color:var(--muted)"><strong style="color:var(--fg)">Plan limits not showing?</strong> Show plan limits is off in Settings (the default), you haven't used Claude Code or Codex on a subscription plan since installing TraceRoost, you're signed in with an API key rather than a plan, or TraceRoost is running in Docker, which can't see these files.</p>
 
         <h4 style={subHeadStyle}>Why TraceRoost costs look higher than your subscription</h4>
         <p>TraceRoost calculates every trace's cost using the published <strong>API metered rates</strong>: the per-token prices a developer pays when calling the Anthropic, OpenAI, or GitHub Copilot APIs directly. These are real public rates, not estimates.</p>
@@ -1046,7 +1047,7 @@ function SettingsSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Weekly Plan Limit Filling Up <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
-            <dd class="glossary-def" style="display:block">Fires when a Claude or ChatGPT plan's weekly window reaches the configured share, once per window. Only appears once Claude Code or Codex has recorded a <a href="#help-plan-limits">plan-limit</a> reading. Default: 80%.</dd>
+            <dd class="glossary-def" style="display:block">Fires when a Claude or ChatGPT plan's weekly window reaches the configured share, once per window. Only appears with Show plan limits on in Settings, once Claude Code or Codex has recorded a <a href="#help-plan-limits">plan-limit</a> reading. Default: 80%.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">5-Hour Plan Limit Filling Up <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>

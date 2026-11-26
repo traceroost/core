@@ -369,5 +369,7 @@ declare global {
     __INITIAL_LOG_INGEST__?: LogIngestProgress
     __STANDALONE__?: boolean
     __VERSION__?: string
+    /** VS Code only: the traceRoost.showPlanLimits setting. Standalone keeps it in localStorage. */
+    __SHOW_PLAN_LIMITS__?: boolean
   }
 }

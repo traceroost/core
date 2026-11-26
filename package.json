@@ -237,6 +237,11 @@
           "default": true,
           "description": "Read the local logs and databases Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI write as a data source. Log data has lower fidelity than OTel: timing, speed, and loop signals are not available for Codex and Copilot CLI, whose log files carry only aggregate totals. When OTel captured the same trace (always detected for Claude Code), the OTel entry wins and the log entry is dropped; otherwise the two can appear as separate entries. Loading is done incrementally in the background and will not block the UI."
         },
+        "traceRoost.showPlanLimits": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show how full your Claude or ChatGPT plan's 5-hour and weekly windows are: the Plan limits section under Analytics, the Traces Limit column, limit points in the Advisor, the plan-limit alerts and the sidebar's Plan limit card. Off by default because the readings are approximate. They are still recorded while this is off."
+        },
         "traceRoost.enableMcpServer": {
           "type": "boolean",
           "default": true,

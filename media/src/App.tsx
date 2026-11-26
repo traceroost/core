@@ -42,9 +42,9 @@ import { checkAutomations } from './tabs/Automation'
 import { receiveInstructionMessage } from './tabs/Instructions'
 import { AgentsSettings } from './tabs/AgentHealth'
 import { adapterHealth, type AgentHealthRow } from './agentHealth'
-import { IngestionToggles, McpToggle, OtelReconfigureButton, DashboardPortSetting, CloudStorageProjectsSetting, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
+import { IngestionToggles, McpToggle, OtelReconfigureButton, DashboardPortSetting, CloudStorageProjectsSetting, ThemeToggle, SessionsPageSizeControl, ShowPlanLimitsToggle, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, OrgNoticeBanner, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
-import { planUsage, type PlanUsageSnapshot } from './planUsage'
+import { planUsageSnapshot, type PlanUsageSnapshot } from './planUsage'
 import { suggestionUrl } from './suggest'
 import { AGENT_SETUP_DECLINED, AGENT_SETUP_DONT, AGENT_SETUP_EXPLANATION, AGENT_SETUP_NOT_NOW, AGENT_SETUP_QUESTION, AGENT_SETUP_YES } from './agentSetupText'
 
@@ -65,7 +65,7 @@ const versionCheck = signal<VersionCheckResponse | null>(null)
 // glossary in Help.tsx.
 const TABS = [
   { id: 'sessions',   label: 'Traces',     title: 'Trace list with expand-in-place detail: waterfall, files, cost, and flagged issues for each trace.' },
-  { id: 'analytics',  label: 'Analytics',  title: 'What happened: cost and plan limits, output, efficiency, and agents side by side.' },
+  { id: 'analytics',  label: 'Analytics',  title: 'What happened: cost, output, efficiency, and agents side by side.' },
   { id: 'patterns',   label: 'Advisor',    title: 'What to do: ranked recommendations, instruction files, and whether applied changes worked.' },
 ]
 
@@ -113,6 +113,7 @@ function ConfigPanel() {
       </div>
       {window.__STANDALONE__ === true && <ThemeToggle />}
       <SessionsPageSizeControl />
+      <ShowPlanLimitsToggle />
       <IngestionToggles />
       <OtelReconfigureButton />
       {window.__STANDALONE__ === true && <DashboardPortSetting />}
@@ -796,8 +797,8 @@ export function App() {
       } else if (msg.type === 'adapterHealth' && Array.isArray(msg.rows)) {
         adapterHealth.value = msg.rows
       } else if (msg.type === 'planUsage' && msg.snapshot) {
-        const first = planUsage.peek() === null
-        planUsage.value = msg.snapshot
+        const first = planUsageSnapshot.peek() === null
+        planUsageSnapshot.value = msg.snapshot
         // Plan-limit alerts read this snapshot, which arrives on its own message. The first one
         // only primes checkAlerts' fired set, the same as the initial update does.
         setTimeout(() => {

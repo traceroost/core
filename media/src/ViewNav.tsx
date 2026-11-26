@@ -76,7 +76,8 @@ export function ViewSection({ id, title, tip, window: span, helpAnchor, onHelp, 
   id: string
   title: string
   tip?: string
-  /** The section's own window, when it doesn't follow the time filter: "Last 14 days". */
+  /** A short muted label beside the title: the section's own window when it doesn't follow the
+   *  time filter ("Last 14 days"), or a caveat about its figures ("Approximate"). */
   window?: string
   helpAnchor?: string
   onHelp?: (anchor: string) => void
