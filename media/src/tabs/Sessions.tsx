@@ -906,6 +906,19 @@ function isSameIdSet(current: Set<string> | null, ids: string[]): boolean {
   return current !== null && current.size === ids.length && ids.every(id => current.has(id))
 }
 
+// The conversation column's header icon: two parts joined by a dashed line, i.e. one conversation
+// split into rows by a long gap. The viewBox is cropped to the glyph so it is exactly as wide as the
+// 5px marker bars below it and the column doesn't grow. Same drawing as cloud's traces-table.tsx.
+function ConversationGlyph() {
+  return (
+    <svg viewBox="3.5 0 5 12" width="5" height="12" aria-hidden="true" style="display:block;margin:0 auto">
+      <circle cx="6" cy="2.25" r="1.75" fill="currentColor" />
+      <circle cx="6" cy="9.75" r="1.75" fill="currentColor" />
+      <path d="M6 4.6v.5M6 6.75v.5" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" />
+    </svg>
+  )
+}
+
 // ── Table row ─────────────────────────────────────────────────────────────────
 
 // The prompt cell truncates in JS to this many characters, rather than leaving it to CSS
@@ -1265,7 +1278,9 @@ export function Sessions() {
         </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
-            <th style="width:5px;padding:0" tabIndex={0} aria-label="Conversation marker" title={`<b>Conversation marker</b>\nA colored bar marks traces that are really one conversation split into multiple rows by a long gap between them.`} data-tip-html />
+            <th style="width:5px;padding:0;color:var(--muted)" tabIndex={0} aria-label="Conversation marker" title={`<b>Conversation marker</b>\nA colored bar marks traces that are really one conversation split into multiple rows by a long gap between them.`} data-tip-html>
+              <ConversationGlyph />
+            </th>
             <th style="width:16px;padding:3px 2px 3px 4px" />
             <th scope="col" aria-sort={sortKey === 'start_time' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
               <button class="sort-button" onClick={() => onSortClick('start_time')} title={`<b>Agent / Start / Source / From</b>\nSorted by start time only; Agent/Source/From aren't part of the sort`} data-tip-html>
