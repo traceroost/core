@@ -6,6 +6,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ### Fixed
 
+- **Claude Code 2.1.332 no longer shows as *Unrecognized data* in ⚙ Settings → Agents.** It writes two new kinds of bookkeeping records (which session launched this one, and links between its responses), and TraceRoost counted them as records it didn't recognize. Your Claude Code traces were not affected: tokens, the model, tool calls and the prompt were all read correctly. TraceRoost now knows the new records and is verified against 2.1.332
 - **A Codex turn is one trace again, with its changed files.** Recent Codex versions (0.17x) send the prompt before anything that names its turn, so the turn's telemetry and its session log showed up as two traces, and a file Codex created with `apply_patch` from its shell tool (`*** Add File: hello.txt`, with no folder in the name) was not listed as changed. That left the Outcome blank after you committed it. The two now merge into one trace, and those files count as changed. Patches with bare file names from Copilot CLI count too
 
 ### Changed

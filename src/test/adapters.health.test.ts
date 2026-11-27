@@ -34,19 +34,21 @@ suite('adapter health — thresholds and versions', () => {
 })
 
 suite('adapter health — status per agent', () => {
-  test('no data, then not verified (no committed real capture), then unrecognized — quietly', () => {
+  test('no data, then OK up to the last verified version, not verified past it, then unrecognized — quietly', () => {
     const h = new AdapterHealth(() => NOW)
     const row = () => h.rows().find(r => r.key === 'claude')!
     assert.strictEqual(row().status, 'no-data')
     h.observeFile('/a.jsonl', claudeOk(), NOW - 5000)
-    assert.strictEqual(row().status, 'not-verified')
+    assert.strictEqual(row().status, 'ok', 'older than the last verified capture')
     assert.strictEqual(row().versionSeen, '2.1.310')
     assert.strictEqual(row().lastFilesMs, NOW - 5000)
+    h.observeFile('/a.jsonl', claudeOk('2.1.400'), NOW - 5000)
+    assert.strictEqual(row().status, 'not-verified', 'newer than the last verified capture')
     h.observeFile('/b.jsonl', observeRecords('claude', [{ type: 'brand-new', version: '2.2.0' }])!)
     assert.strictEqual(row().status, 'unrecognized')
     assert.strictEqual(row().versionSeen, '2.2.0')
     // A record type TraceRoost doesn't know, with nothing it reads lost: Settings only, no banner.
-    assert.deepStrictEqual(row().versions.map(v => [v.version, v.impact, v.banner]), [['2.2.0', 'skipped', false], ['2.1.310', 'none', false]])
+    assert.deepStrictEqual(row().versions.map(v => [v.version, v.impact, v.banner]), [['2.2.0', 'skipped', false], ['2.1.400', 'none', false]])
     assert.strictEqual(h.rows().find(r => r.key === 'codex')!.status, 'no-data')
   })
 

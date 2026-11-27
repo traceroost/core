@@ -150,7 +150,7 @@ How much testing stands behind each agent, and the newest version a real capture
 <!-- support-matrix:start (generated from src/adapters/registry.ts — a test fails if this drifts) -->
 | Agent | Reads | Support level | Last verified version |
 |---|---|---|---|
-| Claude Code | OTel, log files | Verified | none yet |
+| Claude Code | OTel, log files | Verified | 2.1.332 |
 | Codex | OTel, log files | Verified | 0.167.0 |
 | Copilot CLI | OTel, log files | Fixture-tested | 1.0.115 |
 | Copilot (VS Code) | OTel, log files | Best effort | none yet |

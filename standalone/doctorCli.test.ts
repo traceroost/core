@@ -20,7 +20,7 @@ function io(feed: (h: AdapterHealth) => void, server?: unknown): DoctorIo & { ou
 }
 
 const claudeClean = (h: AdapterHealth) => h.observeFile('/a.jsonl', observeRecords('claude', [
-  { type: 'user', message: {}, timestamp: 't', uuid: 'u', version: '2.1.310' },
+  { type: 'user', message: {}, timestamp: 't', uuid: 'u', version: '2.1.400' },
   { type: 'assistant', message: { usage: {} }, timestamp: 't' },
 ])!)
 
@@ -40,7 +40,7 @@ suite('traceroost doctor', () => {
     assert.strictEqual(await runDoctorCli([], t), 0)
     const text = t.out.join('\n')
     assert.match(text, /^Agent\s+Version seen\s+Last data\s+Setup\s+Status/m)
-    assert.match(text, /Claude Code\s+2\.1\.310\s+just now\s+logs only\s+Not verified on this version/)
+    assert.match(text, /Claude Code\s+2\.1\.400\s+just now\s+logs only\s+Not verified on this version/)
     assert.match(text, /Cursor CLI\s+—\s+never\s+logs only\s+No data/)
     assert.match(text, /none answered, so this is from local log files only/)
   })
