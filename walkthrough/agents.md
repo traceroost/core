@@ -24,5 +24,6 @@ TraceRoost also loads trace history from local log files each agent writes autom
 | **Copilot Chat** | each VS Code-family IDE's `workspaceStorage/…/chatSessions/`: prompts, model, output tokens |
 | **OpenCode** | `~/.local/share/opencode/opencode.db`: runs, token counts, tool calls, file paths, user prompts. No OTel config needed. |
 | **Cursor CLI** | `~/.cursor/projects/…/agent-transcripts/`: prompts and tool calls (Cursor records no token counts). No OTel config needed. |
+| **Antigravity CLI** (best effort) | `~/.gemini/antigravity-cli/`: prompts, tool calls and, when the conversation's database has them, token counts. No OTel config needed. |
 
 Traces from log files show a **Log** badge. When TraceRoost can match a log trace to OTel data for the same trace (always for Claude Code), the OTel entry wins and replaces it.

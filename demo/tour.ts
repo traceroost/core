@@ -252,7 +252,7 @@ export async function runTour(page: Page, opts: RunTourOptions): Promise<void> {
     if (id === 'sessions') await tourSessionDetail(page, speed, log)
 
     // Analytics: walk every view in its menu. A flat pause on the tab would show only the first
-    // view (Cost & limits) and none of the other charts. Then the Alerts panel, which is the natural point to
+    // view (Cost) and none of the other charts. Then the Alerts panel, which is the natural point to
     // surface Automation/Alerts: they live behind the header bell, not in a tab of their own.
     if (id === 'analytics') {
       await tourSectionRail(page, ANALYTICS_RAIL, speed, log)
