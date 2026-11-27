@@ -6,6 +6,8 @@ import { LogReader, codexTurnRanges } from '../logReader'
 import { summarizeSpans } from '../spanSummarizer'
 import { traceKey, derivedTraceKey } from '../traceIdentity'
 import type { Span } from '../types'
+import { OtlpIngest } from '../otlpIngest'
+import { CODEX_TURN_KEY_HOLD_MS } from '../otelTraceKeys'
 
 // Synthetic Codex rollouts in the on-disk shape (no real user data).
 const THREAD = '019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b'
@@ -164,5 +166,50 @@ suite('LogReader — Codex, one trace per turn', () => {
     assert.ok(card)
     assert.strictEqual(card.sessionId, traceKey('codex', 't-1'))
     assert.strictEqual(card.sourceRank, 3)
+  })
+
+  // Codex 0.172 (as the E2E real-agents run records it): the prompt log event names the thread but
+  // no turn, and arrives before the turn's spans, so ingest keys the trace `prompt-1`; the turn id
+  // comes only on later spans (whose `thread.id` is now the OS thread number). apply_patch runs as
+  // a heredoc inside exec_command.
+  function codex172Turn(startMs: number): Span[] {
+    const spans: Span[] = []
+    const ingest = new OtlpIngest({ addSpan: s => { spans.push(s) }, injectSpanAttribute: () => false })
+    const str = (key: string, v: string) => ({ key, value: { stringValue: v } })
+    const int = (key: string, v: number) => ({ key, value: { intValue: String(v) } })
+    const iso = (ms: number) => new Date(startMs + ms).toISOString()
+    const log = (spanId: string, ms: number, attrs: Array<ReturnType<typeof str> | ReturnType<typeof int>>) => ingest.processLogs({
+      resourceLogs: [{ scopeLogs: [{ logRecords: [{ traceId: 'raw-1', spanId, attributes: [...attrs, str('event.timestamp', iso(ms))] }] }] }],
+    })
+    log('p1', 0, [str('event.name', 'codex.user_prompt'), str('conversation.id', THREAD), str('prompt', 'create hello.txt')])
+    ingest.processTraces({ resourceSpans: [{ scopeSpans: [{ spans: [
+      { traceId: 'raw-1', spanId: 's1', name: 'turn/start', startTimeUnixNano: `${(startMs + 5000) * 1e6}`, endTimeUnixNano: `${(startMs + 5001) * 1e6}`,
+        attributes: [int('thread.id', 4), str('turn.id', 't-172'), str('turn_id', 't-172')] },
+      { traceId: 'raw-1', spanId: 's2', name: 'run_turn', startTimeUnixNano: `${(startMs + 5000) * 1e6}`, endTimeUnixNano: `${(startMs + 16000) * 1e6}`,
+        attributes: [int('thread.id', 5), str('conversation.id', THREAD), str('turn.id', 't-172'), str('cwd', '/work/repo')] },
+    ] }] }] })
+    const args = JSON.stringify({ cmd: "apply_patch << 'PATCH'\n*** Begin Patch\n*** Add File: hello.txt\n+hello from traceroost e2e.\n*** End Patch\nPATCH" })
+    log('tr1', 15000, [str('event.name', 'codex.tool_result'), str('conversation.id', THREAD), str('tool_name', 'exec_command'), str('call_id', 'call_1'), str('arguments', args), str('success', 'true')])
+    log('sse1', 16000, [str('event.name', 'codex.sse_event'), str('conversation.id', THREAD), str('event.kind', 'response.completed'), int('input_token_count', 25000), int('output_token_count', 1400), str('model', 'gpt-5-mini')])
+    return spans
+  }
+
+  test('Codex 0.172: a prompt-keyed trace takes its spans\' turn id, and its heredoc apply_patch file', () => {
+    const spans = codex172Turn(Date.now() - 60_000)
+    assert.ok(spans.every(s => s.traceId === `codex:${THREAD}:prompt-1`), 'ingest keys the whole turn by its prompt')
+    const card = summarizeSpans(spans).sessions.find(s => s.source === 'codex')
+    assert.ok(card)
+    assert.strictEqual(card.sessionId, traceKey('codex', 't-172'), 'the key the rollout turn gets')
+    assert.ok(!card.keyPending)
+    assert.deepStrictEqual(card.filesChanged, ['/work/repo/hello.txt'])
+  })
+
+  test('Codex: a fresh prompt trace with no turn id yet is held; an old one keeps its own key', () => {
+    const promptOnly = (startMs: number) => codex172Turn(startMs).filter(s => s.name === 'codex.user_prompt')
+    const fresh = summarizeSpans(promptOnly(Date.now() - 1_000)).sessions.find(s => s.source === 'codex')
+    assert.strictEqual(fresh?.keyPending, true, 'not stored under a key its turn spans would replace')
+    const old = summarizeSpans(promptOnly(Date.now() - CODEX_TURN_KEY_HOLD_MS - 5_000)).sessions.find(s => s.source === 'codex')
+    assert.ok(old && !old.keyPending)
+    assert.notStrictEqual(old.sessionId, traceKey('codex', 't-172'))
   })
 })

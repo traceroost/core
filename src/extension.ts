@@ -261,8 +261,8 @@ export async function activate(context: vscode.ExtensionContext) {
         traceRoostDb?.saveSoon(saved => { if (saved) writeLastWriteSignal(context.globalStorageUri) })
       }).catch(err => outputChannel?.appendLine(`[TraceRoost] writer.drain error: ${err}`))
     }
-    // Traces whose Claude transcript join is on hold (keyPending) get one more pass once the hold
-    // runs out, even if no further span arrives for them.
+    // Traces whose key is on hold (keyPending: a Claude transcript join, or a Codex prompt waiting
+    // for its turn id) get another pass once the hold runs out, even if no further span arrives.
     const joinRetries = new Set<string>()
     const persistLiveCard = (card: ReturnType<typeof summarizeSpans>['sessions'][number]): boolean => {
       if (!writer || !repository || card.sessionId.startsWith('synth-')) return false

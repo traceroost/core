@@ -290,11 +290,8 @@ export function summarizeToolArgs(toolName: string, argsJson: string): string {
         const patchContent = args.command || args.patch || args.input || ''
         const files: string[] = []
         for (const line of patchContent.split('\n')) {
-          const m = line.match(APPLY_PATCH_FILE_HEADER_RE)
-          if (m) {
-            const fp = m[1].trim()
-            if (/[\\/]/.test(fp)) { files.push(fp.split(/[\\/]/).pop() || '') }
-          }
+          const fp = applyPatchHeaderPath(line)
+          if (fp) { files.push(fp.split(/[\\/]/).pop() || '') }
         }
         return files.length > 0 ? files.filter(Boolean).join(', ') : 'patch'
       }
@@ -427,9 +424,32 @@ export function detectOutputAction(outputMessages: string): string {
  * One file header of an apply_patch body: `*** Update File: <path>`, `*** Add File: <path>`,
  * `*** Delete File: <path>`, or the `*** Move to: <path>` that can follow an Update header (a
  * rename). Group 1 is the path. Also matches `*** Begin Patch` / `*** End Patch` / `*** End of
- * File`, so callers keep only a group that contains a path separator.
+ * File`, so read it through applyPatchHeaderPath, which tells the two apart.
  */
 export const APPLY_PATCH_FILE_HEADER_RE = /^\*\*\*\s+(?:Update File:|Add File:|Delete File:|Move to:)?\s*(.+)/
+const APPLY_PATCH_KEYWORD_HEADER_RE = /^\*\*\*\s+(?:Update File|Add File|Delete File|Move to):/
+
+/**
+ * The path an apply_patch header line names, or undefined for any other line. A keyword header
+ * (`*** Add File: hello.txt`) names its path whatever it looks like, a bare filename included; a
+ * keyword-less `*** <path>` line counts only when it holds a path separator, which is what rules
+ * out `*** Begin Patch` / `*** End Patch` / `*** End of File`.
+ */
+export function applyPatchHeaderPath(line: string): string | undefined {
+  const m = line.match(APPLY_PATCH_FILE_HEADER_RE)
+  const fp = m?.[1].trim()
+  if (!fp) return undefined
+  return APPLY_PATCH_KEYWORD_HEADER_RE.test(line) || /[\\/]/.test(fp) ? fp : undefined
+}
+
+/** The apply_patch body inside a shell command, when the agent ran apply_patch through its shell
+ *  tool (Codex 0.17x: `exec_command` with `cmd: "apply_patch << 'PATCH'\n*** Begin Patch…"`). */
+export function applyPatchInShellCommand(cmd: string): string | undefined {
+  const start = cmd.indexOf('*** Begin Patch')
+  if (start < 0 || !/\bapply_patch\b/.test(cmd.slice(0, start))) return undefined
+  const end = cmd.indexOf('*** End Patch', start)
+  return end < 0 ? cmd.slice(start) : cmd.slice(start, end + '*** End Patch'.length)
+}
 
 /**
  * Per-file edit details from an apply_patch body ("*** Begin Patch / *** Update|Add|Delete File:
@@ -444,10 +464,9 @@ export function parseApplyPatchEditDetails(patchContent: string): EditDetail[] {
   let oldLines: string[] = []
   let newLines: string[] = []
   for (const line of patchContent.split('\n')) {
-    const fileMatch = line.match(APPLY_PATCH_FILE_HEADER_RE)
-    if (fileMatch) {
-      const candidate = fileMatch[1].trim()
-      if (!/[\\/]/.test(candidate)) continue  // skip *** Begin Patch, *** End Patch, etc. (a path has either separator)
+    if (/^\*\*\*\s/.test(line)) {
+      const candidate = applyPatchHeaderPath(line)
+      if (!candidate) continue  // *** Begin Patch, *** End Patch, *** End of File
       // `*** Move to: <path>` renames the file the preceding Update header opened: its hunks (which
       // follow) are the edit to the file at its new path, not a second, empty edit.
       if (currentFile && /^\*\*\*\s+Move to:/.test(line)) { currentFile = candidate; continue }

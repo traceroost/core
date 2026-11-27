@@ -6,7 +6,7 @@ import {
   isCodexPromptSpanName, isCodexToolExecSpan, isCodexLlmSpanName,
   isCodexToolDecisionSpan, isCodexToolCallSpan, isCodexToolResultSpan,
   summarizeToolResult, normalizeUserRequest, rankModelsByWeight, parseApplyPatchEditDetails,
-  APPLY_PATCH_FILE_HEADER_RE,
+  applyPatchHeaderPath, applyPatchInShellCommand,
 } from './helpers'
 
 // A shell command mentioning a file path doesn't mean the file was changed — `cat foo.ts`,
@@ -180,20 +180,22 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
             // apply_patch is Codex's standard file-editing tool — its edit is a unified-diff-style
             // patch string (args.input/patch/command), not a filePath/path key, so it needs its
             // own parse: pull the file path out of each "*** Update/Add/Delete File: <path>" header.
-            if (toolName === 'apply_patch') {
-              const patchContent = String(args.input || args.patch || args.command || args.cmd || '')
+            // From 0.17x Codex also runs it through its shell tool: exec_command with
+            // `cmd: "apply_patch << 'PATCH'\n*** Begin Patch…"` — the same patch, in a heredoc.
+            const shellCmd = typeof args.cmd === 'string' ? args.cmd : typeof args.command === 'string' ? args.command : ''
+            const patchContent = toolName === 'apply_patch'
+              ? String(args.input || args.patch || args.command || args.cmd || '')
+              : applyPatchInShellCommand(shellCmd)
+            if (patchContent) {
               // Its hunks are the edit's content — the same parse Copilot's apply_patch uses, so
               // one-shot stats and src/editStats.ts's line counts see Codex edits too.
               const patchDetails = parseApplyPatchEditDetails(patchContent)
               if (patchDetails.length > 0) editDetails = patchDetails
               for (const line of patchContent.split('\n')) {
-                const m = line.match(APPLY_PATCH_FILE_HEADER_RE)
-                if (m) {
-                  const patchFp = m[1].trim()
-                  if (patchFp && /[\\/]/.test(patchFp)) {
-                    filesChanged.add(patchFp)
-                    foundFilePath = true
-                  }
+                const patchFp = applyPatchHeaderPath(line)
+                if (patchFp) {
+                  filesChanged.add(patchFp)
+                  foundFilePath = true
                 }
               }
             }
@@ -296,6 +298,12 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
       .map(s => getFirstAttr(s, ['conversation.id', 'conversation_id', 'codex.conversation.id']))
       .find(v => v && v.length > 10)
 
+    // Codex's turn id, when every span of this trace that names one names the same one. A trace
+    // keyed `codex:<thread>:prompt-<n>` (its prompt event, which carries no turn id, arrived before
+    // any span that does) still gets its rollout turn's key from it (otelTraceKeys.ts).
+    const turnIds = new Set(traceSpans.map(s => getFirstAttr(s, ['turn.id', 'turn_id', 'codex.turn.id'])).filter(Boolean))
+    const codexTurnId = turnIds.size === 1 ? [...turnIds][0] : undefined
+
     const workspace = traceSpans
       .map(s => getFirstAttr(s, ['cwd']))
       // The agent machine's cwd, in its own path flavor: POSIX `/…`, or Windows `C:\…` / UNC.
@@ -367,6 +375,7 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
       // default, matching the JSONL log reader below, rather than leaving this undefined.
       initiator: 'user' as const,
       conversationId: conversationId || undefined,
+      ...(codexTurnId ? { codexTurnId } : {}),
       workspace,
       userRequest,
       model: primaryModel,

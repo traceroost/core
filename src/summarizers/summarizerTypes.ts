@@ -18,6 +18,8 @@ export interface SessionSummaryCard {
    *  transcript line) when known — how an OTEL interaction finds its transcript turn
    *  (claudeTurnJoin.ts). */
   claudeSessionId?: string
+  /** Codex's own turn id, when this OTEL trace's spans name exactly one (otelTraceKeys.ts). */
+  codexTurnId?: string
   // ── Stable trace identity (see src/traceIdentity.ts) ──
   /** True when `sessionId` is a derived key: the source has no turn id of its own (or a Claude
    *  OTEL interaction could not be joined to its transcript turn). Never merged with another

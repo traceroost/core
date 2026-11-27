@@ -7,8 +7,12 @@
  *     not persisted). A synthesized interaction (its root span hasn't arrived) keeps its
  *     `synth-` id: it is never persisted, and its real start time isn't known yet.
  *   - Codex: the turn id its spans carry (traceId `codex:<thread>:<turn>`) → traceKey('codex',
- *     turn) — the key the rollout's turn gets. A turn with no id (`prompt-<n>`) keeps its own
- *     OTEL key. Verify at scale: rollout ↔ OTEL turn_id equality rests on one sample.
+ *     turn) — the key the rollout's turn gets. A trace keyed `prompt-<n>` (Codex 0.17x sends its
+ *     prompt event, which names no turn, before any span that does) takes the one turn id its
+ *     spans name (`codexTurnId`). With none yet, it is held (`keyPending`) for up to
+ *     CODEX_TURN_KEY_HOLD_MS after it starts, so it is not stored under a key the turn's spans
+ *     then replace; past that it keeps its own OTEL key. Turn-id equality between the rollout and
+ *     OTEL holds on Codex 0.172 (E2E real agents).
  *   - Copilot: keeps its own exact OTEL key (the invoke_agent span id) — the log ↔ OTEL id
  *     equality is unverified, so no cross-source merge by key.
  */
@@ -23,8 +27,11 @@ export interface OtelKeyHints {
 }
 
 const CODEX_TURN_RE = /^codex:[^:]+:(.+)$/
+/** How long a Codex prompt trace waits for a span that names its turn. Codex exports a batch every
+ *  few seconds; the prompt event leads the turn's first spans by about that much. */
+export const CODEX_TURN_KEY_HOLD_MS = 30_000
 
-export function assignOtelTraceKeys(cards: SessionSummaryCard[], hints: OtelKeyHints = {}): void {
+export function assignOtelTraceKeys(cards: SessionSummaryCard[], hints: OtelKeyHints = {}, nowMs = Date.now()): void {
   const joiner = getClaudeTurnJoiner()
   for (const card of cards) {
     if (card.dataSource !== 'otel') continue
@@ -50,8 +57,11 @@ export function assignOtelTraceKeys(cards: SessionSummaryCard[], hints: OtelKeyH
 
     if (card.source === 'codex') {
       const m = CODEX_TURN_RE.exec(card.traceId)
-      if (!m || m[1].startsWith('prompt-')) continue
-      card.sessionId = traceKey('codex', m[1])
+      if (!m) continue
+      const turn = m[1].startsWith('prompt-') ? card.codexTurnId : m[1]
+      if (turn) { card.sessionId = traceKey('codex', turn); continue }
+      const startMs = Date.parse(card.startTime)
+      if (startMs > 0 && nowMs - startMs < CODEX_TURN_KEY_HOLD_MS) card.keyPending = true
     }
   }
 }

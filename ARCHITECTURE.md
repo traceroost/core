@@ -1563,7 +1563,7 @@ traceroost/
 │   │       │                     #   changing the sort returns to page 1
 │   │       │                     #   sub-tabs: Overview (InsightCards) · Waterfall · Flow · Tools ·
 │   │       │                     #   Files (one-shot/retry-rate summary + git outcome banner/badges)
-│   │       ├── Analytics.tsx     # Views: Cost (estimated cost, then plan limits when Settings › Show plan limits is on) · Output (outcome & token spend, code changes, by language) · Efficiency (efficiency map, hot files, context growth, token usage) · Agents (comparison incl. one-shot rate)
+│   │       ├── Analytics.tsx     # Views: Cost (estimated cost and tokens per day, then plan limits when Settings › Show plan limits is on) · Output (outcome & token spend, code changes, by language) · Efficiency (efficiency map, hot files, context growth) · Agents (comparison incl. one-shot rate)
 │   │       ├── PlanLimits.tsx    # Analytics' PLAN LIMITS section (5-hour / weekly plan windows)
 │   │       ├── languageBreakdown.ts # BY LANGUAGE cut + agent-authored change-size totals (traces without line data never count as 0)
 │   │       ├── GettingStarted.tsx # "Nothing recorded yet" empty state's next steps, shared by Traces and Analytics
