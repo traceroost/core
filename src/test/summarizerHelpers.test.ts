@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { extractUserRequest, isTaskNotificationOnly, summarizeTaskNotification, findProjectRoot, commonPathPrefix, isAbsoluteFilePath, fileBaseName, parseApplyPatchEditDetails } from '../summarizers/helpers'
+import { extractUserRequest, isTaskNotificationOnly, summarizeTaskNotification, findProjectRoot, commonPathPrefix, isAbsoluteFilePath, fileBaseName, parseApplyPatchEditDetails, applyPatchHeaderPath, applyPatchInShellCommand } from '../summarizers/helpers'
 
 suite('findProjectRoot', () => {
   let tmpRoot: string
@@ -168,5 +168,29 @@ suite('parseApplyPatchEditDetails', () => {
       { filePath: 'src/new.ts', toolName: 'apply_patch', oldString: 'a', newString: 'b' },
       { filePath: 'src/other.ts', toolName: 'apply_patch', oldString: undefined, newString: 'c' },
     ])
+  })
+})
+
+suite('apply_patch headers', () => {
+  test('a keyword header names its path, a bare filename included; markers name none', () => {
+    assert.strictEqual(applyPatchHeaderPath('*** Add File: hello.txt'), 'hello.txt')
+    assert.strictEqual(applyPatchHeaderPath('*** Update File: src/a.ts'), 'src/a.ts')
+    assert.strictEqual(applyPatchHeaderPath('*** Move to: b.ts'), 'b.ts')
+    assert.strictEqual(applyPatchHeaderPath('*** /abs/path.ts'), '/abs/path.ts')
+    for (const marker of ['*** Begin Patch', '*** End Patch', '*** End of File', '+*** Add File: x', 'hello']) {
+      assert.strictEqual(applyPatchHeaderPath(marker), undefined, marker)
+    }
+  })
+
+  test('parseApplyPatchEditDetails keeps a bare-filename edit', () => {
+    const d = parseApplyPatchEditDetails('*** Begin Patch\n*** Add File: hello.txt\n+hi\n*** End Patch')
+    assert.deepStrictEqual(d.map(x => [x.filePath, x.newString]), [['hello.txt', 'hi']])
+  })
+
+  test('applyPatchInShellCommand finds the patch in a heredoc, and only after apply_patch', () => {
+    const cmd = "apply_patch << 'PATCH'\n*** Begin Patch\n*** Add File: hello.txt\n+hi\n*** End Patch\nPATCH"
+    assert.strictEqual(applyPatchInShellCommand(cmd), '*** Begin Patch\n*** Add File: hello.txt\n+hi\n*** End Patch')
+    assert.strictEqual(applyPatchInShellCommand("cat notes.md  # *** Begin Patch"), undefined)
+    assert.strictEqual(applyPatchInShellCommand('ls -la'), undefined)
   })
 })

@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Codex turn is one trace again, with its changed files.** Recent Codex versions (0.17x) send the prompt before anything that names its turn, so the turn's telemetry and its session log showed up as two traces, and a file Codex created with `apply_patch` from its shell tool (`*** Add File: hello.txt`, with no folder in the name) was not listed as changed. That left the Outcome blank after you committed it. The two now merge into one trace, and those files count as changed. Patches with bare file names from Copilot CLI count too
+
 ### Changed
 
 - **Plan limits are hidden by default.** The readings are approximate (Claude Code's can be days old), so nothing about plan limits shows until you turn on **Show plan limits** in Settings (`traceRoost.showPlanLimits` in VS Code). That covers the Plan limits section, the Traces Limit column, limit points in the Advisor, the plan-limit alerts and the sidebar card. Readings are still recorded while it's off. With it on, Plan limits now sits at the bottom of Analytics › Cost, marked Approximate, and the menu item is just **Cost**

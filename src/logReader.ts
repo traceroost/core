@@ -58,7 +58,7 @@ import * as os from 'os'
 import { fileURLToPath } from 'url'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from './summarizers/summarizerTypes'
 import { VSCODE_FAMILY_IDE_NAMES } from './vscodeFamilyIdes'
-import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification, APPLY_PATCH_FILE_HEADER_RE } from './summarizers/helpers'
+import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification, applyPatchHeaderPath } from './summarizers/helpers'
 import { stripDateSuffix } from './pricing'
 import { CodexLimitCollector, claudeLimitHit, dedupeHits, CLAUDE_SYNTHETIC_MODEL, type LimitReading, type LimitHit, type PlanStatus } from './planUsage/limitReadings'
 import { deriveSessionLanguage } from './language'
@@ -3102,7 +3102,7 @@ function vscodeFileUriPath(uri: unknown): string {
 
 /** Files named by an apply_patch call's headers (`*** Update|Add|Delete File: <path>`, `*** Move
  *  to: <path>`). `rawArgs` is the patch text, or an object holding it under one of the keys the
- *  agents use. Only real paths count, never the `*** Begin Patch` / `*** End Patch` markers. */
+ *  agents use. Never the `*** Begin Patch` / `*** End Patch` markers (applyPatchHeaderPath). */
 export function applyPatchFilePaths(rawArgs: unknown): string[] {
   let patch = ''
   if (typeof rawArgs === 'string') patch = rawArgs
@@ -3113,9 +3113,8 @@ export function applyPatchFilePaths(rawArgs: unknown): string[] {
   }
   const out = new Set<string>()
   for (const line of patch.split('\n')) {
-    const m = line.match(APPLY_PATCH_FILE_HEADER_RE)
-    const fp = m?.[1].trim()
-    if (fp && /[\\/]/.test(fp)) out.add(fp)
+    const fp = applyPatchHeaderPath(line)
+    if (fp) out.add(fp)
   }
   return [...out]
 }

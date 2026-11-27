@@ -140,7 +140,8 @@ export async function mcpCall(url, name, args = {}) {
  * product does at it: `os.homedir()` (HOME on POSIX, USERPROFILE on Windows) and the Windows
  * per-user app-data roots (logReader.ts / autoConfigNode.ts read APPDATA and LOCALAPPDATA).
  * Overrides that would redirect lookups elsewhere (CLAUDE_CONFIG_DIR, CODEX_HOME,
- * XDG_CONFIG_HOME) are cleared so the defaults under the temp home are what gets exercised.
+ * XDG_CONFIG_HOME) are cleared so the defaults under the temp home are what gets exercised (on
+ * Windows CODEX_HOME is then set to that default, see below).
  */
 export function makeTempHome(label) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `traceroost-${label}-`))
@@ -162,6 +163,10 @@ export function makeTempHome(label) {
     // HOMEDRIVE/HOMEPATH are what some tools fall back to when USERPROFILE is unset; keep them in step.
     env.HOMEDRIVE = home.slice(0, 2)
     env.HOMEPATH = home.slice(2)
+    // Codex (Rust) finds its home through the Windows profile folder API, not USERPROFILE, so in
+    // a temp home it would read and write the runner's real ~/.codex. Point it at the temp one,
+    // the same folder TraceRoost reads there (os.homedir() + .codex).
+    env.CODEX_HOME = path.join(home, '.codex')
   }
   return { home, env, cleanup: () => rmrf(home) }
 }

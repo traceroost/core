@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import { Span, SpanAttribute, SessionSummary } from './types'
-import { nanoToMs, APPLY_PATCH_FILE_HEADER_RE } from './summarizers/helpers'
+import { nanoToMs, applyPatchHeaderPath } from './summarizers/helpers'
 import { pruneSpans, DEFAULT_MAX_SPANS } from './spanStore'
 
 export type { Span, SessionSummary } from './types'
@@ -164,14 +164,10 @@ export class SessionStore {
           const patchContent = args.command || args.patch || args.input || ''
           const patchLines = patchContent.split('\n')
           for (const line of patchLines) {
-            // Matches: *** Update File: /path, *** Add File: /path, *** Delete File: /path, *** /path
-            // Explicitly excludes *** Begin Patch and *** End Patch lines
-            const m = line.match(APPLY_PATCH_FILE_HEADER_RE)
-            if (m) {
-              const fp = m[1].trim()
-              if (fp && fp.includes('/') && !this.summary.filesChanged.includes(fp)) {
-                this.summary.filesChanged.push(fp)
-              }
+            // *** Update File: <path>, *** Add File: <path>, *** Delete File: <path>, *** Move to: <path>
+            const fp = applyPatchHeaderPath(line)
+            if (fp && !this.summary.filesChanged.includes(fp)) {
+              this.summary.filesChanged.push(fp)
             }
           }
         } else {
