@@ -1,0 +1,14 @@
+{
+  "source": "capture",
+  "captured": "2026-11-27",
+  "os": null,
+  "redaction": "tests/e2e/captures-to-fixtures.mjs: <REPO>, <HOME>, <EMAIL>, <REDACTED>, <SYSTEM PROMPT OMITTED>, <AGENT CONTEXT OMITTED>, <CALL-ID-n>",
+  "adapter": "claude",
+  "agentVersion": "2.1.332",
+  "files": [
+    {
+      "path": "files/.claude/projects/-repo/a9154287-3f64-41ee-b880-575c66ca12e7.jsonl",
+      "logKey": "claude"
+    }
+  ]
+}

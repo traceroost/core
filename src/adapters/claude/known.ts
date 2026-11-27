@@ -19,6 +19,8 @@ export const CLAUDE_RECORDS: KnownRecords = {
     'last-prompt', 'ai-title', 'custom-title', 'agent-name', 'pr-link',
     'cost-state', 'api-request', 'api-request-blob', 'api-request-shape', 'atis-latch',
     'fork-context-ref', 'session-owner', 'tools-used',
+    // 2.1.332: the session that launched this one, and per-response id chaining.
+    'derived-from', 'data-flow-records',
   ],
   structural: ['message', 'message.usage', 'message.usage.cache_creation', 'message.usage.server_tool_use'],
   versionOf: r => (typeof r['version'] === 'string' && r['version'] ? r['version'] : null),

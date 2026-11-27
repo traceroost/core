@@ -15,6 +15,8 @@
 //   - anything that looks like an API key / bearer token → <REDACTED>
 //   - an agent vendor's own system prompt (Copilot's system.message, Codex's base instructions)
 //     → <SYSTEM PROMPT OMITTED>, and opaque per-call ids and encrypted reasoning → placeholders (scrubber below)
+//   - Claude Code's context records (attachments, API request copies, the launching session):
+//     every string → <AGENT CONTEXT OMITTED>, and its encoded project folder name → -repo
 // Only the files TraceRoost reads are copied (`keep`): not an agent's lock files, checkpoints or
 // workspace snapshots. It refuses (exit 1) if a home path, e-mail or token-shaped string survives. Then run
 //   UPDATE_AGENT_FIXTURES=1 pnpm run test:unit
@@ -65,6 +67,13 @@ const VERSION_OF = {
 const SYSTEM_PROMPT = '<SYSTEM PROMPT OMITTED>'
 const CALL_ID_KEYS = new Set(['apiCallId', 'usageId', 'model_call_id'])
 const replaceStrings = (v, s) => (typeof v === 'string' ? s : Array.isArray(v) ? v.map(x => replaceStrings(x, s)) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, replaceStrings(x, s)])) : v)
+// Claude Code records no parser reads (claude/known.ts `ignored`) that copy the session's whole
+// context: attachments (CLAUDE.md, memory, git status, the user's name and e-mail), the API
+// request it sent, and the session that launched this one. Every string goes; keys and value
+// types stay, so the record's fingerprint is unchanged.
+const AGENT_CONTEXT = '<AGENT CONTEXT OMITTED>'
+const CLAUDE_CONTEXT_RECORDS = new Set(['attachment', 'api-request', 'api-request-blob', 'api-request-shape', 'derived-from'])
+const CLAUDE_KEEP = new Set(['type', 'version', 'sessionId', 'uuid', 'parentUuid', 'timestamp', 'cwd'])
 function scrubber() {
   const ids = new Map()
   const callIds = v => {
@@ -79,6 +88,15 @@ function scrubber() {
     }))
   }
   return {
+    claude: r => {
+      // Thinking-block signatures: encrypted reasoning, opaque and large (as Codex's, below).
+      if (r.type === 'assistant' && Array.isArray(r.message?.content) && r.message.content.some(c => typeof c?.signature === 'string')) {
+        const content = r.message.content.map(c => (typeof c?.signature === 'string' ? { ...c, signature: '<ENCRYPTED REASONING OMITTED>' } : c))
+        return { ...r, message: { ...r.message, content } }
+      }
+      if (!CLAUDE_CONTEXT_RECORDS.has(r.type)) return r
+      return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, CLAUDE_KEEP.has(k) ? v : replaceStrings(v, AGENT_CONTEXT)]))
+    },
     copilot: r => {
       if (r.type === 'system.message' && typeof r.data?.content === 'string') r = { ...r, data: { ...r.data, content: SYSTEM_PROMPT } }
       return callIds(r)
@@ -144,8 +162,13 @@ const absolute = p => /^(\/|[A-Za-z]:[\\/])/.test(p)
 const repos = [...cwds].filter(absolute).sort((a, b) => b.length - a.length)
 const homes = [...new Set(repos.map(r => path.dirname(r.replace(/\\/g, '/'))))].filter(h => absolute(h) && h.length > 1)
 
+// Claude Code names a project's folder after its path, every non-alphanumeric made `-`
+// (`/Users/me/repo` → `-Users-me-repo`): the folder, and any text naming it, becomes `-repo`.
+const encodedRepos = repos.map(r => r.replace(/[^A-Za-z0-9]/g, '-'))
+const encodedName = s => encodedRepos.reduce((t, e) => t.split(e).join('-repo'), s)
+
 function redact(text) {
-  let t = text
+  let t = encodedName(text)
   for (const r of repos) for (const s of spellings(r)) t = t.replace(new RegExp(escapeRe(s), 'gi'), '<REPO>')
   for (const h of homes) for (const s of spellings(h)) t = t.replace(new RegExp(escapeRe(s), 'gi'), '<HOME>')
   t = t.replace(/\/Users\/[^/"\\\s<]+|\/home\/[^/"\\\s<]+|[A-Za-z]:(\\\\|\\|\/)Users\1[^\\/"\s<]+/g, '<HOME>')
@@ -156,7 +179,7 @@ function redact(text) {
 }
 
 // Kept in step with the guard in src/test/adapters.contract.test.ts.
-const LEFTOVER = /\/Users\/[^/<\s"]+|\/home\/[^/<\s"]+|[A-Za-z]:\\\\?Users\\\\?[^\\<\s"]+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|\bsk-[A-Za-z0-9_-]{16,}|\bgh[pousr]_[A-Za-z0-9]{20,}/
+const LEFTOVER = /-(?:Users|home)-[A-Za-z0-9_]+-|\/Users\/[^/<\s"]+|\/home\/[^/<\s"]+|[A-Za-z]:\\\\?Users\\\\?[^\\<\s"]+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|\bsk-[A-Za-z0-9_-]{16,}|\bgh[pousr]_[A-Za-z0-9]{20,}/
 
 let wrote = 0
 const problems = []
@@ -181,7 +204,7 @@ for (const s of SOURCES) {
   const listed = []
   const scrub = scrubber()[s.adapter]
   for (const f of walk(dir).filter(s.keep ?? s.pick)) {
-    const rel = path.join('files', s.home, path.relative(dir, f)).replace(/\\/g, '/')
+    const rel = encodedName(path.join('files', s.home, path.relative(dir, f)).replace(/\\/g, '/'))
     const dest = path.join(outDir, rel)
     fs.mkdirSync(path.dirname(dest), { recursive: true })
     if (f.endsWith('.db')) fs.copyFileSync(f, dest)
@@ -191,6 +214,8 @@ for (const s of SOURCES) {
       fs.writeFileSync(dest, text)
       const m = LEFTOVER.exec(text)
       if (m) problems.push(`${path.relative(outRoot, dest)}: ${m[0]}`)
+      const pm = LEFTOVER.exec(rel)
+      if (pm) problems.push(`${rel}: ${pm[0]} (in the path)`)
     }
     if (s.pick(f)) listed.push({ path: rel, logKey: s.logKey })
     wrote++
@@ -199,7 +224,7 @@ for (const s of SOURCES) {
     source: 'capture',
     captured: new Date().toISOString().slice(0, 10),
     os: captureOs,
-    redaction: 'tests/e2e/captures-to-fixtures.mjs: <REPO>, <HOME>, <EMAIL>, <REDACTED>, <SYSTEM PROMPT OMITTED>, <CALL-ID-n>',
+    redaction: 'tests/e2e/captures-to-fixtures.mjs: <REPO>, <HOME>, <EMAIL>, <REDACTED>, <SYSTEM PROMPT OMITTED>, <AGENT CONTEXT OMITTED>, <CALL-ID-n>',
     adapter: s.adapter,
     agentVersion,
     ...(recorded && recorded !== version ? { cliVersion: recorded } : {}),

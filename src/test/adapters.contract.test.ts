@@ -178,12 +178,12 @@ suite('Adapter contracts — committed agent fixtures', () => {
 
   test('fixtures carry no home directory, e-mail address or token-shaped string', () => {
     const bad: Array<[RegExp, string]> = [
-      [/\/Users\/[^/<\s"]+|\/home\/[^/<\s"]+|[A-Za-z]:\\\\?Users\\\\?[^\\<\s"]+/, 'home directory'],
+      [/-(?:Users|home)-[A-Za-z0-9_]+-|\/Users\/[^/<\s"]+|\/home\/[^/<\s"]+|[A-Za-z]:\\\\?Users\\\\?[^\\<\s"]+/, 'home directory'],
       [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/, 'e-mail address'],
       [/\b(sk-[A-Za-z0-9_-]{16,}|sk-ant-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abp]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/, 'token-shaped string'],
     ]
     for (const file of walk(FIXTURES)) {
-      const text = fs.readFileSync(file, 'utf8')
+      const text = `${path.relative(FIXTURES, file)}\n${fs.readFileSync(file, 'utf8')}`
       for (const [re, what] of bad) {
         const m = text.match(re)
         assert.ok(!m, `${path.relative(FIXTURES, file)} contains a ${what}: ${m?.[0]}`)
